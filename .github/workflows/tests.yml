@@ -1,0 +1,94 @@
+name: tests
+
+# Runs on every push, including direct pushes to main — the current workflow (see the
+# README) is to commit straight to main, so branch-only CI would never fire.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Matches the add-on image: ghcr.io/home-assistant/amd64-base-debian:bookworm
+          # ships Python 3.11, so CI runs what the add-on actually runs.
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: creek_modeling/requirements.txt
+
+      - name: Install dependencies
+        # Installing the real requirements.txt doubles as a smoke test of the file the
+        # Dockerfile builds from: a bad pin here breaks the add-on build for everyone.
+        # PyYAML and Jinja2 are test-only — the service reads JSON options, never YAML,
+        # and does no templating; both exist here to parse and render the Home Assistant
+        # package's automation, so they are not in requirements.txt and are installed
+        # separately. Adding either to requirements.txt would ship it into the add-on
+        # image for nothing.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r creek_modeling/requirements.txt
+          pip install pyyaml jinja2
+
+      - name: Run test suite
+        # Each test file is a self-contained script with a main() that raises on failure,
+        # matching how they are documented and run locally. Every file runs even after one
+        # fails, so a red build reports all the damage rather than just the first.
+        run: |
+          fail=0
+          for t in creek_modeling/tests/test_*.py; do
+            echo "::group::$t"
+            if python "$t"; then :; else echo "::error file=$t::test suite failed"; fail=1; fi
+            echo "::endgroup::"
+          done
+          exit $fail
+
+      - name: Validate YAML and shell syntax
+        # These files are never imported by the tests but are parsed by Home Assistant at
+        # runtime, where a syntax error surfaces as a failed restart rather than a message.
+        run: |
+          python - <<'PY'
+          import sys, pathlib, yaml
+
+          class Loader(yaml.SafeLoader):
+              """ESPHome configs carry tags SafeLoader rejects (!secret, !lambda). We are
+              checking that the document is well-formed YAML, not resolving the tags."""
+          Loader.add_multi_constructor("!", lambda l, suffix, node: None)
+
+          bad = []
+          for p in ["creek_modeling/config.yaml", "creek_modeling/build.yaml",
+                    "repository.yaml", "dashboards/creek_flood_watch.yaml",
+                    "ha-packages/creek_warning.yaml", ".github/workflows/tests.yml",
+                    "firmware/esp32_rfm69_gateway/gateway.base.yaml"]:
+              try:
+                  yaml.load(pathlib.Path(p).read_text(encoding="utf-8"), Loader=Loader)
+                  print("ok  ", p)
+              except Exception as exc:
+                  bad.append(f"{p}: {exc}")
+          if bad:
+              print("\n".join(f"::error::{b}" for b in bad))
+              sys.exit(1)
+          PY
+          bash -n creek_modeling/run.sh && echo "ok   creek_modeling/run.sh"
+
+      - name: Check the add-on version has a changelog entry
+        # Every option default and behaviour change in this repo ships as a version bump —
+        # that bump is what surfaces an Update button in the HA add-on store. A bump with
+        # no changelog entry gives the operator an update with no way to see what changed.
+        run: |
+          python - <<'PY'
+          import sys, pathlib, yaml
+          version = yaml.safe_load(
+              pathlib.Path("creek_modeling/config.yaml").read_text(encoding="utf-8"))["version"]
+          changelog = pathlib.Path("creek_modeling/CHANGELOG.md").read_text(encoding="utf-8")
+          if f"\n## {version}\n" not in changelog:
+              print(f"::error::config.yaml is version {version} "
+                    f"but CHANGELOG.md has no '## {version}' section")
+              sys.exit(1)
+          print(f"ok   version {version} documented in CHANGELOG.md")
+          PY

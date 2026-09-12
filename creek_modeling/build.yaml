@@ -1,0 +1,4 @@
+# Per-arch base image override consumed by the Supervisor builder.
+# Debian base (not Alpine/musl) so xgboost/lightgbm/pandas/pyarrow wheels install cleanly.
+build_from:
+  amd64: ghcr.io/home-assistant/amd64-base-debian:bookworm

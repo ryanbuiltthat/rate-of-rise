@@ -1,0 +1,22 @@
+# Creek RFM69 gateway — local CLI wrapper.
+#
+# Build/flash from this repo:
+#   cp secrets.yaml.example secrets.yaml   # then fill in (gitignored)
+#   esphome run ewfa_gateway.yaml
+#
+# Everything that describes the device lives in gateway.base.yaml, shared verbatim with the
+# Home Assistant Device Builder config at /config/esphome/creek-gateway.yaml. The only thing
+# that differs between the two is where the rfm69_gateway component comes from: here it is the
+# working tree, so local edits take effect without a push; there it is pulled from git.
+#
+# Secrets resolve against secrets.yaml in this directory. /config/esphome/secrets.yaml on the
+# HA share (H: on this machine) is the authoritative copy — the local file mirrors the four
+# keys this config reads. See firmware/README.md "Gateway — build paths".
+
+packages:
+  base: !include gateway.base.yaml
+
+external_components:
+  - source:
+      type: local
+      path: components

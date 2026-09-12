@@ -1,0 +1,8 @@
+# Marks this GitHub repo as a Home Assistant add-on store.
+# Add it in the GUI: Settings -> Add-ons -> Add-on Store -> (top-right menu) ->
+# Repositories -> paste https://github.com/ryanbuiltthat/rate-of-rise -> Add.
+# Supervisor then scans subfolders for a config.yaml (see creek_modeling/) and lists
+# each add-on, using the slug from inside that file.
+name: Creek Add-ons
+url: https://github.com/ryanbuiltthat/rate-of-rise
+maintainer: see repository owner

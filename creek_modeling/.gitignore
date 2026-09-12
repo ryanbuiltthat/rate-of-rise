@@ -1,0 +1,7 @@
+# Local dev data volume — never commit runtime state/artifacts.
+data/
+/data/
+*.parquet
+*.sqlite
+__pycache__/
+*.pyc

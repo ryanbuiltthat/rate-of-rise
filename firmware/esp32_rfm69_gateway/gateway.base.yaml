@@ -1,0 +1,256 @@
+# Creek RFM69 gateway — shared configuration.
+#
+# This file is the single source of truth for the gateway. It is not built directly: two thin
+# wrappers include it as an ESPHome package and supply the one thing that genuinely differs
+# between them, the `external_components:` source.
+#
+#   ewfa_gateway.yaml            (this repo)          -> component from the local components/ dir
+#   /config/esphome/creek-gateway.yaml (HA add-on)    -> component from git, this file from git
+#
+# The Device Builder wrapper pulls both this file and components/rfm69_gateway/ straight from
+# GitHub, so the config stays versioned here while the add-on's web UI still handles compiles,
+# OTA installs and logs. See firmware/README.md "Gateway — build paths".
+#
+# WIRING (Seeed XIAO ESP32-C3) — deliberately NOT the board's default SPI pins:
+#   RFM69HW MISO  -> D2  (GPIO4)
+#   RFM69HW MOSI  -> D10 (GPIO10)
+#   RFM69HW SCK   -> D1  (GPIO3)
+#   RFM69HW CS    -> D3  (GPIO5)
+#   RFM69HW DIO0  -> D4  (GPIO6)  (interrupt)
+#   RFM69HW RST   -> D5  (GPIO7)  — RESET is active HIGH on the SX1231H. The firmware
+#                    pulses it high for 200 us at boot and then holds it LOW, so the radio
+#                    gets a clean reset instead of relying on power-on reset. Tying this
+#                    pin to 3.3 V would hold the radio in permanent reset. Grounding it
+#                    also works; drop `reset_pin` from the config if you do that.
+#   RFM69HW VCC   -> 3.3 V
+#   RFM69HW GND   -> GND
+#
+# Do not move MISO/SCK/DIO0 back to the XIAO's default SPI pins (D9/GPIO9, D8/GPIO8, D0/GPIO2).
+# Those three are the ESP32-C3's boot strapping pins, and GPIO9 is BOOT: with the radio wired
+# there, its MISO line holds GPIO9 low through reset, so the chip comes up in ROM download mode
+# ("rst:0x15, boot:0x0 (USB_BOOT) / wait usb download") and the firmware never runs at all —
+# no WiFi, no logs, nothing. Verified on hardware: unplugging the radio was what let it boot.
+# The remap is bound in components/rfm69_gateway/ via SPI.begin() before RFM69::initialize().
+#
+# The readings reach Home Assistant as native ESPHome entities over the API, not as MQTT JSON.
+# The gateway used to republish the node's payload byte-for-byte onto fixed topics
+# (`creek/node_1/data` etc.); nothing ever consumed them — the HA MQTT sensor block in
+# firmware/README.md was never deployed, and the modeling pipeline still reported
+# `"stage_stale": true` while falling back to a USGS gauge proxy — so there was no
+# compatibility left to preserve, and native entities get device grouping, availability
+# tracking and typed units for free without a broker in the data path.
+
+substitutions:
+  device_name: creek-gateway
+  friendly_name: Creek Gateway
+
+  # --- Radio (must match the Moteino creek node — firmware/README.md "Configuration") ----
+  # Plain GPIO numbers, not ESPHome pin schemas — these feed the RFM69 library's Arduino-style
+  # constructor directly.
+  rfm69_cs_pin: "5"        # D3
+  rfm69_sck_pin: "3"       # D1
+  rfm69_miso_pin: "4"      # D2
+  rfm69_mosi_pin: "10"     # D10
+  rfm69_irq_pin: "6"       # D4
+  rfm69_reset_pin: "7"     # D5 -- RFM69 RST (active HIGH; idles low)
+  # North American ISM band. MUST match FREQUENCY in moteino_creek_node/src/main.cpp --
+  # a mismatch here is silent: both radios initialize fine and simply never hear each
+  # other. 868 is the European band; do not "fix" this to 868.
+  rfm69_frequency: "915"
+  rfm69_node_id: "2"       # gateway ID
+  rfm69_network_id: "100"
+
+  # Fixed image URL, pulled at ref: main exactly like the Device Builder pulls this file.
+  # Produced by `pio run` in firmware/moteino_creek_node/ and committed -- see firmware/README.md.
+  node_hex_url: "https://raw.githubusercontent.com/ryanbuiltthat/rate-of-rise/main/firmware/moteino_creek_node/firmware.hex"
+
+  # --- Stage conversion (datum = creekbed) ----------------------------------------------
+  # The node sends raw distance (sensor face -> water surface). Depth is the complement:
+  # installation height - distance. The conversion lives here rather than on the node so the
+  # datum is re-settable from Home Assistant with no reflash, and rather than in the sensor's
+  # own "water level" register because that register stores its installation height in
+  # centimetres, which would quantise a +/-5 mm sensor to 1 cm.
+  blanking_mm: "150"         # SEN0676 datasheet: 0.15 m minimum range; closer than this is noise
+  overrange_slack_mm: "1000" # below-datum readings past this are a lost target, not a low creek
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: seeed_xiao_esp32c3
+  variant: esp32c3   # single-core RISC-V — do not use esp32dev, it targets the wrong architecture
+  framework:
+    type: arduino     # the RFM69 library needs the Arduino SPI class; no ESP-IDF path for it
+    sdkconfig_options:
+      # ESPHome turns CONFIG_APP_REPRODUCIBLE_BUILD on for every esp32 build, which makes
+      # ESP-IDF append one -fdebug-prefix-map=<abs component path>=<NAME> per component to
+      # every compile command — ~15 KB of flags here, most of the 23 KB command line. gcc
+      # forwards those to cc1, whose command line then exceeds the Windows CreateProcess
+      # limit, and the build dies with the misleading
+      # "cannot execute cc1.exe: CreateProcess: No such file or directory".
+      # Harmless on the Linux add-on; required for the Windows CLI build.
+      CONFIG_APP_REPRODUCIBLE_BUILD: "n"
+  # toolchain: platformio is required, not optional, despite RFM69's stale library.json
+  # ("platforms": "atmelavr" only — it builds fine on ESP32; see moteino_creek_node's
+  # platformio.ini using it on SAMD21). With the default esp_idf toolchain, ESPHome converts
+  # every PlatformIO lib into an ESP-IDF managed component and hard-rejects platform mismatches
+  # with no opt-out (esphome/platformio/library.py check_library_data) — compile fails before
+  # PlatformIO is even invoked. toolchain: platformio skips that ESPHome-side conversion
+  # entirely; the component then neutralizes PlatformIO's own (configurable) strict check —
+  # see components/rfm69_gateway/__init__.py.
+  toolchain: platformio
+
+logger:
+  level: INFO
+
+# The whole data path: the radio readings are published as native entities over this API, and
+# it is also what makes the device discoverable at all — mDNS only advertises the
+# `_esphomelib._tcp` service (what HA's zeroconf discovery looks for) when the API is enabled,
+# see esphome/components/mdns/mdns_component.cpp.
+api:
+  encryption:
+    key: !secret creek_gateway_api_key
+
+ota:
+  - platform: esphome
+    password: !secret creek_gateway_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: ${friendly_name} Fallback
+    password: !secret ap_password
+
+captive_portal:
+
+# Radio receive + JSON decode live in this component (components/rfm69_gateway/) rather than as
+# YAML/lambda glue: there's no ESPHome sensor platform for a point-to-point encrypted radio
+# link, so the component owns the RFM69 and republishes what it hears as the entities below.
+rfm69_gateway:
+  id: creek_radio
+  cs_pin: ${rfm69_cs_pin}
+  sck_pin: ${rfm69_sck_pin}
+  miso_pin: ${rfm69_miso_pin}
+  mosi_pin: ${rfm69_mosi_pin}
+  irq_pin: ${rfm69_irq_pin}
+  reset_pin: ${rfm69_reset_pin}
+  frequency: ${rfm69_frequency}
+  node_id: ${rfm69_node_id}
+  network_id: ${rfm69_network_id}
+  is_rfm69hw: true
+  encryption_key: !secret rfm69_encrypt_key
+  ota_hex_url: ${node_hex_url}
+  # Raw distance, sensor face -> water surface. Named for what it is: it moves *opposite*
+  # to water level, so publishing it as "Creek Water Level" (as it was) reads backwards on
+  # a dashboard -- a rising creek made the number fall. Stage/depth below are the real ones.
+  distance:
+    id: creek_distance_mm
+    name: Sensor Distance
+    entity_category: diagnostic
+    on_value:
+      then:
+        - lambda: |-
+            const float mount = id(mount_height_mm).state;
+            const float d = x;
+            if (isnan(mount)) return;
+
+            // Too FAR is a lost target -- nothing reflected, so the depth is genuinely
+            // unknown and NaN is honest.
+            if (d > mount + ${overrange_slack_mm}) {
+              ESP_LOGW("creek", "distance %.0f mm implausible - target lost", d);
+              id(creek_stage).publish_state(NAN);
+              id(creek_depth_in).publish_state(NAN);
+              return;
+            }
+
+            // Too CLOSE is NOT unknown, and treating it as unknown is dangerous here.
+            // The sensor sits ~6 in above bank top, so the blanking zone begins at almost
+            // exactly the depth where the creek tops the bank. Publishing NaN there would
+            // blank stage and rate-of-rise at the very moment of overtopping, and the
+            // add-on's tier logic drops any tier whose feature is None -- the alarm would
+            // de-escalate as the creek came over. A reading inside the blanking zone means
+            // the water is at least (mount - blanking) deep, so clamp to that floor and
+            // keep the tier where it belongs.
+            float depth_mm = mount - d;
+            const float max_measurable_mm = mount - ${blanking_mm};
+            if (d < ${blanking_mm}) {
+              ESP_LOGW("creek", "distance %.0f mm inside blanking zone - depth clamped to "
+                                "%.0f mm (at or above range ceiling)", d, max_measurable_mm);
+              depth_mm = max_measurable_mm;
+            }
+            id(creek_stage).publish_state(depth_mm / 304.8f);
+            id(creek_depth_in).publish_state(depth_mm / 25.4f);
+  battery_voltage:
+    name: Creek Node Battery
+  rssi:
+    name: Creek Node RSSI
+  node_status:
+    name: Creek Node Status
+  ota_status:
+    name: Node OTA Status
+
+# --- Calibration ------------------------------------------------------------------------
+# Surveyed 2026-09-12: creekbed -> sensor face = 43.5 in = 1105 mm, which puts the sensor
+# ~6 in above bank top. Set from Home Assistant if the pole is ever re-mounted; restore_value
+# keeps it across reboots, so a reflash does not silently revert the datum to this default.
+number:
+  - platform: template
+    id: mount_height_mm
+    name: Installation Height
+    icon: mdi:arrow-expand-vertical
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_value: "1105"
+    min_value: 500
+    max_value: 6000
+    step: 1
+    unit_of_measurement: mm
+    mode: box
+
+# --- Creek level --------------------------------------------------------------------------
+# Stage and depth are the same measurement in different units, because the datum is the
+# creekbed: depth above the bed *is* the stage. Both exist because they serve different
+# readers — app/tiers.py thresholds are in feet, and inches is what is legible on a dashboard.
+sensor:
+  - platform: template
+    id: creek_stage
+    name: Stage
+    unit_of_measurement: ft
+    device_class: distance
+    state_class: measurement
+    accuracy_decimals: 2
+
+  - platform: template
+    id: creek_depth_in
+    name: Creek Depth
+    unit_of_measurement: in
+    device_class: distance
+    state_class: measurement
+    accuracy_decimals: 1
+    icon: mdi:waves-arrow-up
+
+  - platform: wifi_signal
+    name: WiFi Signal
+    entity_category: diagnostic
+    update_interval: 300s
+
+  - platform: uptime
+    name: Uptime
+    entity_category: diagnostic
+    update_interval: 300s
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: IP Address
+      entity_category: diagnostic
+
+button:
+  - platform: template
+    name: Push Node Firmware
+    entity_category: config
+    on_press:
+      - lambda: id(creek_radio).start_ota_push();

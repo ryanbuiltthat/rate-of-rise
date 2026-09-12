@@ -1,0 +1,12 @@
+# Runtime deps for the Creek modeling service.
+requests>=2.31
+paho-mqtt>=2.1
+pandas>=2.2
+pyarrow>=16.0
+numpy>=1.26
+# --- Modeling (Phase 4, app/train.py + app/model.py) ---
+# xgboost: the classifier itself, chosen for native missing-value handling — see
+# train.py's module docstring. scikit-learn: metrics only (precision/recall/roc_auc);
+# no sklearn estimator is used. libgomp1 in the Dockerfile exists only to support xgboost.
+scikit-learn>=1.5
+xgboost>=2.1
