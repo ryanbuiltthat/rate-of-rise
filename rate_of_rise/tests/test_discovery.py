@@ -25,7 +25,7 @@ def test_topics_and_counts():
     # + 8 (2a incl. API index) + 8 (2b) + 6 (2c) + 1 (2d) + 2 (2e) + 4 (2g radar cells)
     # + 3 (2h WPC ERO) + 1 soil mean (migrated out of the HA package)
     # + 1 storm-to-annotate (dashboard annotation)
-    assert len(sensors) == 51, len(sensors)
+    assert len(sensors) == 52, len(sensors)
     # 3 NWS flags + rain-on-snow + ponding + storm-in-progress + 11 watchdogs
     assert len(binaries) == 17, len(binaries)
     assert len(buttons) == 4, len(buttons)
@@ -122,7 +122,7 @@ def test_local_gauge_rate_of_rise_sensor_present():
 def test_publish_all_emits_retained_json():
     pub, published = build()
     pub.publish_all()
-    assert len(published) == 73
+    assert len(published) == 74
     for topic, payload, retain in published:
         assert retain is True
         json.loads(payload)  # valid JSON

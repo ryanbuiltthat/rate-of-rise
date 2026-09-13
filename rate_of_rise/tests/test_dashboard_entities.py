@@ -28,6 +28,9 @@ EXTERNAL = {
     # is what proves the gateway actually publishes these; here they are just "not the add-on's".
     "sensor.creek_gateway_stage",
     "sensor.creek_gateway_creek_depth",
+    # Packet-driven link state for the creek node. test_esphome_entities.py proves the
+    # gateway publishes it and that the add-on's creek_node_status_entity option names it.
+    "binary_sensor.creek_gateway_creek_node_status",
     "sensor.outside_weather_station_soil_moisture_willow",  # Ecowitt WH51 #1 — near house, by the willow
     "sensor.outside_weather_station_soil_moisture_field",   # Ecowitt WH51 #2 — near creek
     "sensor.outside_weather_station_rain_intensity",

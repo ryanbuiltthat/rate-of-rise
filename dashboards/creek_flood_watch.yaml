@@ -326,6 +326,15 @@ views:
           - entity: sensor.rate_of_rise_creek_rate_of_rise
             name: Creek rate of rise
             secondary_info: last-changed
+          # A blank rate of rise is normal right after the radio link returns — the add-on
+          # will not difference a reading against one from before a dropout. These two say
+          # whether that is what is happening: the link itself, and how old the stage
+          # reading behind the rate is.
+          - entity: binary_sensor.creek_gateway_creek_node_status
+            name: Creek node link
+            secondary_info: last-changed
+          - entity: sensor.rate_of_rise_creek_stage_age
+            name: Stage reading age
           - entity: sensor.outside_weather_station_soil_moisture_willow
             name: Soil — near house
             secondary_info: last-changed

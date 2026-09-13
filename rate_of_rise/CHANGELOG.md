@@ -3,6 +3,51 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.20.0
+
+- **Fix: a dropped radio link to the creek node could manufacture a Tier 3 Warning.**
+  Observed in the field — the node went quiet, the gateway was moved to recover the link,
+  and the first reading back fired a critical flood alert. The cause: when the node stops
+  answering, the gateway does not blank `sensor.creek_gateway_stage`, it just stops updating
+  it, so Home Assistant keeps serving the last value the node sent.
+  `FeatureBuilder._rate_of_rise` differenced the first fresh reading against that stale one
+  and divided by a single loop interval, charging the entire outage's level change to five
+  minutes: a creek that rose 3 in over a 40-minute dropout read as 0.6 in/min, twelve times
+  `WARNING_RATE_OF_RISE_IN_MIN`. One reading was all it took — there was no gap check, no
+  link check, and no confirmation.
+
+  Rate of rise is now computed only from samples that can honestly be differenced:
+
+  - **The link is checked first.** The new `creek_node_status_entity` option reads the
+    gateway's packet-driven connectivity sensor (ON while the node's 60 s reports arrive,
+    OFF after five are missed). While it is OFF, no rate is produced.
+  - **Samples are timestamped by the reading, not the poll.** `last_updated` from Home
+    Assistant is used, so the interval is the one the creek actually moved over.
+  - **Gaps are never charged to one interval.** Beyond `rate_of_rise_max_gap_minutes`
+    (default 10) the rate is withheld and the baseline re-seeded at the creek's current
+    level, so the next loop measures real movement.
+  - **The first samples back must be confirmed.** After a dropout, the rate must clear the
+    threshold on `rate_of_rise_confirm_samples` (default 2) consecutive gap-free samples
+    before it alone raises Tier 3. The counter saturates, so on a healthy link this adds no
+    delay at all. Stage, model probability and the NWS floors are not gated — a creek that
+    is genuinely high still warns on the first reading back.
+
+- **Fix: the `Stage Stale` watchdog sat at OK through the whole dropout**, because it only
+  ever asked whether `stage_ft` was `None` — and a stale-but-present number never is. It now
+  also trips on a dead link (`creek_node_online`) or a stage reading older than its 30-minute
+  threshold.
+
+- **New:** `sensor.rate_of_rise_creek_stage_age` (diagnostic, minutes) — how old the reading
+  behind the current rate of rise is. Added to the dashboard's *Ingestion health* card
+  alongside the node's link state, so a blank rate of rise can be read as "the link just came
+  back" rather than "the creek is not moving".
+
+- **New options:** `creek_node_status_entity`, `stage_max_age_minutes` (6),
+  `rate_of_rise_max_gap_minutes` (10), `rate_of_rise_confirm_samples` (2). Defaults suit the
+  node's 60 s reporting and the gateway's 5-minute offline timeout; no configuration change
+  is needed on update. Consider `fast_loop_minutes: 1` to match the telemetry cadence — it
+  makes the post-reconnect confirmation cost about two minutes instead of ten.
+
 ## 0.19.1
 
 - **Fix: no entity ever existed for the creek gauge's rate of rise.** Stage is published

@@ -1,5 +1,5 @@
 name: Rate of Rise
-version: "0.19.1"
+version: "0.20.0"
 slug: rate_of_rise
 description: Flood-probability + predicted-stage inference and nightly retrain for the creek.
 url: https://github.com/ryanbuiltthat/rate-of-rise
@@ -34,6 +34,25 @@ options:
   storm_start_rain_1h_in: 0.10       # on-site OR upstream 1 h rain that opens an event
   storm_continue_rain_1h_in: 0.02    # below this the storm counts as paused
   storm_quiet_hours: 6               # ...and after this long paused, it has ended
+  # --- Creek-gauge link guards (false-alarm suppression) ------------------------------
+  # The creek node reports every 60 s and the RFM69 gateway calls it offline after five
+  # missed reports (5 min). When the link drops, Home Assistant keeps serving the last
+  # stage the node sent, so the first reading after it comes back differs from that one by
+  # however much the water moved while the radio was down — charged to a single loop
+  # interval, that reads as a huge rate of rise and fires a Tier 3 Warning for nothing.
+  #
+  # stage_max_age_minutes         How old a stage reading may be and still be differenced.
+  #                               Only used when creek_node_status_entity is blank or
+  #                               unavailable; the connectivity sensor is the better check.
+  # rate_of_rise_max_gap_minutes  Longest gap between two stage samples that still yields a
+  #                               rate. Past it the rate is withheld and the baseline
+  #                               re-seeded, so the next one measures real creek movement.
+  # rate_of_rise_confirm_samples  Consecutive gap-free samples a rate must survive after a
+  #                               dropout before it alone can raise Tier 3. Costs nothing
+  #                               while the link is up; stage is never gated this way.
+  stage_max_age_minutes: 6
+  rate_of_rise_max_gap_minutes: 10
+  rate_of_rise_confirm_samples: 2
   google_floods_api_key: ""
   wu_api_key: ""
   # --- Site-specific IDs: BLANK ON PURPOSE -------------------------------------------
@@ -54,6 +73,10 @@ options:
   # converts the node's raw distance into depth above the creekbed. Was sensor.creek_stage on
   # the retired ESPHome node; that entity no longer exists, which is why stage read as stale.
   stage_entity: sensor.creek_gateway_stage
+  # Packet-driven connectivity sensor from the same gateway: ON while the node's 60 s
+  # reports are arriving, OFF after five are missed. Blank it to fall back to
+  # stage_max_age_minutes alone.
+  creek_node_status_entity: binary_sensor.creek_gateway_creek_node_status
   soil_moisture_entities:
     # Order is significant: [0] -> soil_moisture_near_house_pct, [1] -> ..._near_creek_pct.
     # WH51 #1 — near the house, by the willow tree (low-lying, ponds early)
@@ -92,12 +115,16 @@ schema:
   storm_start_rain_1h_in: float(0.01,2.0)
   storm_continue_rain_1h_in: float(0.0,1.0)
   storm_quiet_hours: float(0.5,24.0)
+  stage_max_age_minutes: float(1.0,120.0)
+  rate_of_rise_max_gap_minutes: float(1.0,120.0)
+  rate_of_rise_confirm_samples: int(1,10)
   google_floods_api_key: password?
   wu_api_key: password?
   nwm_reach_id: str?
   upstream_pws_ids:
     - str
   stage_entity: str
+  creek_node_status_entity: str?
   soil_moisture_entities:
     - str
   onsite_rain_rate_entity: str?
