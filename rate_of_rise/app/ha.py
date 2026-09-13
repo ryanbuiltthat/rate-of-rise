@@ -7,6 +7,7 @@ no user-created long-lived access token is required or stored.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 import requests
 
@@ -45,6 +46,60 @@ class HAClient:
         except (TypeError, ValueError):
             log.debug("Non-numeric state for %s: %r", entity_id, raw)
             return None
+
+    def get_float_with_age(self, entity_id: str) -> tuple[float | None, float | None]:
+        """(value, seconds since the state was last written), or (None, None).
+
+        The age is what tells a *fresh* reading apart from the last one the sensor
+        managed to send before it went quiet. Home Assistant keeps serving the latter
+        indefinitely — the ESPHome gateway does not blank `stage` when the creek node
+        stops answering, it simply stops updating it — so the value alone cannot say
+        whether the creek is being measured right now. `last_updated` moves on every
+        state write, including a write of the same number; `last_changed` only moves when
+        the value differs, which would read as stale on a creek that is merely steady.
+        """
+        state = self.get_state(entity_id)
+        if not state:
+            return None, None
+        raw = state.get("state")
+        if raw in (None, "", "unknown", "unavailable"):
+            return None, self._age_of(state)
+        try:
+            return float(raw), self._age_of(state)
+        except (TypeError, ValueError):
+            log.debug("Non-numeric state for %s: %r", entity_id, raw)
+            return None, self._age_of(state)
+
+    @staticmethod
+    def _age_of(state: dict) -> float | None:
+        """Seconds since `last_updated`, clamped at 0; None if it cannot be parsed."""
+        stamp = state.get("last_updated") or state.get("last_changed")
+        if not stamp:
+            return None
+        try:
+            when = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+        except ValueError:
+            log.debug("Unparseable last_updated: %r", stamp)
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - when).total_seconds())
+
+    def get_bool(self, entity_id: str) -> bool | None:
+        """True/False for an on/off entity; None when it is missing or unavailable.
+
+        None is *not* False on purpose: an unconfigured or not-yet-created connectivity
+        sensor must not read as "the node is down" and suppress the gauge.
+        """
+        state = self.get_state(entity_id)
+        if not state:
+            return None
+        raw = str(state.get("state", "")).lower()
+        if raw in ("on", "true", "connected", "home"):
+            return True
+        if raw in ("off", "false", "disconnected", "not_home"):
+            return False
+        return None
 
     def get_unit(self, entity_id: str) -> str | None:
         """The entity's unit_of_measurement attribute, or None."""

@@ -62,8 +62,19 @@ class Config:
     wu_api_key: str = ""
     nwm_reach_id: str = ""
 
+    # Creek-gauge link guards (app/features.py). The creek node reports every 60 s and the
+    # gateway calls it offline after 5 missed reports; these decide how the add-on treats a
+    # stage reading that is older than that, and how long a gap can be before the level
+    # change across it is no longer attributable to one interval.
+    stage_max_age_minutes: float = 6.0
+    rate_of_rise_max_gap_minutes: float = 10.0
+    rate_of_rise_confirm_samples: int = 2
+
     # HA input entities
     stage_entity: str = "sensor.creek_gateway_stage"
+    # Connectivity binary sensor published by the RFM69 gateway. Blank disables the check,
+    # leaving only the age fallback in FeatureBuilder._link_usable.
+    creek_node_status_entity: str | None = "binary_sensor.creek_gateway_creek_node_status"
     soil_moisture_entities: list[str] = field(default_factory=list)
     onsite_rain_rate_entity: str | None = None
     onsite_rain_daily_entity: str | None = None
@@ -102,10 +113,17 @@ class Config:
             storm_start_rain_1h_in=float(env.get("STORM_START_RAIN_1H_IN", 0.10)),
             storm_continue_rain_1h_in=float(env.get("STORM_CONTINUE_RAIN_1H_IN", 0.02)),
             storm_quiet_hours=float(env.get("STORM_QUIET_HOURS", 6.0)),
+            stage_max_age_minutes=float(env.get("STAGE_MAX_AGE_MINUTES", 6.0)),
+            rate_of_rise_max_gap_minutes=float(
+                env.get("RATE_OF_RISE_MAX_GAP_MINUTES", 10.0)),
+            rate_of_rise_confirm_samples=int(env.get("RATE_OF_RISE_CONFIRM_SAMPLES", 2)),
             google_floods_api_key=env.get("GOOGLE_FLOODS_API_KEY", ""),
             wu_api_key=env.get("WU_API_KEY", ""),
             nwm_reach_id=env.get("NWM_REACH_ID", ""),
             stage_entity=opts.get("stage_entity", "sensor.creek_gateway_stage"),
+            creek_node_status_entity=opts.get(
+                "creek_node_status_entity",
+                "binary_sensor.creek_gateway_creek_node_status") or None,
             soil_moisture_entities=list(opts.get("soil_moisture_entities", [])),
             onsite_rain_rate_entity=opts.get("onsite_rain_rate_entity") or None,
             onsite_rain_daily_entity=opts.get("onsite_rain_daily_entity") or None,

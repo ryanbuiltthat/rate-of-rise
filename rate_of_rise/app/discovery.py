@@ -189,6 +189,17 @@ class DiscoveryPublisher:
                 "value_template": "{{ value_json.rate_of_rise_in_min if value_json.rate_of_rise_in_min is not none else none }}",
                 "unit_of_measurement": "in/min", "state_class": "measurement",
                 "icon": "mdi:trending-up"}),
+            # How old the stage reading behind that rate is. Blank rate + a climbing age is
+            # the signature of a dropped radio link, and it is the difference between "the
+            # creek is not rising" and "nobody is watching the creek" — which the stage
+            # entity alone cannot show, because the gateway keeps serving the last value the
+            # node sent (see FeatureBuilder._rate_of_rise).
+            ("sensor", "creek_stage_age", {
+                "name": "Creek Stage Age",
+                "state_topic": f"{b}/features",
+                "value_template": "{{ value_json.stage_age_min if value_json.stage_age_min is not none else none }}",
+                "unit_of_measurement": "min", "state_class": "measurement",
+                "entity_category": "diagnostic", "icon": "mdi:clock-alert-outline"}),
             # --- ingested features (Addendum C 2a): rain accumulations + NWS QPF ---
             *(
                 ("sensor", f"creek_rain_{w}h", {

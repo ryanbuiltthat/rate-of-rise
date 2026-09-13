@@ -97,6 +97,20 @@ def test_gateway_publishes_the_stage_entity_the_addon_reads():
         f"add-on reads {expected!r} but the gateway publishes {sorted(ids)}")
 
 
+def test_gateway_publishes_the_node_status_entity_the_addon_reads():
+    """The link check is only a check if it names an entity that exists.
+
+    A typo here fails open — HAClient.get_bool returns None for a missing entity, which
+    FeatureBuilder._link_usable reads as "no link sensor configured" and falls back to the
+    weaker age check. Silent, and exactly when it matters least to be wrong quietly.
+    """
+    expected = yaml.safe_load(ADDON_CONFIG.read_text(encoding="utf-8"))["options"][
+        "creek_node_status_entity"]
+    ids = set(gateway_entity_ids().values())
+    assert expected in ids, (
+        f"add-on reads {expected!r} but the gateway publishes {sorted(ids)}")
+
+
 def test_dashboard_creek_entities_are_published_by_the_gateway():
     """The dashboard's non-add-on `sensor.creek_*` references must come from the gateway.
 

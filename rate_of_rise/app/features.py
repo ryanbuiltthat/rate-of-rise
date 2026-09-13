@@ -28,6 +28,14 @@ class FeatureRow:
     soil_moisture_near_house_pct: float | None   # WH51 #1, by the willow = entities[0]
     soil_moisture_near_creek_pct: float | None   # WH51 #2, near the creek = entities[1]
     ponding_flag: bool              # low-lying sensors saturated -> fast runoff
+    # --- creek-gauge link state (see FeatureBuilder._rate_of_rise) ---
+    # How old the stage reading is, whether the radio link that produced it is up, and how
+    # many consecutive gap-free samples the current rate-of-rise was built from. Together
+    # they are what separates "the creek rose this fast" from "the radio was down and came
+    # back to a different number".
+    stage_age_min: float | None = None
+    creek_node_online: bool | None = None
+    rate_of_rise_sample_count: float | None = None
     # --- forecast/upstream features (Addendum C, filled by SourceCoordinator) ---
     rain_rate_in_hr: float | None = None   # raw Ecowitt rate; None = entity unavailable
     rain_1h_in: float | None = None
@@ -83,7 +91,8 @@ class FeatureRow:
 
 # Features derived here rather than by a source. They are not in sources.FEATURE_KEYS, so
 # they must be added explicitly wherever the feature payload is assembled.
-DERIVED_KEYS = ("temp_f", "rain_on_snow_flag", "rate_of_rise_in_min")
+DERIVED_KEYS = ("temp_f", "rain_on_snow_flag", "rate_of_rise_in_min",
+                "stage_age_min", "creek_node_online", "rate_of_rise_sample_count")
 
 
 # Above this soil-moisture reading the low-lying areas are effectively saturated
@@ -106,31 +115,117 @@ def _to_fahrenheit(value: float | None, unit: str | None) -> float | None:
     return value * 9.0 / 5.0 + 32.0 if unit and "C" in unit.upper() else value
 
 
+# Rate of rise is only as trustworthy as the two samples behind it, and the radio link to
+# the creek node is the thing that decides whether there *were* two samples. When the node
+# goes quiet the gateway does not blank `sensor.creek_gateway_stage` — it simply stops
+# updating it — so Home Assistant keeps serving the last number the node managed to send.
+# Naively differencing that against the first reading after the link returns charges the
+# whole outage's worth of level change to a single loop interval: a creek that rose 3 in
+# over a 40-minute dropout reads as 0.6 in/min (12x the Tier 3 threshold) instead of the
+# 0.075 in/min it actually did. That is a Tier 3 Warning, and with the package's
+# `critical_from_tier: 2` it is a critical, alarm-stream push at 3 AM for nothing.
+#
+# So the guards live here, where the number is made, rather than in tiers.py, where it is
+# only compared: a rate that cannot be computed honestly is reported as None, and None fires
+# no tier. tiers.py adds the second half — a confirmation window on the samples right after
+# a reconnect (WARNING_RATE_OF_RISE_CONFIRM_SAMPLES).
+RATE_OF_RISE_SAMPLE_CAP = 10.0   # the streak counter saturates here; it only gates the
+                                 # first samples after a reconnect, so it need not grow
+
+
 class FeatureBuilder:
-    def __init__(self, cfg: Config, ha: HAClient, sources=None):
+    def __init__(self, cfg: Config, ha: HAClient, sources=None, now_fn=time.time):
         self._cfg = cfg
         self._ha = ha
         self._sources = sources   # SourceCoordinator | None (Addendum C)
-        self._last_stage: tuple[float, float] | None = None  # (ts, stage_ft)
+        self._now = now_fn        # injectable so the link guards are testable (HealthTracker
+                                  # takes the same parameter for the same reason)
+        self._last_stage: tuple[float, float] | None = None  # (sample_ts, stage_ft)
+        self._ror_samples = 0.0   # consecutive gap-free rates since the last re-seed
         self._temp_unit: str | None = None                   # cached on first read
 
-    def _rate_of_rise(self, ts: float, stage_ft: float | None) -> float | None:
-        """Inches per minute since the previous sample; None on first/invalid."""
-        if stage_ft is None:
+    def _node_online(self) -> bool | None:
+        """The gateway's own view of the radio link, or None if it is not configured.
+
+        `binary_sensor.creek_gateway_creek_node_status` is driven by *packet arrival*
+        (components/rfm69_gateway: `node_timeout`, 5 min = five missed 60 s reports), not
+        by whether the stage number changed — which is the only honest link check on a
+        creek that can legitimately sit at the same depth for an hour.
+        """
+        entity = self._cfg.creek_node_status_entity
+        if not entity:
             return None
+        return self._ha.get_bool(entity)
+
+    def _rate_of_rise(
+        self, now: float, stage_ft: float | None, age_s: float | None, online: bool | None,
+    ) -> float | None:
+        """Inches per minute between two *contiguous* stage samples.
+
+        None whenever that cannot be said honestly: no reading, the link is down, the
+        first reading back after a dropout, or a gap longer than
+        `rate_of_rise_max_gap_minutes`. Each of those also re-seeds the baseline, so the
+        next loop measures from the creek's real position rather than from wherever it
+        was before the radio went quiet.
+        """
+        if stage_ft is None or not self._link_usable(age_s, online):
+            self._reseed(None)
+            return None
+
+        # Timestamp the *reading*, not the poll: `last_updated` is when the gateway wrote
+        # this value, so dt is the interval the creek actually moved over even when the
+        # loop runs on a different cadence than the node's 60 s reports.
+        sample_ts = now - age_s if age_s is not None else now
         prev = self._last_stage
-        self._last_stage = (ts, stage_ft)
         if prev is None:
+            self._reseed((sample_ts, stage_ft))
             return None
+
         prev_ts, prev_stage = prev
-        dt_min = (ts - prev_ts) / 60.0
+        dt_min = (sample_ts - prev_ts) / 60.0
+
         if dt_min <= 0:
+            # Same reading polled twice. The link is up (checked above), so the creek has
+            # simply not moved enough to change the published value: the rate is zero, not
+            # unknown. Carry the baseline forward to now so the next real change is
+            # measured from here rather than from a timestamp that is already hours old.
+            self._last_stage = (now, stage_ft)
+            self._ror_samples = min(self._ror_samples + 1.0, RATE_OF_RISE_SAMPLE_CAP)
+            return 0.0
+
+        if dt_min > self._cfg.rate_of_rise_max_gap_minutes:
+            # A gap. Whatever the creek did across it did not happen in one interval, and
+            # attributing it to one is exactly the false alarm this guard exists for.
+            log.info(
+                "stage gap of %.1f min (limit %.1f) — rate of rise suppressed and re-seeded "
+                "at %.2f ft", dt_min, self._cfg.rate_of_rise_max_gap_minutes, stage_ft,
+            )
+            self._reseed((sample_ts, stage_ft))
             return None
+
+        self._last_stage = (sample_ts, stage_ft)
+        self._ror_samples = min(self._ror_samples + 1.0, RATE_OF_RISE_SAMPLE_CAP)
         return (stage_ft - prev_stage) * 12.0 / dt_min
 
+    def _link_usable(self, age_s: float | None, online: bool | None) -> bool:
+        """Whether this stage reading is current enough to difference against another."""
+        if online is False:
+            return False
+        if online is True:
+            return True     # the gateway is hearing the node; a flat creek is not a fault
+        # No connectivity entity to ask (or it is unavailable): fall back to how long ago
+        # the value was written. Weaker — a genuinely steady creek can look stale — but it
+        # is the only signal left, and erring towards "no rate" errs towards no alarm.
+        return age_s is None or age_s <= self._cfg.stage_max_age_minutes * 60.0
+
+    def _reseed(self, sample: tuple[float, float] | None) -> None:
+        self._last_stage = sample
+        self._ror_samples = 0.0
+
     def build(self) -> FeatureRow:
-        ts = time.time()
-        stage_ft = self._ha.get_float(self._cfg.stage_entity)
+        ts = self._now()
+        stage_ft, stage_age_s = self._ha.get_float_with_age(self._cfg.stage_entity)
+        node_online = self._node_online()
 
         soils = [self._ha.get_float(e) for e in self._cfg.soil_moisture_entities]
         near_house = soils[0] if len(soils) >= 1 else None
@@ -139,14 +234,20 @@ class FeatureBuilder:
         soil_mean = sum(present) / len(present) if present else None
         ponding = any(s >= PONDING_SATURATION_PCT for s in present)
 
+        rate = self._rate_of_rise(ts, stage_ft, stage_age_s, node_online)
         row = FeatureRow(
             ts=ts,
             stage_ft=stage_ft,
-            rate_of_rise_in_min=self._rate_of_rise(ts, stage_ft),
+            rate_of_rise_in_min=rate,
             soil_moisture_mean_pct=soil_mean,
             soil_moisture_near_house_pct=near_house,
             soil_moisture_near_creek_pct=near_creek,
             ponding_flag=ponding,
+            stage_age_min=stage_age_s / 60.0 if stage_age_s is not None else None,
+            creek_node_online=node_online,
+            # Published even when the rate is None, so the dashboard can show *why* it is
+            # blank (0 = the link just came back, nothing to difference against yet).
+            rate_of_rise_sample_count=self._ror_samples,
         )
         if self._sources is not None:
             for key, value in self._sources.features().items():

@@ -11,6 +11,9 @@ template could not:
   * **Whether a source is still alive.** The coordinator serves a source's last-good value
     indefinitely, so a feature still holding a number says nothing about whether its API is
     still answering. Only the add-on knows when each source last succeeded.
+  * **Whether the creek node's radio link is up.** The gateway never blanks the stage
+    entity when the node stops answering, so "stage has a number" is not "stage is being
+    measured" — see `_usable_stage`.
   * **Whether an input entity is reporting.** A rain rate legitimately sitting at 0.00 in/h
     never changes state, so an HA `last_changed` check on it false-alarms during dry spells
     and stays quiet when the gauge actually dies. Here we track the last time the read
@@ -59,6 +62,29 @@ class HealthTracker:
         self._started = now_fn()
         self._last_ok: dict[str, float] = {}
 
+    @staticmethod
+    def _usable_stage(row) -> float | None:
+        """`stage_ft` only when the reading is actually current.
+
+        Home Assistant keeps serving the last value the creek node sent after the radio
+        goes quiet — the gateway stops updating `sensor.creek_gateway_stage`, it does not
+        blank it — so a non-None stage says nothing on its own. That is why this watchdog
+        used to sit at OK through a dropout that was long enough to manufacture a false
+        Tier 3 on reconnect. `creek_node_online` (packet-driven, from the gateway) is the
+        authoritative check; `stage_age_min` is the fallback when that entity is not
+        configured. Both absent leaves the old value-only behaviour.
+        """
+        stage = getattr(row, "stage_ft", None)
+        if stage is None:
+            return None
+        if getattr(row, "creek_node_online", None) is False:
+            return None
+        age_min = getattr(row, "stage_age_min", None)
+        threshold_min = ENTITY_INPUTS["stage_ft"][1] / 60.0
+        if age_min is not None and age_min > threshold_min:
+            return None
+        return stage
+
     def _entity_stale(self, key: str, value, threshold: float, now: float) -> bool:
         if value is not None:
             self._last_ok[key] = now
@@ -75,7 +101,9 @@ class HealthTracker:
         flags: dict[str, bool] = {}
 
         for feature, (key, threshold) in ENTITY_INPUTS.items():
-            flags[key] = self._entity_stale(key, getattr(row, feature, None), threshold, now)
+            value = (self._usable_stage(row) if feature == "stage_ft"
+                     else getattr(row, feature, None))
+            flags[key] = self._entity_stale(key, value, threshold, now)
 
         for source, key in SOURCE_WATCHDOGS.items():
             if source not in configured:

@@ -64,13 +64,13 @@ def _publish_registry(mqtt: MqttClient, registry: ModelRegistry) -> None:
 def _run_inference_once(
     features: FeatureBuilder, model: Model, dataset: DatasetWriter,
     mqtt: MqttClient, status: dict, health: HealthTracker = None, sources=None,
-    storms: StormLog = None,
+    storms: StormLog = None, ror_confirm_samples: int | None = None,
 ) -> str:
     row = features.build()
     pred = model.predict(row)
     mqtt.publish("flood_probability", {"value": pred.flood_probability, "method": pred.method})
     mqtt.publish("predicted_crest", {"value": pred.predicted_crest_ft})
-    tier, label, reasons = compute_tier(row, pred.flood_probability)
+    tier, label, reasons = compute_tier(row, pred.flood_probability, ror_confirm_samples)
     mqtt.publish("alert_tier", {"value": tier, "label": label, "reasons": reasons,
                                 "why": "; ".join(reasons) or "nothing elevated"})
     mqtt.publish("features",
@@ -240,7 +240,8 @@ def main() -> int:
     processor = CommandProcessor(
         {
             "run_inference": lambda payload: _run_inference_once(
-                features, model, dataset, mqtt, status, health, sources, storms),
+                features, model, dataset, mqtt, status, health, sources, storms,
+                cfg.rate_of_rise_confirm_samples),
             "retrain": lambda payload: _nightly_batch(
                 cfg, dataset, mqtt, model, registry, status, storms),
             "promote": lambda payload: _promote(mqtt, registry),
@@ -266,7 +267,8 @@ def main() -> int:
             _publish_pipeline(mqtt, status, "running", "inference")
             try:
                 _run_inference_once(
-                    features, model, dataset, mqtt, status, health, sources, storms)
+                    features, model, dataset, mqtt, status, health, sources, storms,
+                    cfg.rate_of_rise_confirm_samples)
             except Exception:  # a transient feature/predict error must not kill the loop
                 log.exception("Inference failed")
                 status["last_error"] = "inference failed (see log)"
