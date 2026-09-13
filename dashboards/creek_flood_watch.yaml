@@ -323,6 +323,9 @@ views:
           - entity: sensor.creek_gateway_stage
             name: Creek stage
             secondary_info: last-changed
+          - entity: sensor.rate_of_rise_creek_rate_of_rise
+            name: Creek rate of rise
+            secondary_info: last-changed
           - entity: sensor.outside_weather_station_soil_moisture_willow
             name: Soil — near house
             secondary_info: last-changed

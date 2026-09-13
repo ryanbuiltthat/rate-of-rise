@@ -3,6 +3,21 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.19.1
+
+- **Fix: no entity ever existed for the creek gauge's rate of rise.** Stage is published
+  by the RFM69 gateway itself (`sensor.creek_gateway_stage`), but rate-of-rise
+  (`FeatureBuilder._rate_of_rise` in `app/features.py`) was computed only for internal use
+  by `tiers.py`/`model.py` — it was never added to the `creek/features` MQTT payload, so
+  there was nothing for MQTT discovery to expose. Both stage and rate-of-rise are named as
+  primary features in spec §1/§4; only stage ever actually reached Home Assistant.
+
+  `rate_of_rise_in_min` now rides along in `creek/features` (added to
+  `features.DERIVED_KEYS`, same mechanism `temp_f`/`rain_on_snow_flag` already use) and is
+  auto-provisioned as **`sensor.rate_of_rise_creek_rate_of_rise`** (`in/min`) via MQTT
+  discovery, alongside the existing gauge stage on the bundled dashboard's Ingestion health
+  card. No configuration change needed — it appears automatically on update.
+
 ## 0.19.0
 
 - **BREAKING — add-on renamed to Rate of Rise, top to bottom.** The add-on's official name
