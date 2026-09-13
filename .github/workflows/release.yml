@@ -1,0 +1,118 @@
+name: release
+
+# Fires only when the add-on's version actually changes, and only on main (this repo
+# commits straight to main — see tests.yml). tests.yml already fails the build if a
+# version bump ships without a matching CHANGELOG.md section, so by the time this runs
+# the changelog entry is guaranteed to exist; this workflow's job is to turn that
+# already-bumped version into a git tag + GitHub Release, and to catch a bad bump
+# (typo'd/non-increasing version) before it becomes a broken update signal for
+# Supervisor's Add-on Store.
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "creek_modeling/config.yaml"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need full history to read config.yaml as of the pre-push commit
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Determine whether the version changed, and validate the bump
+        id: version
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          python - <<'PY'
+          import os, subprocess, sys, yaml
+
+          def read_version(ref):
+              try:
+                  text = subprocess.run(
+                      ["git", "show", f"{ref}:creek_modeling/config.yaml"],
+                      check=True, capture_output=True, text=True,
+                  ).stdout
+              except subprocess.CalledProcessError:
+                  return None  # file/ref didn't exist yet (e.g. first push ever)
+              return str(yaml.safe_load(text)["version"])
+
+          def parse_semver(v):
+              parts = v.split(".")
+              if len(parts) != 3 or not all(p.isdigit() for p in parts):
+                  print(f"::error::'{v}' is not a valid MAJOR.MINOR.PATCH version")
+                  sys.exit(1)
+              return tuple(int(p) for p in parts)
+
+          before_sha = os.environ["BEFORE_SHA"]
+          new_version = read_version("HEAD")
+          # A zero SHA means "no previous commit" (e.g. a new branch) — nothing to diff against.
+          old_version = None if set(before_sha) == {"0"} else read_version(before_sha)
+
+          out = os.environ["GITHUB_OUTPUT"]
+          if new_version == old_version:
+              print(f"version unchanged ({new_version}) — nothing to release")
+              with open(out, "a") as f:
+                  f.write("changed=false\n")
+              sys.exit(0)
+
+          new_tuple = parse_semver(new_version)
+          if old_version is not None:
+              old_tuple = parse_semver(old_version)
+              if new_tuple <= old_tuple:
+                  print(f"::error::version did not increase: {old_version} -> {new_version}")
+                  sys.exit(1)
+
+          with open(out, "a") as f:
+              f.write("changed=true\n")
+              f.write(f"version={new_version}\n")
+              f.write(f"tag=v{new_version}\n")
+          PY
+
+      - name: Guard against re-tagging (re-run, force-push, etc.)
+        if: steps.version.outputs.changed == 'true'
+        run: |
+          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::tag ${{ steps.version.outputs.tag }} already exists"
+            exit 1
+          fi
+
+      - name: Extract this version's CHANGELOG.md section for the release notes
+        if: steps.version.outputs.changed == 'true'
+        run: |
+          python - <<'PY'
+          import pathlib, re, sys
+
+          version = "${{ steps.version.outputs.version }}"
+          changelog = pathlib.Path("creek_modeling/CHANGELOG.md").read_text(encoding="utf-8")
+          match = re.search(
+              rf"\n## {re.escape(version)}\n(.*?)(\n## |\Z)", changelog, re.DOTALL,
+          )
+          if not match:
+              # Shouldn't happen — tests.yml already requires this section to exist.
+              print(f"::error::no CHANGELOG.md section found for {version}")
+              sys.exit(1)
+          pathlib.Path("release_notes.md").write_text(match.group(1).strip() + "\n")
+          PY
+
+      - name: Tag and publish the GitHub Release
+        if: steps.version.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git tag "$TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" --title "$TAG" --notes-file release_notes.md
