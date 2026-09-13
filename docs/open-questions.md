@@ -74,7 +74,7 @@ the calibration phase.
 
 - **#7.** WH51 readings are relative (0–100%) and site-specific. After the next soaking rain and a dry stretch, record the empirical "saturated" and "dry" values at each burial spot; these calibrate the Tier 0 soil-moisture threshold.
 
-- **#8.** Tier thresholds in `creek_modeling/app/tiers.py` are placeholders. The forecast/rainfall
+- **#8.** Tier thresholds in `rate_of_rise/app/tiers.py` are placeholders. The forecast/rainfall
   ones (Advisory, Watch) can be tuned from the first few storms without the creek gauge;
   the stage-based ones (Warning, Emergency) depend on #5.
 

@@ -13,7 +13,7 @@
 # value, neither of which a template could observe.
 #
 # ENTITY-ID CONVENTION: add-on entities carry the device-name prefix HA applies to
-# MQTT-discovery entities — `sensor.creek_modeling_creek_*`. Entities defined in
+# MQTT-discovery entities — `sensor.rate_of_rise_creek_*`. Entities defined in
 # THIS file, and the RFM69 gateway, do not: they are plain `sensor.creek_*`.
 
 template:
@@ -31,21 +31,21 @@ template:
       # its last_changed froze and the watchdog stuck at Problem forever. The timestamp
       # advances every loop by construction, whether or not any state string changes.
       - name: "Creek Modeling Service Stale"
-        unique_id: creek_modeling_service_stale
+        unique_id: rate_of_rise_service_stale
         device_class: problem
         state: >
-          {% set e = 'sensor.creek_modeling_creek_last_inference' %}
+          {% set e = 'sensor.rate_of_rise_creek_last_inference' %}
           {{ not has_value(e)
              or (now() - as_datetime(states(e))).total_seconds() > 900 }}
         attributes:
           # Surfaced so a Problem can be told apart at a glance: entity missing (a stale
           # copy of this package, or the add-on never started) vs. loop genuinely stalled.
           last_inference: >
-            {{ states('sensor.creek_modeling_creek_last_inference') }}
+            {{ states('sensor.rate_of_rise_creek_last_inference') }}
 
 automation:
   # Tier evaluation lives in the add-on (app/tiers.py) and arrives as
-  # sensor.creek_modeling_creek_alert_tier. This automation is the HA-side *action*
+  # sensor.rate_of_rise_creek_alert_tier. This automation is the HA-side *action*
   # half of spec §6 — it has to be here because it calls persistent_notification and the
   # companion-app notify services.
   #
@@ -83,7 +83,7 @@ automation:
       critical_from_tier: 2
       # ============================================================================
 
-      alert_entity: sensor.creek_modeling_creek_alert_tier
+      alert_entity: sensor.rate_of_rise_creek_alert_tier
 
       # A MANUAL run has no `trigger` variable at all — not an empty one, absent. That
       # includes Developer tools -> Actions -> automation.trigger, which is the only way
@@ -117,7 +117,7 @@ automation:
       push_tag: creek_alert_tier
     triggers:
       - trigger: state
-        entity_id: sensor.creek_modeling_creek_alert_tier
+        entity_id: sensor.rate_of_rise_creek_alert_tier
     conditions:
       # Ignore startup/unavailable churn and the MQTT LWT flipping the entity. A manual
       # run has no trigger to inspect and must never be filtered out — that is the dry

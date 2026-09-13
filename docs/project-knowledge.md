@@ -5,15 +5,16 @@ The [spec](../creek-flood-warning-spec.md) is the source of truth for *what is b
 built*; this file covers *how the system fits together, what the conventions are, and
 which mistakes have already been made and paid for*.
 
-Current state: add-on **v0.17.0**, 255 tests, all green on CI.
+Current state: add-on **v0.19.0**, 255 tests, all green on CI.
 
 ---
 
 ## 1. What this is
 
-A DIY flood early-warning system for **Creek**, regional County PA
-(`<site lat>`, `<site lon>`). Small, flashy basin: rainfall-to-crest is measured in tens of
-minutes, so lead time is the entire point.
+A DIY flood early-warning system for a small creek in Lackawanna County, northeastern
+Pennsylvania (`<site lat>`, `<site lon>`). Published as **Rate of Rise** (the repo and the
+modeling add-on share the name). Small, flashy basin: rainfall-to-crest is measured in tens
+of minutes, so lead time is the entire point.
 
 The creek has **no USGS gauge of its own** and the on-site radar stream gauge
 (DFRobot SEN0676) **is not yet mounted**. Everything currently works from forecast,
@@ -38,7 +39,7 @@ them arrives via the add-on update button:
 | **Moteino node** (`firmware/moteino_creek_node/`) | Radar stage sensor on the creek | OTA pushed via the gateway |
 | **HA package** (`ha-packages/creek_warning.yaml`) | Service-stale watchdog, alert-tier automation, dry-run test script | **Manually copied** to `/config/ha-packages/`, then reload automations |
 | **Dashboard** (`dashboards/creek_flood_watch.yaml`) | Lovelace UI | **Manually copied** to `/config/dashboards/` |
-| **Add-on** (`creek_modeling/`) | All ingestion, features, tiers, storm log, ML | HA add-on store → Update |
+| **Add-on** (`rate_of_rise/`) | All ingestion, features, tiers, storm log, ML | HA add-on store → Update |
 
 > **Never say "this will appear after you update the add-on" about package or dashboard
 > changes.** They will not. Both must be re-copied by hand. This has caused real
@@ -49,7 +50,7 @@ Safe-to-do-mid-storm rule of thumb: **dashboard = display-only, safe anytime.
 HA package = automations, reloading can drop a tier transition — wait for quiet.**
 Add-on update restarts the modeling service only.
 
-### Add-on internals (`creek_modeling/app/`)
+### Add-on internals (`rate_of_rise/app/`)
 
 ```
 __main__.py     fast loop (5 min) + nightly batch; MQTT publish; command handling
@@ -131,12 +132,12 @@ to go look, not a validated alarm.
 ## 5. Conventions
 
 - **Version + changelog together.** Any behaviour or option change bumps `version:` in
-  `creek_modeling/config.yaml` *and* adds a matching `## x.y.z` section to
+  `rate_of_rise/config.yaml` *and* adds a matching `## x.y.z` section to
   `CHANGELOG.md`. CI enforces the pairing. The bump is what surfaces the Update button.
   Package-only changes still get a bump (precedent: 0.11.1) so the "re-copy the package"
   note reaches the add-on store.
 - **Tests are plain-assert scripts**, one file per module, each with a `main()` that
-  raises. Run any of them with `python creek_modeling/tests/test_x.py`. CI runs every
+  raises. Run any of them with `python rate_of_rise/tests/test_x.py`. CI runs every
   file even after one fails.
 - **Never declare work done on local tests alone.** Poll the real GitHub Actions run and
   confirm success. (Six broken commits once landed on main because of this.)
@@ -157,8 +158,8 @@ relevant area.**
 
 **Entity IDs come from the device name + entity *name*, not `object_id`.**
 `object_id` is only a suggestion and is not honoured. "Creek NWS Alert Feed Missing" on
-device "Creek Modeling" →
-`binary_sensor.creek_modeling_creek_nws_alert_feed_missing`, regardless of its
+device "Rate of Rise" →
+`binary_sensor.rate_of_rise_creek_nws_alert_feed_missing`, regardless of its
 `creek_nws_alerts_missing` object_id. Use `DiscoveryPublisher.entity_ids()`;
 `test_dashboard_entities.py` checks the dashboard against it.
 
@@ -272,8 +273,8 @@ Rules that follow:
 | Question | File |
 |---|---|
 | What is being built and why | `creek-flood-warning-spec.md` |
-| What changed in a release | `creek_modeling/CHANGELOG.md` |
-| How to install / configure | `creek_modeling/DOCS.md` |
+| What changed in a release | `rate_of_rise/CHANGELOG.md` |
+| How to install / configure | `rate_of_rise/DOCS.md` |
 | What to do during a storm | `docs/storm-runbook.md` |
 | Unresolved decisions | `docs/open-questions.md` |
 | Node radar registers, power budget | `docs/node-hardware.md` |

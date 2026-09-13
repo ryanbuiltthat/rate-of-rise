@@ -1,19 +1,121 @@
-# Creek Flood Early-Warning System
+# Rate of Rise
 
 [![tests](https://github.com/ryanbuiltthat/rate-of-rise/actions/workflows/tests.yml/badge.svg)](https://github.com/ryanbuiltthat/rate-of-rise/actions/workflows/tests.yml)
 
-A DIY flood early-warning system for a small, flashy creek basin in the US Northeast — built on Home Assistant, a Moteino M0 radio-linked stream gauge, and predictive flood-probability modeling.
+**Warning arrives before the water does.**
 
-No official USGS gauge exists on the creek, and the nearest ones are off-basin or downstream. This project instruments the creek directly and fuses that reading with upstream rainfall, soil saturation, forecast precipitation, storm-cell tracking and National Water Model data, to give advance warning before water rises rather than an alarm once it has.
+A solar-powered radar gauge on a creek with no official stream gauge, fused with eleven
+live data sources into a flood-probability model — a DIY flood early-warning system for a
+small, flashy creek basin in Lackawanna County, northeastern Pennsylvania. Built on Home
+Assistant, a Moteino M0 radio-linked stream gauge, and predictive flood-probability
+modeling. The modeling/alerting half ships as the **Rate of Rise** Home Assistant add-on
+(`rate_of_rise/`), which gives the whole project its name.
 
-> **Site details are deliberately generalized** throughout this repo — coordinates, creek and place names, and station IDs. Anything site-specific is supplied through the add-on's own configuration, which lives in Home Assistant rather than here.
+> **Site details are deliberately generalized** throughout this repo — exact coordinates,
+> creek and place names, and station IDs. Anything site-specific is supplied through the
+> add-on's own configuration, which lives in Home Assistant rather than here.
+
+| | |
+|---|---|
+| **11** | Live data sources |
+| **45** | Features per inference |
+| **±5 mm** | Gauge precision |
+| **60 s** | Telemetry cadence |
+| **250+** | Automated tests, CI on every push |
+
+## The gap this fills
+
+There is no USGS gauge on this creek. The nearest instruments that publish continuous
+readings are off-basin or downstream — useful for validating a lag estimate, useless as a
+stand-in for how high the water is right now.
+
+It is also a **flashy basin**: roughly 18 mi², and rainfall-to-crest is measured in tens of
+minutes, not hours. That short fuse is the entire design constraint. A system that reports a
+flood is a logger. This one is built to say *a flood is becoming likely*, early enough that
+the answer is still to move things rather than to bail them out.
 
 ## How it works
 
-1. **Instrument** — An 80 GHz FMCW radar (DFRobot SEN0676) on a creekside pole measures the water surface to ±5 mm over Modbus RTU into a Moteino M0. The node transmits on RFM69HW (915 MHz) to an ESP32 gateway at the house, which converts raw distance into depth above the creekbed and publishes it to Home Assistant. Solar-powered, ~25 mA average draw.
-2. **Ingest** — A local add-on pulls upstream rain-gauge data, NWS/NOAA forecasts, WPC excessive-rainfall outlooks, NEXRAD storm-cell tracks, SNODAS snowpack, National Water Model reach forecasts, USGS reference gauges, and on-site rain, temperature and soil-moisture probes.
-3. **Correlate & predict** — The add-on builds a nightly dataset of storm events and fits the rainfall→response relationship for this specific basin, starting with threshold rules and graduating to a trained model that outputs flood probability with lead time.
-4. **Alert** — A five-level tier ladder (All-clear / Advisory / Watch / Warning / Emergency) drives phone pushes, escalating to a critical alarm-stream notification that sounds through silent and Do Not Disturb. Any official NWS flood product for the area floors the tier independently of the model.
+1. **Instrument** — An 80 GHz FMCW radar (DFRobot SEN0676) on a creekside pole measures the
+   water surface to ±5 mm over Modbus RTU into a Moteino M0, which transmits on an
+   encrypted 915 MHz point-to-point link to an ESP32 gateway at the house — no WiFi at the
+   creek, no cellular, no subscription. Solar-powered, ~25 mA average draw. The gateway
+   converts raw distance into depth above the creekbed and publishes it to Home Assistant.
+2. **Ingest** — The `rate_of_rise` add-on polls eleven sources every fast loop — upstream
+   rain gauges, NWS/NOAA forecasts, WPC excessive-rainfall outlooks, NEXRAD storm-cell
+   tracks, SNODAS snowpack, National Water Model reach forecasts, USGS reference gauges,
+   and on-site rain, temperature and soil-moisture probes — into 45 features per inference.
+3. **Correlate & predict** — The add-on builds a nightly dataset of storm events and fits
+   the rainfall→response relationship for this specific basin, starting with threshold
+   rules and graduating to a trained model that outputs flood probability with lead time,
+   saying which of the two produced the number on screen.
+4. **Alert** — A five-level tier ladder (All-clear / Advisory / Watch / Warning /
+   Emergency) drives phone pushes, escalating to a critical alarm-stream notification that
+   sounds through silent and Do Not Disturb. Any official NWS flood product for the area
+   floors the tier independently of the model.
+
+## Measured against the bed, not a guess
+
+As-built geometry, surveyed 2026-09-12. Datum is the creekbed itself, so depth reads as
+true water depth and falls to zero on a dry bed rather than going negative. The sensor sits
+just ~6 in above bank top, so its blanking zone begins almost exactly where the creek comes
+over — readings inside it are clamped to the ceiling, never blanked, so the alarm cannot
+quietly stand down at the worst possible moment.
+
+| | Height above creekbed |
+|---|---|
+| Sensor face | **43.5 in** (1105 mm) |
+| Sensor range ceiling (blanking zone) | 37.6 in |
+| Bank top | ~37.5 in |
+| Emergency threshold | 30 in |
+| Warning threshold | 24 in |
+
+## What it watches
+
+11 sources · 6 external APIs · dozens of Home Assistant entities, all auto-provisioned by
+the add-on via MQTT discovery:
+
+| Source | Gives |
+|---|---|
+| Creek radar gauge (on-site) | Stage & rate of rise, 60 s |
+| Soil moisture ×2 (on-site) | Antecedent wetness, ponding flag |
+| Weather station (on-site) | Rain intensity, temperature |
+| NWS forecast (QPF) | 6 h and 24 h expected rainfall |
+| NWS active alerts | Flood & flash-flood products |
+| National Water Model | Short-range reach streamflow |
+| WPC Excessive Rainfall Outlook | Rain graded against flash-flood guidance |
+| NEXRAD storm-cell tracks | Bearing, speed, dBZ, ETA to site |
+| SNODAS snowpack | Rain-on-snow melt contribution |
+| USGS reference gauges | Off-basin lag validation |
+| Upstream PWS (Weather Underground) | Neighbor rain gauges, drains toward site |
+
+## Five tiers, and one that wakes you
+
+Escalation ladder — each rung is the lowest condition that reaches it.
+
+| Tier | Name | Condition |
+|---|---|---|
+| 0 | All-clear | No elevated risk. Nothing fires. |
+| 1 | Advisory | Forecast rain onto already-wet ground, or a WPC excessive-rain risk. |
+| 2 | Watch | Rain measured upstream, or radar cells inbound. **Critical push from here up.** |
+| 3 | Warning | The creek is answering — 24 in stage, or rising 0.05 in/min. |
+| 4 | Emergency | 30 in and climbing — overbank imminent. |
+
+At Watch and above the notification routes through Android's alarm stream, so it sounds at
+alarm volume through silent, vibrate and Do Not Disturb. Any official NWS flood product
+raises the floor independently — a forecaster knows things two buried probes do not.
+
+## What v1 does not claim
+
+Every threshold above is a placeholder until real storms say otherwise. The numbers that
+matter are properties of *this* basin, and no amount of code shortens the wait — they get
+measured by watching it rain. So every alert the system sends carries its own disclaimer:
+**thresholds are not yet field-calibrated — verify before acting.**
+
+v1 is the line under the build phase, not the calibration phase. The signal path is
+complete and tested end to end; what comes next is weather. **This is a personal,
+best-effort early-warning aid, never a substitute for official NWS/NOAA flood warnings. Do
+not rely on it as your sole source of flood safety information.**
 
 ## Repo structure
 
@@ -21,7 +123,7 @@ No official USGS gauge exists on the creek, and the nearest ones are off-basin o
 firmware/         Moteino creek node (Arduino) + ESP32 RFM69 gateway (ESPHome)
 ha-packages/      Home Assistant package YAML (sensors, templates, automations)
 dashboards/       Lovelace dashboards (flood-watch + operator console)
-creek_modeling/   HA add-on: nightly dataset builder + prediction service
+rate_of_rise/     HA add-on: nightly dataset builder + prediction service
 docs/             Project docs, including open questions and decisions log
 .github/          CI: runs the add-on test suite on every push
 repository.yaml   Marks the repo as an installable HA add-on store
@@ -32,7 +134,7 @@ creek-flood-warning-spec.md   Source-of-truth project specification
 
 - [DFRobot SEN0676](https://www.dfrobot.com/product-2959.html) 80 GHz FMCW radar water-level sensor
 - Moteino M0 (LowPowerLab) — creek node MCU with onboard RFM69HW
-- RFM69HW 868 MHz modules — point-to-point radio link (node TX + gateway RX)
+- RFM69HW 915 MHz modules — point-to-point radio link (node TX + gateway RX)
 - ESP32 — gateway at house (RFM69HW RX + WiFi + MQTT)
 - CN3791 MPPT solar charger + 18650 Li-ion pack + 6–7 W solar panel
 - Ecowitt weather station + WH51 soil moisture probes
@@ -40,10 +142,17 @@ creek-flood-warning-spec.md   Source-of-truth project specification
 
 ## Status
 
-Actively being built in phases: instrument → ingest → collect & correlate → predict → harden. See [creek-flood-warning-spec.md](./creek-flood-warning-spec.md) for the full spec and [docs/open-questions.md](./docs/open-questions.md) for items still being resolved.
+Actively being built in phases: instrument → ingest → collect & correlate → predict →
+harden. See [creek-flood-warning-spec.md](./creek-flood-warning-spec.md) for the full spec,
+[docs/project-knowledge.md](./docs/project-knowledge.md) for an orientation to the
+codebase, and [docs/open-questions.md](./docs/open-questions.md) for items still being
+resolved.
 
-When a storm is coming, [docs/storm-runbook.md](./docs/storm-runbook.md) is the checklist — what to check, what to write down while it's happening, and how to annotate the event afterward.
+When a storm is coming, [docs/storm-runbook.md](./docs/storm-runbook.md) is the checklist —
+what to check, what to write down while it's happening, and how to annotate the event
+afterward.
 
 ## Disclaimer
 
-This is a personal, best-effort early-warning aid, not a substitute for official NWS/NOAA flood warnings. Do not rely on it as your sole source of flood safety information.
+This is a personal, best-effort early-warning aid, not a substitute for official NWS/NOAA
+flood warnings. Do not rely on it as your sole source of flood safety information.
