@@ -21,10 +21,11 @@ def test_topics_and_counts():
     binaries = [t for t, _ in pairs if "/binary_sensor/" in t]
     buttons = [t for t, _ in pairs if "/button/" in t]
     texts = [t for t, _ in pairs if "/text/" in t]
-    # 16 status/model (incl. Phase 3 lag series) + 8 (2a incl. API index) + 8 (2b)
-    # + 6 (2c) + 1 (2d) + 2 (2e) + 4 (2g radar cells) + 3 (2h WPC ERO) + 1 soil mean
-    # (migrated out of the HA package) + 1 storm-to-annotate (dashboard annotation)
-    assert len(sensors) == 50, len(sensors)
+    # 16 status/model (incl. Phase 3 lag series) + 1 local gauge rate-of-rise
+    # + 8 (2a incl. API index) + 8 (2b) + 6 (2c) + 1 (2d) + 2 (2e) + 4 (2g radar cells)
+    # + 3 (2h WPC ERO) + 1 soil mean (migrated out of the HA package)
+    # + 1 storm-to-annotate (dashboard annotation)
+    assert len(sensors) == 51, len(sensors)
     # 3 NWS flags + rain-on-snow + ponding + storm-in-progress + 11 watchdogs
     assert len(binaries) == 17, len(binaries)
     assert len(buttons) == 4, len(buttons)
@@ -106,10 +107,22 @@ def test_rain_and_qpf_sensors_present():
     assert cfgs["creek_qpf_24h"]["unit_of_measurement"] == "in"
 
 
+def test_local_gauge_rate_of_rise_sensor_present():
+    """Regression guard for the gap this closes: stage is published by the RFM69 gateway
+    directly, but rate_of_rise_in_min only ever lived inside the add-on process
+    (FeatureBuilder/tiers.py/model.py) with no HA-facing entity at all."""
+    pub, _ = build()
+    cfgs = {c["object_id"]: c for _, c in pub.configs()}
+    ror = cfgs["creek_rate_of_rise"]
+    assert ror["state_topic"] == "creek/features"
+    assert ror["unit_of_measurement"] == "in/min"
+    assert "rate_of_rise_in_min" in ror["value_template"]
+
+
 def test_publish_all_emits_retained_json():
     pub, published = build()
     pub.publish_all()
-    assert len(published) == 72
+    assert len(published) == 73
     for topic, payload, retain in published:
         assert retain is True
         json.loads(payload)  # valid JSON

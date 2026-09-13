@@ -83,7 +83,7 @@ class FeatureRow:
 
 # Features derived here rather than by a source. They are not in sources.FEATURE_KEYS, so
 # they must be added explicitly wherever the feature payload is assembled.
-DERIVED_KEYS = ("temp_f", "rain_on_snow_flag")
+DERIVED_KEYS = ("temp_f", "rain_on_snow_flag", "rate_of_rise_in_min")
 
 
 # Above this soil-moisture reading the low-lying areas are effectively saturated
