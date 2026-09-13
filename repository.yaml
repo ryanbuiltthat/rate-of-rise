@@ -3,6 +3,6 @@
 # Repositories -> paste https://github.com/ryanbuiltthat/rate-of-rise -> Add.
 # Supervisor then scans subfolders for a config.yaml (see creek_modeling/) and lists
 # each add-on, using the slug from inside that file.
-name: Rate of Rise
+name: ryanbuiltthat
 url: https://github.com/ryanbuiltthat/rate-of-rise
 maintainer: see repository owner
