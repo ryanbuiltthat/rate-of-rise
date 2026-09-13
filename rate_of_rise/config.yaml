@@ -1,0 +1,110 @@
+name: Rate of Rise
+version: "0.19.0"
+slug: rate_of_rise
+description: Flood-probability + predicted-stage inference and nightly retrain for the creek.
+url: https://github.com/ryanbuiltthat/rate-of-rise
+arch:
+  - amd64          # mini PC; add aarch64 only if the host changes
+startup: application # start after HA Core is up (needs the API + MQTT)
+boot: auto
+init: false          # s6-overlay from the base image is the init; run.sh is the service
+
+# --- Supervisor-granted capabilities ---
+homeassistant_api: true   # proxy to Core REST API at http://supervisor/core/api
+hassio_api: true          # (optional) Supervisor API, e.g. to read add-on/service info
+auth_api: false
+services:
+  - mqtt:need             # auto-discover the Mosquitto broker; creds injected at runtime
+map:
+  - addon_config:rw       # optional: human-editable configs/notes outside /data
+  - share:rw              # optional: drop Parquet exports where other tools can read them
+
+# --- User-configurable options (rendered as a form in the HA UI) ---
+options:
+  log_level: info
+  fast_loop_minutes: 5
+  nightly_retrain_hour: 3
+  mqtt_base_topic: creek
+  publish_prefix: creek          # -> sensor.creek_flood_probability, etc.
+  min_events_for_ml: 10          # gate: threshold model until >= N storms captured
+  # --- Storm detection (what counts as one storm) ---
+  # The event log is the input to the lag analysis, so these decide how that analysis
+  # sees the world. Too long a quiet window merges the afternoon's storms into the
+  # morning's; too short splits one storm in two. Tune against observed storms.
+  storm_start_rain_1h_in: 0.10       # on-site OR upstream 1 h rain that opens an event
+  storm_continue_rain_1h_in: 0.02    # below this the storm counts as paused
+  storm_quiet_hours: 6               # ...and after this long paused, it has ended
+  google_floods_api_key: ""
+  wu_api_key: ""
+  # --- Site-specific IDs: BLANK ON PURPOSE -------------------------------------------
+  # These three name the exact spot on the map, so they are not committed. Set them in the
+  # add-on's own configuration (Settings -> Add-ons -> Rate of Rise -> Configuration);
+  # Home Assistant stores add-on options outside this repo and keeps them across updates,
+  # so a running install is unaffected by these defaults being empty.
+  #
+  # nwm_reach_id     The NWM/NHDPlus reach carrying the creek at the sensor site. Find it
+  #                  at api.water.noaa.gov/nwps/v1/reaches, or leave blank to skip NWM.
+  # upstream_pws_ids Weather Underground PWS IDs upstream of the site, in the corridor that
+  #                  drains toward it. Spec §3 wants 3-5 to average over. Blank disables.
+  # nexrad_radar_id  The NEXRAD site covering the location (e.g. the four-letter ICAO id).
+  nwm_reach_id: ""
+  upstream_pws_ids: []
+  # --- HA input entities (Layer 1) ---
+  # Published by the RFM69 gateway (firmware/esp32_rfm69_gateway/gateway.base.yaml), which
+  # converts the node's raw distance into depth above the creekbed. Was sensor.creek_stage on
+  # the retired ESPHome node; that entity no longer exists, which is why stage read as stale.
+  stage_entity: sensor.creek_gateway_stage
+  soil_moisture_entities:
+    # Order is significant: [0] -> soil_moisture_near_house_pct, [1] -> ..._near_creek_pct.
+    # WH51 #1 — near the house, by the willow tree (low-lying, ponds early)
+    - sensor.outside_weather_station_soil_moisture_willow
+    # WH51 #2 — furthest from house, closest to the creek (low-lying, ponds early)
+    - sensor.outside_weather_station_soil_moisture_field
+  onsite_rain_rate_entity: sensor.outside_weather_station_rain_intensity
+  # NOTE: currently unused — parsed into Config and read by nothing. The rolling
+  # rain_{1,3,6,24,72}h_in features are integrated from onsite_rain_rate_entity by
+  # rain.py, not taken from this entity.
+  onsite_rain_daily_entity: sensor.outside_weather_station_rain_24hr
+  # Nearest USGS gauges (IDs in app/sources/usgs.py) — free, no key.
+  # Validation/lag reference only; not a stand-in for creek level.
+  usgs_downstream: true
+  # SNODAS snow water equivalent for the site's grid cell — free, no key. Feeds the
+  # rain-on-snow flag (spec §1); pair it with onsite_temp_entity for that to fire.
+  snodas_swe: true
+  # NEXRAD storm-cell tracks via IEM — free, no key. Inbound-cell early warning for
+  # the dominant W/NW approach, where storms hit the house before the upstream
+  # gauges see rain. Set nexrad_radar_id in the add-on config (see the note above).
+  nexrad_cells: true
+  nexrad_radar_id: ""
+  # WPC Excessive Rainfall Outlook for the site, via IEM's point service — free, no key.
+  # Grades forecast rain against flash-flood guidance (what the ground can absorb),
+  # which no other source here does, on a day-ahead horizon.
+  wpc_ero: true
+  onsite_temp_entity: sensor.outside_weather_station_outdoors_temp
+
+schema:
+  log_level: list(trace|debug|info|notice|warning|error|fatal)
+  fast_loop_minutes: int(1,60)
+  nightly_retrain_hour: int(0,23)
+  mqtt_base_topic: str
+  publish_prefix: str
+  min_events_for_ml: int(1,100)
+  storm_start_rain_1h_in: float(0.01,2.0)
+  storm_continue_rain_1h_in: float(0.0,1.0)
+  storm_quiet_hours: float(0.5,24.0)
+  google_floods_api_key: password?
+  wu_api_key: password?
+  nwm_reach_id: str?
+  upstream_pws_ids:
+    - str
+  stage_entity: str
+  soil_moisture_entities:
+    - str
+  onsite_rain_rate_entity: str?
+  onsite_rain_daily_entity: str?
+  usgs_downstream: bool
+  snodas_swe: bool
+  nexrad_cells: bool
+  nexrad_radar_id: str?
+  wpc_ero: bool
+  onsite_temp_entity: str?

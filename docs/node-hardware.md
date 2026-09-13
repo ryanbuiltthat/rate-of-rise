@@ -250,7 +250,7 @@ The chemistry is not the problem. The charger is.
    pack voltage with the panel unplugged.
    **One panel is enough.** 7 W with MPPT already covers the season, so a second adds area
    the budget does not need. The one case that justifies two is *shading diversity* — a
-   creekside pole under a cherry tree is a partial-shade site, and shade moves across the
+   creekside pole under tree cover is a partial-shade site, and shade moves across the
    day rather than scaling with area, so two panels aimed differently (SE/SW) beat one
    larger panel aimed one way. Side by side facing the same direction is strictly worse
    than a single panel of the same total area. If paralleling: identical panels (one MPPT

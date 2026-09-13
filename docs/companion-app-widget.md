@@ -1,7 +1,7 @@
 # Companion-app home screen widget — Creek Alert Tier
 
 A phone home-screen widget showing the current alert tier, styled to match the add-on's own
-branding (`creek_modeling/icon.png` / `logo.png`): amber header, tier-colored headline, the
+branding (`rate_of_rise/icon.png` / `logo.png`): amber header, tier-colored headline, the
 same tier glyphs already used on the [dashboard](../dashboards/creek_flood_watch.yaml) and in
 the [tier-change push](../ha-packages/creek_warning.yaml).
 
@@ -15,7 +15,7 @@ Option names below are from the companion app's own docs
 
 ## Brand palette
 
-Sampled directly from `creek_modeling/icon.png` / `logo.png`, not eyeballed:
+Sampled directly from `rate_of_rise/icon.png` / `logo.png`, not eyeballed:
 
 | Hex | Used for |
 |---|---|
@@ -51,18 +51,18 @@ supported tags: `<br>`, `<b>`, `<big>`, `<font color='#RRGGBB'>`, and
    just concatenates the two), then paste:
 
    ```jinja2
-   {% set e = 'sensor.creek_modeling_creek_alert_tier' %}
+   {% set e = 'sensor.rate_of_rise_creek_alert_tier' %}
    {% set tier = states(e) %}
    {% set dead = tier in ['unknown', 'unavailable'] %}
    {% set glyph = {'0': '✅', '1': '🌧️', '2': '👀', '3': '⚠️', '4': '🚨'}.get(tier, '❔') %}
    {% set color = {'0': '#6CC4E8', '1': '#3D9BD4', '2': '#F2A900', '3': '#F2A900', '4': '#E5484D'}.get(tier, '#F2A900') %}
    {% set headline = 'No data — add-on offline' if dead else (state_attr(e, 'label') or 'Unknown') ~ ' · Tier ' ~ tier %}
-   {% set reason = 'Check the Creek Modeling add-on' if dead else (state_attr(e, 'why') if (tier != '0' and state_attr(e, 'why')) else 'No elevated flood risk') %}
+   {% set reason = 'Check the Rate of Rise add-on' if dead else (state_attr(e, 'why') if (tier != '0' and state_attr(e, 'why')) else 'No elevated flood risk') %}
    {{ [
         "<font color='#F2A900'><b>CREEK</b></font>",
         "<font color='" ~ color ~ "'><big>" ~ glyph ~ " " ~ headline ~ "</big></font>",
         reason,
-        '' if dead else states('sensor.creek_modeling_creek_flood_probability') ~ '% flood probability'
+        '' if dead else states('sensor.rate_of_rise_creek_flood_probability') ~ '% flood probability'
       ] | reject('equalto', '') | join('<br>') }}
    ```
 
@@ -105,14 +105,14 @@ iOS has no HTML and no Template widget, but **Custom Widgets (BETA)** expose exa
 fields Android's are missing — "icon, icon color, display text, text color, background
 color" — so the navy card *is* reachable there. Set background `#0D3B54`, text `#F0F6FA`,
 icon color `#F2A900`, and point the widget at
-`sensor.creek_modeling_creek_alert_tier`.
+`sensor.rate_of_rise_creek_alert_tier`.
 
 The non-beta alternatives:
 
 - **Details** — up to 3 templated lines. Use the tier, the reason
-  (`sensor.creek_modeling_creek_tier_reason`), and the probability.
+  (`sensor.rate_of_rise_creek_tier_reason`), and the probability.
 - **Gauge** — templated "Value template" / "Value label template", a good fit for
-  `sensor.creek_modeling_creek_flood_probability` (0–100).
+  `sensor.rate_of_rise_creek_flood_probability` (0–100).
 - **Sensors** — plain values, ~15 minute update interval.
 
 Icons need no matching work: these entities already carry the `mdi:` icons the add-on
@@ -124,7 +124,7 @@ icon rather than a copy of it.
 - Every widget here is a read-only display. The actual alerting — critical push, alarm-stream
   sound, persistent notification — is the `creek_tier_change` automation in
   `ha-packages/creek_warning.yaml`; see
-  [DOCS.md](../creek_modeling/DOCS.md#companion-home-assistant-config). Don't rely on a
+  [DOCS.md](../rate_of_rise/DOCS.md#companion-home-assistant-config). Don't rely on a
   widget being looked at during a storm; rely on the push.
 - Tier 0 always reads "No elevated flood risk" even if `why` is populated — the same guard
   the dashboard's markdown card uses, so an all-clear never echoes a stale reason.

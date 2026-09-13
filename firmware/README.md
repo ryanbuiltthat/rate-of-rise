@@ -623,7 +623,7 @@ fixed separately — the gateway now derives depth, and `stage_entity` in the ad
 
 ## Integration with the modeling add-on
 
-The modeling add-on (`creek_modeling/`) reads creek stage from an HA entity. The gateway
+The modeling add-on (`rate_of_rise/`) reads creek stage from an HA entity. The gateway
 publishes distance in millimetres from the sensor to the water surface, not stage — the
 `distance_mm` → `stage_ft` conversion against the mount-height datum still has to happen
 somewhere, either as an HA template sensor or inside the add-on. Point the add-on's

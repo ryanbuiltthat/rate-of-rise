@@ -2,7 +2,7 @@
 
 What to do when a storm hits. Checklist form — meant to be readable on a phone at 2 am.
 
-> **ewfa now pushes to your phone — but do not treat it as your alarm clock.** Tier 2
+> **Rate of Rise now pushes to your phone — but do not treat it as your alarm clock.** Tier 2
 > (Watch) and above send a critical push on Android's alarm stream; below that, an
 > ordinary notification. Getting it through **Do Not Disturb needs a one-time permission
 > granted on each phone by hand** — it is not Android's default and no config here can
@@ -72,21 +72,21 @@ Storm events don't close until the quiet window has elapsed (6 h by default —
       **SSH & Web Terminal** add-on, no `docker exec`, no protection-mode toggle:
 
 ```sh
-sqlite3 /share/creek_modeling/events.sqlite \
+sqlite3 /share/rate_of_rise/events.sqlite \
   "SELECT id, datetime(started_ts,'unixepoch','localtime') AS started, ended_ts, notes
      FROM storm_events ORDER BY id DESC LIMIT 5;"
 
-sqlite3 /share/creek_modeling/events.sqlite \
+sqlite3 /share/rate_of_rise/events.sqlite \
   "UPDATE storm_events SET notes='crest ~40min after upstream peak; culvert full; basement dry'
      WHERE id=3;"
 ```
 
-Same path over Samba if you'd rather use a GUI SQLite browser: `\\<ha-host>\share\creek_modeling\`.
+Same path over Samba if you'd rather use a GUI SQLite browser: `\\<ha-host>\share\rate_of_rise\`.
 
 Either way, put the times from *During* in the notes. That's what calibrates the lag.
 
 - [ ] Judge the tiers: did it fire? too early, too late, not at all? Note it — every
-      threshold in `creek_modeling/app/tiers.py` and `app/storms.py` is a placeholder, and
+      threshold in `rate_of_rise/app/tiers.py` and `app/storms.py` is a placeholder, and
       an observed storm is the only thing that can move them off literature defaults.
 - [ ] Check **Storms recorded** on the Operator tab against `min_events_for_ml` (10).
 
@@ -103,7 +103,7 @@ Either way, put the times from *During* in the notes. That's what calibrates the
 | | |
 |---|---|
 | Storm detection | opens at 0.10 in/h rain (on-site or upstream), closes after 6 h quiet — all three tunable (`storm_start_rain_1h_in`, `storm_continue_rain_1h_in`, `storm_quiet_hours`) |
-| Event log | peaks + onset conditions written to `/share/creek_modeling/events.sqlite`, survives restarts |
+| Event log | peaks + onset conditions written to `/share/rate_of_rise/events.sqlite`, survives restarts |
 | Tier evaluation | every 5 min; active NWS products floor the tier |
 | Dataset | JSONL parts per fast loop, consolidated to Parquet nightly |
 

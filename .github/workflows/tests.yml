@@ -20,7 +20,7 @@ jobs:
           # ships Python 3.11, so CI runs what the add-on actually runs.
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: creek_modeling/requirements.txt
+          cache-dependency-path: rate_of_rise/requirements.txt
 
       - name: Install dependencies
         # Installing the real requirements.txt doubles as a smoke test of the file the
@@ -32,7 +32,7 @@ jobs:
         # image for nothing.
         run: |
           python -m pip install --upgrade pip
-          pip install -r creek_modeling/requirements.txt
+          pip install -r rate_of_rise/requirements.txt
           pip install pyyaml jinja2
 
       - name: Run test suite
@@ -41,7 +41,7 @@ jobs:
         # fails, so a red build reports all the damage rather than just the first.
         run: |
           fail=0
-          for t in creek_modeling/tests/test_*.py; do
+          for t in rate_of_rise/tests/test_*.py; do
             echo "::group::$t"
             if python "$t"; then :; else echo "::error file=$t::test suite failed"; fail=1; fi
             echo "::endgroup::"
@@ -61,7 +61,7 @@ jobs:
           Loader.add_multi_constructor("!", lambda l, suffix, node: None)
 
           bad = []
-          for p in ["creek_modeling/config.yaml", "creek_modeling/build.yaml",
+          for p in ["rate_of_rise/config.yaml", "rate_of_rise/build.yaml",
                     "repository.yaml", "dashboards/creek_flood_watch.yaml",
                     "ha-packages/creek_warning.yaml", ".github/workflows/tests.yml",
                     "firmware/esp32_rfm69_gateway/gateway.base.yaml"]:
@@ -74,7 +74,7 @@ jobs:
               print("\n".join(f"::error::{b}" for b in bad))
               sys.exit(1)
           PY
-          bash -n creek_modeling/run.sh && echo "ok   creek_modeling/run.sh"
+          bash -n rate_of_rise/run.sh && echo "ok   rate_of_rise/run.sh"
 
       - name: Check the add-on version has a changelog entry
         # Every option default and behaviour change in this repo ships as a version bump —
@@ -84,8 +84,8 @@ jobs:
           python - <<'PY'
           import sys, pathlib, yaml
           version = yaml.safe_load(
-              pathlib.Path("creek_modeling/config.yaml").read_text(encoding="utf-8"))["version"]
-          changelog = pathlib.Path("creek_modeling/CHANGELOG.md").read_text(encoding="utf-8")
+              pathlib.Path("rate_of_rise/config.yaml").read_text(encoding="utf-8"))["version"]
+          changelog = pathlib.Path("rate_of_rise/CHANGELOG.md").read_text(encoding="utf-8")
           if f"\n## {version}\n" not in changelog:
               print(f"::error::config.yaml is version {version} "
                     f"but CHANGELOG.md has no '## {version}' section")

@@ -1,22 +1,25 @@
 # Creek Flood Early-Warning System — Project Specification
 
-**Location:** the headwaters township, the US Northeast (`<site lat>`,`<site lon>`), mid-watershed on the creek
+**Location:** Lackawanna County, northeastern Pennsylvania (`<site lat>`,`<site lon>`), mid-watershed on the creek
 **Motivation:** Prior 100-year storm event caused 40" of basement flooding. Goal is a tiered early-warning system that predicts flood *probability* before water rises — not just threshold alarms.
 
 ---
 
 ## 1. Watershed Context
 
-- Creek: ~8.7 mi long, ~18 mi² basin, flows NW from headwaters swamp in the headwaters township through upstream, upstream, an upstream village, joining the South Branch at the confluence village.
-- Sensor site is mid-watershed; upstream drainage (~half the basin) lies SE toward the upstream.
+- Creek: ~8.7 mi long, ~18 mi² basin in Lackawanna County, northeastern Pennsylvania. Flows
+  NW from a headwaters swamp, through several small upstream communities, to its confluence
+  with a larger creek.
+- Sensor site is mid-watershed; upstream drainage (~half the basin) lies SE toward the
+  upstream half of the watershed.
 - **No official gauge exists on the creek.** USGS `<usgs wq 1>` (an upstream village) and `<usgs wq 2>` (an upstream village) are water-quality sites only. ~~USGS `<usgs bad id>` (a nearby reach)~~ **does not exist** — NWIS returns "no sites found" for that number; it was a bad ID, not a retired gauge. The nearest gauges that actually publish continuous instantaneous values are:
-  - **USGS `<usgs downstream>`** — receiving river, downstream city (~7 mi SE). Adjacent basin, but the adjacent creek drains the same the upstream upland that forms the creek's upstream half, so it sees substantially the same rain. Best available response analog.
-  - **USGS `<usgs adjacent>`** — receiving creek, adjacent basin (~11 mi W). The receiving system downstream of the confluence; much larger drainage, longer lag.
-  - SRBC CIM at the confluence village — downstream.
+  - **USGS `<usgs downstream>`** — a receiving river downstream (~7 mi SE). An adjacent basin, but it drains the same upstream upland that forms the creek's upstream half, so it sees substantially the same rain. Best available response analog.
+  - **USGS `<usgs adjacent>`** — a receiving creek in an adjacent basin (~11 mi W), downstream of the confluence; much larger drainage, longer lag.
+  - SRBC CIM near the confluence — downstream.
 
   All are off-basin or downstream: useful for validation and for empirically estimating the rainfall→response lag, never as a stand-in for creek stage.
 - Flashy small basin: expected rainfall-to-crest lag is likely tens of minutes to a few hours. This lag is the warning window; empirically measuring it is a core project outcome.
-- Regional hazard note: the region rain-on-snow events are a major flood driver; snowpack state must be a model input (via SNODAS data, no hardware).
+- Regional hazard note: rain-on-snow events are a major flood driver in this region; snowpack state must be a model input (via SNODAS data, no hardware).
 
 ## 2. Hardware (on hand unless noted)
 
@@ -30,7 +33,7 @@
 | CN3791 1S MPPT solar charger + panel + 1S Li-ion pack (18650) | Creek node power. MPPT recovers the ~33% the linear bq24074 burns going 6 V → 4 V; closes the December surplus gap (open question #12). | **To purchase** (CN3791 module). Pack sizing: open questions #11-12. |
 | Ecowitt weather station (uploads to Weather Underground) | On-site rain, temp, wind | Installed |
 | Ecowitt WH51 soil moisture ×2 | Antecedent wetness | **Installed (×2)** |
-| Aluminum pole on large cherry tree at water's edge, guy-wired above | Sensor mount | **Built** (see mounting geometry below) |
+| Aluminum pole at the creek's edge (property low point), guy-wired above | Sensor mount | **Built** (see mounting geometry below) |
 | Submersible pressure transducer (4–20 mA, stilling pipe) | Dissimilar-redundancy backup level sensor | Future phase |
 | Creek camera (solar WiFi or PoE) | Visual confirmation, storm archive | Future phase |
 
@@ -85,9 +88,9 @@
 | Creek node (Moteino M0 → RFM69 → ESP32 gateway → ESPHome API) | HA entities `sensor.creek_gateway_stage` (ft), `sensor.creek_gateway_creek_depth` (in), `sensor.creek_gateway_creek_node_battery` | Real-time stage; the ground truth |
 | Ecowitt local integration in HA | — | Real-time on-site rain, soil moisture (WH51) |
 | Weather.com / WU PWS API | Key already held (via Ecowitt→WU upload; key in WU member settings) | Upstream neighbor PWS rainfall: the upstream corridor. Stations in use: `<upstream PWS 1>`, `<upstream PWS 2>` (open question #4 — 2 of the 3–5 wanted). |
-| NWS `api.weather.gov` | None (User-Agent header) | Gridded QPF (forecast precip) for `<site lat>`,`<site lon>`; active Flood Watch/Warning products for regional County |
-| NOAA NWPS API `api.water.noaa.gov/nwps/v1` | None | National Water Model reach forecast for the Creek segment — reach `<nwm reach id>` (open question #3, resolved) |
-| USGS Water Services | None | Instantaneous values — gauges `<usgs downstream>` (regional bl the adjacent creek Ck) and `<usgs adjacent>` (regional Ck); see §1 |
+| NWS `api.weather.gov` | None (User-Agent header) | Gridded QPF (forecast precip) for `<site lat>`,`<site lon>`; active Flood Watch/Warning products for the county |
+| NOAA NWPS API `api.water.noaa.gov/nwps/v1` | None | National Water Model reach forecast for the creek segment — reach `<nwm reach id>` (open question #3, resolved) |
+| USGS Water Services | None | Instantaneous values — gauges `<usgs downstream>` (downstream reach) and `<usgs adjacent>` (adjacent-basin reach); see §1 |
 | Google Flood Forecasting API `floodforecasting.googleapis.com` | Google Cloud project + enable API + API key (pilot signup may apply) | `gauges:searchGaugesByArea` over watershed polygon → find real/virtual (hybas) gauges incl. non-quality-verified; gauge model thresholds (warning/danger/extreme); flood status; `v1.flashFloods` |
 | SNODAS (NOHRSC) | None | Snow water equivalent for grid cell — rain-on-snow feature |
 
@@ -122,7 +125,7 @@
 
 ## 6. Alert Tiers
 
-Implemented in `creek_modeling/app/tiers.py`, which emits the four escalation tiers below
+Implemented in `rate_of_rise/app/tiers.py`, which emits the four escalation tiers below
 *plus* the explicit all-clear this section calls for — so the published scale is 0–4, with
 the tier number one higher than this table's original 0–3 numbering:
 
@@ -230,16 +233,16 @@ Pressure-transducer redundancy + divergence alarm; creek camera; HACS integratio
 
 ### A.2 Add-on layout
 
-The add-on **source** lives in the repo at `creek_modeling/` (per the README repo structure).
+The add-on **source** lives in the repo at `rate_of_rise/` (per the README repo structure).
 Preferred install is via the **Git-based add-on repository** (add the repo URL in
 **Settings → Add-ons → Add-on Store → ⋮ → Repositories**), which enables GUI install and
 versioned updates. It can also run as a **local add-on**: copy that folder into the HAOS
-`/addons/` directory as `/addons/creek_modeling/` (via the Samba or SSH add-on, or
-`addon_config`), where it appears under **Settings → Add-ons → Local add-ons**. (Repo dir =
-`creek_modeling/`; local install target = `/addons/creek_modeling/` — same files.)
+`/addons/` directory as `/addons/rate_of_rise/` (via the Samba or SSH add-on, or
+`addon_config`), where it appears under **Settings → Add-ons → Local add-ons**. (Repo dir = 
+`rate_of_rise/`; local install target = `/addons/rate_of_rise/` — same files.)
 
 ```text
-modeling/                # repo source (installs to HAOS /addons/creek_modeling/)
+rate_of_rise/            # repo source (installs to HAOS /addons/rate_of_rise/)
 ├── config.yaml          # add-on manifest + options schema
 ├── build.yaml           # per-arch BUILD_FROM (Debian base)
 ├── Dockerfile           # build recipe (HA base image + Python deps)
@@ -259,9 +262,9 @@ modeling/                # repo source (installs to HAOS /addons/creek_modeling/
 ### A.3 `config.yaml` manifest (with options schema)
 
 ```yaml
-name: Creek Modeling
+name: Rate of Rise
 version: "0.1.0"
-slug: creek_modeling
+slug: rate_of_rise
 description: Flood-probability + predicted-stage inference and nightly retrain for the creek.
 url: https://github.com/ryanbuiltthat/rate-of-rise
 arch:
@@ -374,7 +377,7 @@ fi
 export DATA_DIR="/data"          # dataset.parquet, model registry, accumulator state
 mkdir -p "${DATA_DIR}/models" "${DATA_DIR}/datasets"
 export SHARE_DIR="/share"        # events.sqlite — hand-annotated, so not add-on-private
-mkdir -p "${SHARE_DIR}/creek_modeling"
+mkdir -p "${SHARE_DIR}/rate_of_rise"
 
 bashio::log.info "Starting Creek modeling service (fast loop ${FAST_LOOP_MINUTES}m)…"
 exec python3 -m app
@@ -418,7 +421,7 @@ Supervisor bind-mounts a per-add-on volume at `/data` that persists across resta
 The storm event log is the one exception, and lives in the shared volume instead:
 
 ```text
-/share/creek_modeling/events.sqlite   # annotated storm event log (§7 Phase 3)
+/share/rate_of_rise/events.sqlite   # annotated storm event log (§7 Phase 3)
 ```
 
 `/data` is private to each add-on, which makes it the wrong home for the only file the
@@ -468,12 +471,12 @@ pipeline is most useful *now*. Stock cards + the Prism theme; no custom frontend
 ### B.1a Auto-provisioning via MQTT Discovery
 
 The add-on publishes retained MQTT-discovery configs
-(`homeassistant/<component>/creek_modeling/<slug>/config`) for all of its `creek_*` sensors
-and command buttons, grouped under an **Creek Modeling** device. HA creates/updates
+(`homeassistant/<component>/rate_of_rise/<slug>/config`) for all of its `creek_*` sensors
+and command buttons, grouped under a **Rate of Rise** device. HA creates/updates
 them with no package or `configuration.yaml` edit, and they re-publish on every reconnect so
 they track add-on updates. This supersedes the earlier "define them in a HA package" approach.
 Because each entity carries a `device` block, HA prefixes the device name when minting entity
-IDs — `sensor.creek_modeling_creek_flood_probability`.
+IDs — `sensor.rate_of_rise_creek_flood_probability`.
 
 The soil-moisture mean, the ponding flag and the sensor-fault watchdogs were migrated here
 too: the add-on already computed the first two, and it can see source liveness and input
@@ -495,9 +498,12 @@ is live now; loading the `.pkl` artifact stays the Phase-4 stub (§5).
 
 ### B.3 HA entities & dashboard
 
-`ha-packages/creek_modeling.yaml` defines the MQTT sensors for every output/status topic,
-four MQTT `button` entities for the commands, a placeholder `sensor.creek_alert_tier` (§6),
-and sensor-fault "stale" watchdogs (§4). `dashboards/creek_flood_watch.yaml` presents two
+Superseded by §B.1a: the MQTT sensors for every output/status topic, the four command
+buttons, `sensor.creek_alert_tier` (§6), and the sensor-fault "stale" watchdogs (§4) are
+auto-provisioned by the add-on itself (`app/discovery.py`) rather than defined in a
+`ha-packages/` file — `ha-packages/creek_modeling.yaml` was removed once MQTT Discovery
+replaced it (0.3.0). `ha-packages/creek_warning.yaml` is what remains, for the two things
+that genuinely cannot live in the add-on. `dashboards/creek_flood_watch.yaml` presents two
 views: a glanceable **household** view (tier + probability gauge + creek trend + plain-language
 status) and an **operator** view (controls, pipeline/model status, ingestion-health with
 staleness, and a candidate-vs-active model review).
@@ -522,7 +528,7 @@ merges them into the feature row and respects a per-source refresh interval with
 caching (a source that errors returns its cached value / `None`, never crashing the loop).
 All rainfall features are normalized to **inches**. The merged features are published on
 `creek/features` (one retained JSON) and written into the widened `FeatureRow`/dataset; each
-is an MQTT-discovery sensor under the *Creek Modeling* device. Location (lat/lon) is
+is an MQTT-discovery sensor under the *Rate of Rise* device. Location (lat/lon) is
 read once from HA `/api/config` — no new option.
 
 ### C.2 Sources (delivered in two slices)
@@ -558,7 +564,7 @@ read once from HA `/api/config` — no new option.
   instruments do not, which matters most while the creek gauge is missing.
 - **2e — SNODAS snowpack (done):** `snodas.py` (snow water equivalent for the site's grid
   cell, read straight from the gridded masked product since NOHRSC exposes no point API).
-  Combined with temperature into the rain-on-snow flag §1 calls out as a major the region driver.
+  Combined with temperature into the rain-on-snow flag §1 calls out as a major regional driver.
 - **2f — Antecedent Precipitation Index (done):** `apindex.py`, an exponentially-decaying
   rainfall memory riding on the on-site rain samples. Complements the two WH51 probes with a
   basin-wide view of how wet the ground already is.
