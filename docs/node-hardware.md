@@ -46,9 +46,13 @@ to the creekbed. Depth is then `installation_height − distance`, published by 
 `sensor.creek_gateway_stage` (ft, what `app/tiers.py` thresholds against) and
 `sensor.creek_gateway_creek_depth` (in, the readable one).
 
-Surveyed 2026-09-12 at **1105 mm (43.5 in)**, which puts the sensor ~6 in above bank top. The
-number is `restore_value: true`, so it survives reboots and reflashes; if the pole is ever
-moved, re-measure face-to-bed and set the number — nothing else needs to change.
+Surveyed 2026-09-12 at **1105 mm (43.5 in)**. Bank top at the sensor location was re-measured
+2026-09-14 at 44.25 in above the creekbed — higher than the earlier ~37.5 in eyeball estimate
+— which puts the sensor face ~0.75 in *below* bank top, not ~6 in above it. A short pole
+extension to raise the install height is planned this week; installation height is unchanged
+for now. The number is `restore_value: true`, so it survives reboots and reflashes; if the
+pole height ever changes, re-measure face-to-bed and set the number — nothing else needs to
+change.
 
 Because the datum is the bed rather than a low-water surface, depth reads as true water depth
 and reads ~0 when the creek is dry, not negative.

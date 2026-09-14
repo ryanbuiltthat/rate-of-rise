@@ -103,7 +103,7 @@ WARNING_PROBABILITY = 0.50
 WARNING_RATE_OF_RISE_CONFIRM_SAMPLES = 2
 
 # --- Tier 4 Emergency: overbank imminent (gauge required) ---
-EMERGENCY_STAGE_FT = 2.5           # bank top minus a 6 in margin
+EMERGENCY_STAGE_FT = 2.5           # bank top (3.69 ft, surveyed 2026-09-14) minus ~14 in margin
 EMERGENCY_PROBABILITY = 0.80
 
 # --- NWS product force-promotion floors (spec §6) ---
