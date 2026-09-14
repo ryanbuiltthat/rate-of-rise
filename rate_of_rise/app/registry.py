@@ -114,6 +114,12 @@ class ModelRegistry:
             "history": [h.get("version") or THRESHOLD_LABEL
                         for h in self._data.get("history", [])],
             "event_count": self.event_count,
+            # Published as an attribute of the Active Model sensor, so "this model was
+            # never scored" stays on the dashboard for as long as it is active. The
+            # command result that said so at promote time scrolls away; the model does
+            # not. True with nothing active — the threshold estimate makes no claim a
+            # held-out split could check, so flagging it would be noise.
+            "active_validated": not self.warning(),
         }
 
     # --- writes ----------------------------------------------------------
@@ -130,32 +136,28 @@ class ModelRegistry:
         }
         self._save()
 
-    def promote(self, force: bool = False) -> str:
+    def promote(self) -> str:
         """Make the candidate the active model.
 
         The outgoing state is always pushed to the front of `history` — including the
         "no ML model" state, recorded as a null version — so every promotion has
         somewhere to roll back to. Returns the newly-active version.
 
-        Refuses an unvalidated candidate unless `force`. A promoted model's probability
-        alone raises Tier 3 at WARNING_PROBABILITY and Tier 4 at EMERGENCY_PROBABILITY
-        (`tiers.py`), so promoting one whose held-out split could not score it hands the
-        alarm to something nothing has checked. That is not a hypothetical: the first
-        candidate this add-on ever produced scored `test_positives: 0` on 19 test rows,
-        and promoting it raised a Warning on the next inference. `force` exists because
-        the operator may still have a reason — a deliberate trial on a quiet day — but it
-        has to be asked for rather than being one press of a dashboard button.
+        Promoting an unvalidated candidate warns rather than refuses. The warning is
+        worth making loud: a promoted model's probability alone raises Tier 3 at
+        WARNING_PROBABILITY and Tier 4 at EMERGENCY_PROBABILITY (`tiers.py`), so a model
+        whose held-out split could not score it is driving the alarm on nobody's say-so.
+        That is not hypothetical — the first candidate this add-on produced scored
+        `test_positives: 0` on 19 test rows and raised a Warning on the next inference.
+        But refusing would put the operator's own judgement behind a gate they cannot
+        open, so the call stays theirs; `warning()` carries the caveat, and
+        `snapshot()["active_validated"]` keeps it visible for as long as the model is
+        active rather than only at the moment of the press.
         """
         candidate = self._data.get("candidate")
         if not candidate:
             raise RegistryError("no candidate to promote")
         metrics = candidate.get("metrics", {})
-        if not force and not is_validated(metrics):
-            raise RegistryError(
-                f"{candidate['version']} has not been validated "
-                f"({metrics.get('note') or f'no {VALIDATION_METRIC} in its metrics'}) — "
-                f"a promoted model can raise Tier 3/4 on its own, so this needs an "
-                f"explicit override: send 'force' as the promote command's payload")
 
         # dict(... or {"version": None}) is the whole fix for "no history to roll back
         # to": before, an absent active recorded nothing, so the first promotion could
@@ -170,9 +172,27 @@ class ModelRegistry:
         }
         self._data["candidate"] = None
         self._save()
-        log.info("Promoted %s to active%s", self._data["active"]["version"],
-                 " (forced — unvalidated)" if force else "")
-        return self._data["active"]["version"]
+        version = self._data["active"]["version"]
+        caveat = self.warning()
+        if caveat:
+            log.warning("Promoted %s to active — %s", version, caveat)
+        else:
+            log.info("Promoted %s to active", version)
+        return version
+
+    def warning(self) -> str | None:
+        """What is worth telling the operator about the active model, or None.
+
+        Only one caveat today: the active model was never scored. Phrased as a whole
+        sentence because it is published verbatim — a command result the operator reads
+        once, and a sensor attribute they can read at any time afterwards.
+        """
+        active = self._data.get("active")
+        if not active or is_validated(active.get("metrics")):
+            return None
+        note = active.get("metrics", {}).get("note") or f"no {VALIDATION_METRIC} in its metrics"
+        return (f"{active['version']} was never validated ({note}); its probability alone "
+                f"can raise Tier 3/4, so watch the first tiers it produces")
 
     def rollback(self) -> str | None:
         """Undo a promote: restore the previous active, or the threshold estimate.

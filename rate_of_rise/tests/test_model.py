@@ -57,19 +57,13 @@ def test_defaults_to_threshold_with_no_active_version():
     assert model.predict(row()).method == "threshold"
 
 
-# promote(force=True) throughout: every promotion here is of a placeholder or of a model
-# fit on a small synthetic fixture, neither of which carries the roc_auc that
-# ModelRegistry.promote demands unforced. These tests are about artifact loading and live
-# refresh, not about the validation gate — test_registry.py owns that.
-
-
 def test_fails_open_when_the_registry_names_a_version_with_no_artifact_on_disk():
     """A hand-edited or corrupted registry.json must not take inference down —
     the artifact file simply is not there, and predict() must fall back cleanly."""
     d = Path(tempfile.mkdtemp())
     registry = ModelRegistry(d)
     registry.set_candidate("ghost-version", {})
-    registry.promote(force=True)
+    registry.promote()
     registry.set_event_count(999)   # clear the event gate so only the artifact matters
     model = Model(Config(), registry, d)
     assert model.active_method == "threshold"
@@ -81,7 +75,7 @@ def test_event_gate_holds_even_with_a_real_artifact_promoted():
     registry = ModelRegistry(d)
     result = _trained_artifact(d)
     registry.set_candidate(result.version, result.metrics)
-    registry.promote(force=True)
+    registry.promote()
     registry.set_event_count(Config().min_events_for_ml - 1)   # below the gate
     model = Model(Config(), registry, d)
     assert model.active_method == "threshold"
@@ -92,7 +86,7 @@ def test_uses_the_promoted_artifact_once_both_gates_are_clear():
     registry = ModelRegistry(d)
     result = _trained_artifact(d)
     registry.set_candidate(result.version, result.metrics)
-    registry.promote(force=True)
+    registry.promote()
     registry.set_event_count(Config().min_events_for_ml)
     model = Model(Config(), registry, d)
     assert model.active_method == f"ml:{result.version}"
@@ -114,7 +108,7 @@ def test_promote_takes_effect_without_reconstructing_model():
 
     result = _trained_artifact(d)
     registry.set_candidate(result.version, result.metrics)
-    registry.promote(force=True)                # mutates the registry Model already holds
+    registry.promote()                          # mutates the registry Model already holds
 
     assert model.active_method == f"ml:{result.version}"
     assert model.predict(row()).method == f"ml:{result.version}"
@@ -130,10 +124,10 @@ def test_rollback_also_takes_effect_live():
     # placeholder with no real artifact file first (Model reads this as "threshold",
     # same as test_fails_open_... above), then promote a real one over it.
     registry.set_candidate("placeholder-v0", {})
-    registry.promote(force=True)
+    registry.promote()
     result = _trained_artifact(d)
     registry.set_candidate(result.version, result.metrics)
-    registry.promote(force=True)   # pushes placeholder-v0 into history
+    registry.promote()      # pushes placeholder-v0 into history
 
     model = Model(Config(), registry, d)
     assert model.active_method == f"ml:{result.version}"

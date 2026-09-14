@@ -11,8 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.registry import THRESHOLD_LABEL, ModelRegistry, RegistryError  # noqa: E402
 
-# Every candidate below carries roc_auc unless a test is specifically about the
-# validation gate — promote() refuses an unscored candidate without `force`.
+# Stands in for a candidate a held-out split could actually score, so the pointer
+# tests below promote without tripping the unvalidated-model warning.
 VALIDATED = {"roc_auc": 0.8}
 
 
@@ -116,37 +116,52 @@ def test_rollback_recovers_a_registry_written_before_the_history_fix():
     assert ModelRegistry(tmp).active_version is None    # and it persisted
 
 
-def test_promote_refuses_a_candidate_with_no_validation():
+def test_promote_warns_but_still_activates_an_unvalidated_candidate():
     """The metrics from the field: a test split with no positives in it, so nothing
-    scored the model — yet promoting it put it in charge of Tier 3."""
+    scored the model — yet promoting it put it in charge of Tier 3. The operator keeps
+    the call; what they must not get is silence."""
     reg, _ = fresh_registry()
     reg.set_candidate("gbm-unscored", {
         "test_rows": 19, "test_positives": 0,
         "note": "test split is single-class; precision/recall/AUC undefined",
         "train_rows": 181, "train_positives": 36})
-    try:
-        reg.promote()
-    except RegistryError as exc:
-        assert "not been validated" in str(exc)
-        assert "single-class" in str(exc)      # says *why*, not just "no"
-    else:
-        raise AssertionError("expected RegistryError")
-    assert reg.active_version is None          # nothing was activated
-    assert reg.snapshot()["candidate_version"] == "gbm-unscored"   # and nothing lost
-
-
-def test_promote_force_overrides_the_validation_gate():
-    reg, _ = fresh_registry()
-    reg.set_candidate("gbm-unscored", {"note": "test split empty after embargo"})
-    assert reg.promote(force=True) == "gbm-unscored"
+    assert reg.promote() == "gbm-unscored"     # allowed
     assert reg.active_version == "gbm-unscored"
-    assert reg.rollback() is None              # and a forced promote is still undoable
+
+    caveat = reg.warning()
+    assert caveat is not None
+    assert "never validated" in caveat
+    assert "single-class" in caveat            # says *why*, not just "unvalidated"
+    assert "Tier 3/4" in caveat                # and what it costs
+    assert reg.snapshot()["active_validated"] is False
 
 
-def test_promote_accepts_a_candidate_the_split_could_score():
+def test_a_scored_candidate_promotes_without_a_warning():
     reg, _ = fresh_registry()
     reg.set_candidate("gbm-scored", {"roc_auc": 0.82, "hit_rate": 0.7})
-    assert reg.promote() == "gbm-scored"       # no force needed
+    assert reg.promote() == "gbm-scored"
+    assert reg.warning() is None
+    assert reg.snapshot()["active_validated"] is True
+
+
+def test_the_warning_clears_when_the_model_is_rolled_back_out():
+    reg, _ = fresh_registry()
+    reg.set_candidate("gbm-unscored", {"note": "test split empty after embargo"})
+    reg.promote()
+    assert reg.warning() is not None
+    assert reg.rollback() is None              # back to the threshold estimate
+    # The threshold estimate makes no claim a held-out split could check, so it is not
+    # "unvalidated" — it is a different kind of answer, and flagging it would be noise.
+    assert reg.warning() is None
+    assert reg.snapshot()["active_validated"] is True
+
+
+def test_an_unvalidated_promotion_is_still_undoable():
+    reg, _ = fresh_registry()
+    reg.set_candidate("gbm-unscored", {"note": "test split empty after embargo"})
+    reg.promote()
+    assert reg.rollback() is None
+    assert reg.snapshot()["candidate_version"] == "gbm-unscored"   # not lost
 
 
 def test_persistence_round_trip():
