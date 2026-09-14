@@ -3,6 +3,27 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.20.1
+
+- **Fix: the dashboard's Retrain button failed outright** with
+  `ValueError: DataFrame.dtypes for data must be int, float, bool or category.
+  Invalid columns:soil_moisture_near_creek_pct: object`. The retrain reached xgboost
+  for the first time — 17 storms on record cleared `min_events_for_ml`, and the creek
+  node's stage data finally made the label mean something — and fell over on a dtype.
+
+  `train.build_matrix` padded feature columns that were *absent* from the dataset with
+  NaN, but not one that is present on every row and has never carried a value. The
+  near-creek WH51 is exactly that: recorded each loop, always `None`. pandas reads a
+  column of `None` back as dtype `object`, and xgboost's `DMatrix` rejects an object
+  column outright rather than treating it as missing — the one thing xgboost was chosen
+  for. Every feature column is now coerced with `pd.to_numeric(errors="coerce")` before
+  training, so an unreported probe becomes NaN (missing) and an unparseable value
+  becomes NaN instead of failing the whole retrain. Inference already did this
+  (`model._ml_predict`); training now matches.
+
+  No data was lost — the nightly batch consolidates before training, so the failing
+  retrains still folded their part files into the dataset.
+
 ## 0.20.0
 
 - **Fix: a dropped radio link to the creek node could manufacture a Tier 3 Warning.**

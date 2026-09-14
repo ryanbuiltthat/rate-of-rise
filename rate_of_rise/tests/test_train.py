@@ -82,6 +82,32 @@ def test_build_matrix_pads_missing_feature_columns_and_casts_bools():
     assert len(y) == 5 and len(ts) == 5
 
 
+def test_build_matrix_coerces_all_none_columns_off_object_dtype():
+    """The failure that took down the dashboard's Retrain button: a feature column
+    recorded on every row but never given a value comes back as dtype `object` full of
+    None, and xgboost's DMatrix rejects object columns instead of reading them as
+    missing. Padding only ever covered columns that were *absent*."""
+    df = _series(5, stage=[0.5] * 5, ror=[0.0] * 5)
+    df["soil_moisture_near_creek_pct"] = pd.Series([None] * 5, dtype=object)
+    df["ponding_flag"] = pd.Series([True, None, False, None, True], dtype=object)
+    assert df["soil_moisture_near_creek_pct"].dtype == object   # guard the premise
+    x, _, _ = t.build_matrix(df)
+    assert not any(dt == object for dt in x.dtypes), \
+        f"object columns survive: {[c for c, d in x.dtypes.items() if d == object]}"
+    assert x["soil_moisture_near_creek_pct"].isna().all()       # None -> missing, not 0
+    assert x["ponding_flag"].tolist() == [1, pd.NA, 0, pd.NA, 1]
+
+
+def test_train_survives_a_feature_column_that_never_reported():
+    """End-to-end regression for the same failure: training must reach a fitted model
+    with an all-None column in the frame, not raise out of DMatrix."""
+    df = _synthetic_storms()
+    df["soil_moisture_near_creek_pct"] = pd.Series([None] * len(df), dtype=object)
+    with tempfile.TemporaryDirectory() as d:
+        result = t.train(df, Path(d))
+        assert result is not None and result.model_path.exists()
+
+
 # --- end-to-end training, against a fabricated but internally consistent storm record ---
 
 def _synthetic_storms(n=600, seed=1, n_storms=4):

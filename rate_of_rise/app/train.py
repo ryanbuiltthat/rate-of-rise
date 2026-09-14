@@ -172,6 +172,21 @@ def build_matrix(df):
         if col not in df.columns:
             df = df.assign(**{col: np.nan})
     x = df[list(FEATURE_COLUMNS)].copy()
+    # Force every column to a numeric dtype before xgboost sees it. Padding above only
+    # covers a column that is *absent*; one that is present on every row but has never
+    # carried a value — a probe that has not answered (the near-creek WH51), a source
+    # still unbuilt — is a column of Python `None`, which pandas reads back from the
+    # dataset as dtype `object`, not as float NaN. DMatrix rejects an object column
+    # outright instead of treating it as missing, which is what took the dashboard's
+    # Retrain button down with "Invalid columns:soil_moisture_near_creek_pct: object".
+    # `model._ml_predict` already casts the single-row inference frame for exactly this
+    # reason; training is the same frame with more rows and needs the same guard.
+    #
+    # errors="coerce" rather than a plain astype so one unparseable value (schema drift,
+    # a source that once wrote a string) becomes a missing value — which xgboost handles
+    # natively, per the module docstring — instead of failing the whole retrain.
+    for col in FEATURE_COLUMNS:
+        x[col] = pd.to_numeric(x[col], errors="coerce")
     for col in BOOL_COLUMNS:
         x[col] = x[col].astype("boolean").astype("Int8")  # nullable -> xgboost sees NaN
     y = label_forward(df)
