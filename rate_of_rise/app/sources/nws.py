@@ -23,7 +23,7 @@ import requests
 
 log = logging.getLogger("app.sources.nws")
 
-USER_AGENT = "ewfa-creek-modeling (github.com/ryanbuiltthat/rate-of-rise)"
+USER_AGENT = "rate-of-rise (github.com/ryanbuiltthat/rate-of-rise)"
 MM_PER_INCH = 25.4
 _DUR = re.compile(r"P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?")
 

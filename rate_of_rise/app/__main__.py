@@ -200,7 +200,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _handle_sigterm)
 
     data_dir = DATA_DIR
-    log.info("Creek modeling service starting (loop=%dm)", cfg.fast_loop_minutes)
+    log.info("Rate of Rise service starting (loop=%dm)", cfg.fast_loop_minutes)
 
     ha = HAClient(cfg.ha_api_url, cfg.supervisor_token)
     if not ha.ping():

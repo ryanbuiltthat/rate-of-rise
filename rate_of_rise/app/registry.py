@@ -2,10 +2,11 @@
 
 Wraps `/data/models/registry.json`. Holds the **active** model, an optional
 **candidate** produced by the most recent retrain, and a **history** of retired
-actives so a promotion can be rolled back. Pointer/metric bookkeeping lives here
-now; loading the actual `.pkl` artifact stays a Phase-4 concern (see
-`model.py`). Keeping this separate means promote/rollback are testable without a
-broker, HA, or a trained model.
+actives so a promotion can be rolled back. Pointer/metric bookkeeping lives here;
+loading the artifact a version names is `model.py`'s job (xgboost JSON plus a
+`.meta.json` sidecar — see `train.py` on why not a pickle). Keeping the two
+separate means promote/rollback are testable without a broker, HA, or a trained
+model.
 
 "No ML model" is a first-class state here, not the absence of one: `active: null`
 means `model.py` answers with its threshold estimate, and a history entry whose

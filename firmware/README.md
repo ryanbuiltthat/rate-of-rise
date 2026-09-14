@@ -126,7 +126,7 @@ Node and gateway must share the same radio settings:
 | Encryption key | 16-char string | Node: `ENCRYPT_KEY` in `src/main.cpp`. Gateway: `rfm69_encrypt_key` secret. Changing it requires reflashing both. |
 
 Gateway credentials (WiFi, API encryption key, OTA password, RFM69 key) come from
-`!secret` — see "Secrets" below. Note that earlier revisions of `ewfa_gateway.yaml`
+`!secret` — see "Secrets" below. Note that earlier revisions of the gateway config
 carried them inline and were pushed to this public repo, so any value used before
 2026-09-07 should be considered compromised and remains readable in git history.
 
@@ -159,7 +159,7 @@ The gateway is an ESPHome project with two entry points that share one configura
 
 ```
 gateway.base.yaml          the whole device: esp32/wifi/api/ota/rfm69_gateway/diagnostics
-  ├── ewfa_gateway.yaml                    (this repo)  component from ./components/
+  ├── gateway.yaml                         (this repo)  component from ./components/
   └── /config/esphome/creek-gateway.yaml   (HA add-on)  base + component pulled from git
 ```
 
@@ -170,7 +170,7 @@ source, so there is nothing to keep in sync — edit `gateway.base.yaml` and bot
 
 1. `cd firmware/esp32_rfm69_gateway`
 2. `cp secrets.yaml.example secrets.yaml` and fill it in (gitignored) — see "Secrets".
-3. `esphome run ewfa_gateway.yaml` (or `esphome compile` to just build). `esphome` drives
+3. `esphome run gateway.yaml` (or `esphome compile` to just build). `esphome` drives
    PlatformIO under the hood and generates its own `.esphome/build/`; there is no
    platformio.ini to hand-maintain here the way there is for the Moteino node.
 4. First flash needs USB; later updates go out over OTA.
@@ -500,7 +500,7 @@ buffer the transfer task was still reading from. `ota_active_` covers exactly th
 ## Bench-Test Procedure
 
 1. **Radio link test:** Flash both devices. Watch the creek node's serial monitor and the
-   gateway's ESPHome logs (`esphome logs ewfa_gateway.yaml`, or the builder's Logs button).
+   gateway's ESPHome logs (`esphome logs gateway.yaml`, or the builder's Logs button).
    The creek node should TX every 60 s and the gateway should log the decoded payload + RSSI.
    Confirm packets arrive and RSSI is reasonable (better than −90 dBm at bench distance).
    **Done 2026-09-07 — node and gateway hold a stable link on `BENCH_TEST`'s 5 s cadence,

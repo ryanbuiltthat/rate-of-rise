@@ -4,7 +4,7 @@
 # wrappers include it as an ESPHome package and supply the one thing that genuinely differs
 # between them, the `external_components:` source.
 #
-#   ewfa_gateway.yaml            (this repo)          -> component from the local components/ dir
+#   gateway.yaml                 (this repo)          -> component from the local components/ dir
 #   /config/esphome/creek-gateway.yaml (HA add-on)    -> component from git, this file from git
 #
 # The Device Builder wrapper pulls both this file and components/rfm69_gateway/ straight from

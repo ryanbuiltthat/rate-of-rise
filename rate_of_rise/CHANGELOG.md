@@ -3,6 +3,40 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.20.3
+
+- **Fix: the service-stale watchdog kept the pre-rename name, so its entity ID never
+  moved.** 0.19.0's notes say `"Creek Modeling Service Stale"` became
+  `"Rate of Rise Service Stale"` (`binary_sensor.rate_of_rise_service_stale`). The
+  `unique_id` was changed; the `name` was not, and for a template entity the `name` is what
+  Home Assistant slugifies into the entity ID on first registration. A fresh copy of
+  `ha-packages/creek_warning.yaml` therefore still created
+  `binary_sensor.creek_modeling_service_stale`, while the bundled dashboard — updated in
+  0.19.0 as promised — points at `binary_sensor.rate_of_rise_service_stale`. The Ingestion
+  health card's service-stale row has been dead on every fresh install since.
+
+  The name now matches the `unique_id`. **Re-copy `ha-packages/creek_warning.yaml`.** On an
+  install that already registered this entity the ID is pinned in the entity registry and
+  only the friendly name changes; rename it by hand (Settings → Devices & Services →
+  Entities) if the dashboard row is still blank.
+
+- **The retired `ewfa` project name is gone from everything that ships.** It survived the
+  0.19.0 rename in four places, all of them outward-facing: the MQTT discovery device's
+  `manufacturer` (shown on the HA device page, now `ryanbuiltthat`), and the `User-Agent`
+  this add-on sends to the NWS forecast, NWS alerts and SNODAS APIs (now `rate-of-rise`).
+  The startup log line said "Creek modeling service starting" and now names the add-on.
+  None of this changes an entity ID: the discovery device's `identifiers` and `name` are
+  unchanged, and they are what Home Assistant keys on.
+
+- **Firmware:** the gateway's local ESPHome wrapper is `gateway.yaml`, not
+  `ewfa_gateway.yaml` — it pairs with `gateway.base.yaml` beside it. Device identity lives
+  entirely in the base config, so this renames a file and nothing else: same device name,
+  same OTA target. Build with `esphome run gateway.yaml`; the first build after the rename
+  recompiles from scratch.
+
+  `LEGACY_SHARE_SUBDIR = "creek_modeling"` in `app/storms.py` is deliberately **kept** — it
+  is how a storm log written before 0.19.0 is still found and migrated.
+
 ## 0.20.2
 
 - **Fix: Rollback could not undo the first promotion** — `RegistryError: no history to

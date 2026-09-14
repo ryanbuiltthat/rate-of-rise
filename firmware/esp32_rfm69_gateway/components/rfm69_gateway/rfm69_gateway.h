@@ -4,7 +4,7 @@
 // node's JSON payload, and publishes the readings as native ESPHome entities. Home Assistant
 // picks them up over the native API, so no MQTT broker sits in the data path.
 //
-// WIRING and pin constraints: see esp32_rfm69_gateway/ewfa_gateway.yaml. In particular the
+// WIRING and pin constraints: see esp32_rfm69_gateway/gateway.yaml. In particular the
 // SPI pins are remapped away from the XIAO's defaults because those collide with the
 // ESP32-C3 boot straps.
 #pragma once
