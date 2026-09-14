@@ -90,11 +90,38 @@ Either way, put the times from *During* in the notes. That's what calibrates the
       an observed storm is the only thing that can move them off literature defaults.
 - [ ] Check **Storms recorded** on the Operator tab against `min_events_for_ml` (10).
 
-## Nothing to press
+## Nothing to press during the storm
 
 - **Run inference now** only skips the wait for the next 5-minute tick.
-- **Retrain / Promote / Rollback** do nothing useful until Phase 4.
 - The nightly batch (3 am) rolls up the dataset and refits the lag on its own.
+- **Retrain / Promote / Rollback** are live now that Phase 4 has landed, and none of them
+  is a storm-time action — see below. Retrain in particular reads the whole dataset and
+  fits a model; do it after, not while you are watching the creek.
+
+## Retrain / Promote / Rollback — after the storm, not during
+
+The storm log cleared `min_events_for_ml`, so **Retrain** now produces a real candidate
+instead of skipping. What it produces on a short record is usually a model whose held-out
+split contains no Warning-tier crossings at all, and a split with no positives cannot
+score anything — hit rate, false-alarm rate and AUC all come back undefined.
+
+That matters because a promoted model is not advisory: its probability alone raises
+**Tier 3 at 50% and Tier 4 at 80%**. Promoting an unscored model hands the alarm to
+something nothing has checked.
+
+- **Promote** will still activate such a candidate — the judgement is yours — but it says
+  so at the press (the caveat leads **Last Command**) and keeps saying so: the Active
+  Model sensor carries `active_validated: false` for as long as that model is active, and
+  the Model review card shows a banner.
+- **Rollback** undoes it. With no earlier model to return to it restores the threshold
+  estimate, so backing out is always available — including immediately after the very
+  first promotion.
+- Check the candidate's metrics on the Operator tab **before** promoting. `roc_auc`
+  present means a split could score it; a bare `note` about a single-class split means
+  nothing could.
+
+If a promoted model starts producing tiers that do not match what you can see at the
+creek, press **Rollback** and note it — that observation is worth more than the model.
 
 ---
 

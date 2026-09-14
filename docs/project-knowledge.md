@@ -1,11 +1,11 @@
-# ewfa — Project Knowledge
+# Rate of Rise — Project Knowledge
 
 Orientation for anyone (human or AI) picking up work on this repo without the history.
 The [spec](../creek-flood-warning-spec.md) is the source of truth for *what is being
 built*; this file covers *how the system fits together, what the conventions are, and
 which mistakes have already been made and paid for*.
 
-Current state: add-on **v0.19.0**, 255 tests, all green on CI.
+Current state: add-on **v0.20.2**, 274 tests, all green on CI.
 
 ---
 
@@ -16,10 +16,14 @@ Pennsylvania (`<site lat>`, `<site lon>`). Published as **Rate of Rise** (the re
 modeling add-on share the name). Small, flashy basin: rainfall-to-crest is measured in tens
 of minutes, so lead time is the entire point.
 
-The creek has **no USGS gauge of its own** and the on-site radar stream gauge
-(DFRobot SEN0676) **is not yet mounted**. Everything currently works from forecast,
-rainfall and upstream data — which is deliberate: tiers 1–2 are gauge-independent by
-design so the system is useful during the wait for hardware.
+The creek has **no USGS gauge of its own**. The on-site radar stream gauge (DFRobot
+SEN0676) **is mounted and reporting** as of 2026-09-12, so stage and rate-of-rise now
+feed the tier ladder and the dataset. Tiers 1–2 remain gauge-independent by design —
+that is what kept the system useful during the wait for hardware, and it is still what
+keeps it useful when the radio link to the node drops.
+
+What the gauge does *not* yet give us is calibration: every threshold in `tiers.py` is
+still a placeholder, and only observed storms can move it (open questions #7–#10).
 
 **Storms here typically arrive from the W/NW, but the upstream PWS corridor lies to the
 SE.** That geometry is the reason radar cell tracking exists (§2g below): for the
@@ -213,6 +217,23 @@ inputs by accident — the cost is that a new feature stays invisible until name
 The 2g radar features were published and recorded for three releases while being
 excluded from the model that was meant to use them. (0.16.0)
 
+**A column that is always `None` is not the same as a column that is absent.** The first
+retrain to actually reach xgboost died on `DMatrix` rejecting
+`soil_moisture_near_creek_pct: object` — a probe recorded every loop that has never
+returned a value, which pandas reads back as dtype `object` rather than float NaN.
+`build_matrix` padded *missing* columns with NaN and never considered present-but-empty
+ones. Coerce with `pd.to_numeric(errors="coerce")` at every frame→model boundary;
+`model._ml_predict` already did, and training did not. (0.20.1)
+
+**An operator action that changes alerting must be reversible, and the first one is the
+one that won't be.** `promote()` recorded the outgoing model in `history` only when there
+*was* one, so promoting the first model ever — from the threshold estimate, with the least
+evidence behind it — was the single promotion that could never be rolled back. "No model
+active" has to be a recordable state, not the absence of one. The same press also handed
+Tier 3/4 to a model whose held-out split had zero positives and could not score it, with
+nothing saying so; that now warns at the press and stays flagged on the Active Model
+sensor via `active_validated`. (0.20.2)
+
 **Anything stateful across restarts must live on disk, not in an instance attribute.**
 The storm quiet-clock was an in-memory attribute; a restart mid-storm reset it, the
 fallback became the storm's own `started_ts`, and the next lull closed the event with
@@ -230,9 +251,16 @@ rate holds every event open indefinitely — the quiet clock never starts and no
 `storm_quiet_hours` value helps. Check both series across a dry stretch before blaming
 the window.
 
-### ESPHome (ESP32-C6)
+### ESPHome
 
-- **GPIO4/5 are strapping pins** — do not use for peripherals. UART moved to GPIO10/11.
+These came off the **retired ESP32-C6 node**, which the Moteino M0 + RFM69HW link
+replaced. ESPHome is still how the *gateway* is built (Seeed XIAO ESP32-C3), so the last
+two still apply directly; the first is C6-specific, and the C3's own strapping pins
+(GPIO2/8/9 — GPIO9 is BOOT) are documented in
+`firmware/esp32_rfm69_gateway/gateway.base.yaml`, which is why the gateway's SPI is
+deliberately remapped off the XIAO's defaults.
+
+- **GPIO4/5 are strapping pins on the C6** — do not use for peripherals. UART moved to GPIO10/11.
 - **`uint32` is not a C++ type**; use `uint32_t`. The wrong one produces confusing
   "member 'value' in non-class type 'int'" errors pointing at unrelated lambda lines.
 - **`send_first_at` must be ≤ `send_every`**, or config validation fails outright.
@@ -284,17 +312,22 @@ Rules that follow:
 
 ## 9. Open items
 
-**Blocked on hardware/field work:** surveyed datum and bank height (#5), WH51 dry/saturated
-calibration (#7), stage-based tier thresholds (#8, depends on #5), rain-on-snow validation
-(#10, needs a winter event).
+**Blocked on hardware/field work:** WH51 dry/saturated calibration (#7), stage-based tier
+thresholds (#8), rain-on-snow validation (#10, needs a winter event), and the freezer test
+on the KSD9700 cold-charge cutoff (#13). The surveyed datum (#5) is **resolved** —
+creekbed to sensor face is 1105 mm, and #8 is no longer waiting on it.
 
 **Blocked on data:** API recession constant `k` (#9) and all forecast/rainfall tier
 thresholds want fitting against real storms — which is what the storm event log and
-annotations exist to accumulate. `min_events_for_ml` gates the ML model until ≥10 storms
-are captured.
+annotations exist to accumulate. `min_events_for_ml` (10) has now been **cleared** — the
+storm log passed it — so retrain produces real candidates. Clearing that gate is not the
+same as having a trustworthy model: with a record this short the held-out split still
+lands single-class, which is why promote warns rather than reassures.
 
-**Available to build:** Google Flood Forecasting (#2); more upstream PWS stations (#4 —
-two configured, spec wants 3–5, and with two, one dropout halves the sample).
+**Available to build:** adaptive crest sampling on the node (#15 — lost in the Moteino
+port, so a flashy crest is sampled at a fixed 60 s); a tier hold across a stage dropout
+(#14's residual); Google Flood Forecasting (#2); more upstream PWS stations (#4 — two
+configured, spec wants 3–5, and with two, one dropout halves the sample).
 
 **Standing caveat for anything user-facing:** NWS/NOAA remains the real alerting path.
 This system is a data-collection and early-warning aid whose thresholds are not yet

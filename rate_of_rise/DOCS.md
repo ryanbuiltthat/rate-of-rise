@@ -24,7 +24,7 @@ Two things still need a **one-time** manual setup (they can't come from the add-
 
 1. **Layer-1 package** — the service-stale watchdog and the alert-tier automation. Copy
    `ha-packages/creek_warning.yaml` from the
-   [ewfa repo](https://github.com/ryanbuiltthat/rate-of-rise) → `/config/ha-packages/`, and enable
+   [Rate of Rise repo](https://github.com/ryanbuiltthat/rate-of-rise) → `/config/ha-packages/`, and enable
    packages in `/config/configuration.yaml`:
 
    ```yaml
@@ -191,10 +191,11 @@ An active NWS product additionally sets a **floor** on the tier, whatever our ow
 say (spec §6): Flood Watch → ≥ Advisory, Flood Warning → ≥ Watch, Flash Flood Warning →
 ≥ Warning. A floor never lowers a tier the sensors have already earned.
 
-Levels 1–2 run entirely off forecast and rainfall data, so the system issues useful
-warnings before the SEN0676 is mounted. Levels 3–4 stay dormant until the ESPHome node
-reports stage. **All thresholds are placeholders** pending the surveyed datum (open
-question #5), WH51 calibration (#7), and observed storms (Phase 3).
+Levels 1–2 run entirely off forecast and rainfall data, which is what made the system
+useful before the SEN0676 was mounted — and is what keeps it useful whenever the radio
+link to the creek node drops. Levels 3–4 need stage from the node, which has been
+reporting since 2026-09-12. **All thresholds are placeholders** pending WH51 calibration
+(open question #7) and observed storms; the surveyed datum (#5) is resolved.
 
 ### Radio dropouts and false rate-of-rise alarms
 
@@ -281,12 +282,25 @@ fast loop's writes are sub-millisecond.
 
 ## Status
 
-Phase 2 (Ingest) — complete except for Google Flood Forecasting, which is waiting on API
-access. Live: on-site rain accumulations, the Antecedent Precipitation Index, NWS QPF, NWS
-active alert products, Weather Underground upstream PWS, NWM reach forecast, USGS gauges,
-SNODAS snowpack with a rain-on-snow flag, forecast-driven alert tiers, and watchdogs on
-every ingest source. Gradient-boosting inference and
-nightly retrain land in Phase 4 behind the same interfaces (`app/model.py`).
+**Ingest (Phase 2)** — complete except for Google Flood Forecasting, which is waiting on
+API access. Live: on-site rain accumulations, the Antecedent Precipitation Index, NWS QPF,
+NWS active alert products, Weather Underground upstream PWS, NWM reach forecast, USGS
+gauges, SNODAS snowpack with a rain-on-snow flag, NEXRAD cell tracking, the WPC Excessive
+Rainfall Outlook, on-site stage and rate-of-rise from the creek node, and watchdogs on
+every ingest source.
+
+**Correlate (Phase 3)** — the rainfall→response lag estimate runs nightly (`app/lag.py`).
+
+**Predict (Phase 4)** — built and now running against real data: gradient-boosting
+inference (`app/model.py`), the nightly retrain (`app/train.py`) and the model registry
+(`app/registry.py`). The storm log has cleared `min_events_for_ml`, so Retrain produces
+promotable candidates.
+
+What remains is **calibration, not code**. A record this short still yields held-out
+splits with no Warning-tier crossings in them, so a candidate usually cannot be scored at
+all; Promote says so at the press and keeps saying so while such a model is active. Until
+storms accumulate, the threshold estimate is the honest answer and the tier thresholds
+stay placeholders.
 
 > **Calibration note:** WH51 soil-moisture readings are relative (0–100 %) and site-specific.
 > The saturated/dry endpoints need field calibration (open question #7) before the ponding

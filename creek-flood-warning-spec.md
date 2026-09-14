@@ -492,9 +492,26 @@ any wider wake-the-house action remain unbuilt pending §8's dry-run requirement
 ### B.2 Model registry (`/data/models/registry.json`)
 
 `{active, candidate, history[], event_count}` with a `metrics` dict per entry. `promote()`
-moves candidate→active (old active pushed to `history`); `rollback()` restores the most
-recent history entry and keeps the demoted model as the new candidate. Pointer/metric logic
-is live now; loading the `.pkl` artifact stays the Phase-4 stub (§5).
+moves candidate→active (the outgoing state pushed to `history`); `rollback()` restores the
+most recent history entry and keeps the demoted model as the new candidate. The artifact
+behind a version is xgboost JSON plus a `.meta.json` sidecar, not the `.pkl` §4/A.7
+originally specified — see Addendum D for why — and `model.py` loads it live, re-checking
+`active_version` on every `predict()`.
+
+Two properties this doc did not originally require, both added after the first real
+promotion went wrong (0.20.2):
+
+- **"No model active" is a recordable state, not the absence of one.** `promote()` pushes
+  the outgoing state to `history` even when nothing was active, and a history entry with a
+  null version restores the threshold estimate. Otherwise the first promotion — the one
+  with the least evidence behind it — is the only one that can never be rolled back.
+  `rollback()` also falls back to the threshold when a model is active with empty history,
+  which recovers registries written before this.
+- **An unvalidated promotion warns.** `registry.warning()` is non-None while the active
+  model's metrics carry no `roc_auc`, meaning no held-out split could score it. It leads
+  the command result and is published as `active_validated` in `snapshot()`. It does not
+  block: a promoted model raises Tier 3/4 on its own, so the operator is told what they
+  are doing, not prevented from doing it.
 
 ### B.3 HA entities & dashboard
 
