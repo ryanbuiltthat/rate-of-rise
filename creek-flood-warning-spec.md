@@ -49,20 +49,25 @@
 |---|---|
 | Sensor face (surveyed 2026-09-12) | **43.5 in** (1105 mm) |
 | Sensor range ceiling (blanking zone, 0.15 m) | 37.6 in |
-| Bank top | ~37.5 in |
+| Bank top (measured 2026-09-14) | **44.25 in** |
 | Emergency threshold | 30 in |
 | Warning threshold | 24 in |
 
 - Datum is the **creekbed**, not a low-water surface: it is what can be surveyed precisely, and
   depth above the bed reads as true water depth rather than going negative on a dry bed.
-- The range ceiling and bank top coincide within ~0.1 in, so the sensor stops measuring at
-  almost exactly the depth at which the creek comes over. Readings inside the blanking zone are
-  therefore **clamped to the ceiling, never published as unavailable** — see open question #14.
+- **Bank top was re-measured 2026-09-14** at 44.25 in, ~6.75 in higher than the earlier eyeball
+  estimate (~37.5 in) that #14's "clamp coincides with overtopping" reasoning was built on. The
+  range ceiling and bank top do **not** coincide: the sensor now stops measuring ~6.65 in of
+  depth *before* the creek reaches bank top, not almost exactly at that point. Readings inside
+  the blanking zone are still **clamped to the ceiling, never published as unavailable** — see
+  open question #14 — but that clamp currently kicks in early rather than right at overtopping.
 - Both alert thresholds sit below the ceiling, so the ladder escalates fully on the way up.
 - Plumb the sensor (±3° beam; verify with bubble level). Rigidity matters: pole sway = level noise.
 - **The system's target is the creek cresting its bank**, not a 100-year flood. Overbank depth
-  beyond ~37.6 in is not measurable at this height; raising the pole 24–36 in would buy 2–3 ft
-  of measurable overbank and materially better odds of the sensor surviving debris (#16).
+  beyond ~37.6 in is not measurable at this height; raising the pole (#16, a short extension
+  planned this week) would also close the blanking-zone gap above, buy 2–3 ft of measurable
+  overbank, and materially better odds of the sensor surviving debris. Installation height is
+  unchanged for now — re-measure and update once the extension is in.
 
 ### Creek node firmware (Arduino, Moteino M0)
 - SEN0676 on hardware UART1 (RX/TX), Modbus RTU polling at 115200 baud (datasheet default).

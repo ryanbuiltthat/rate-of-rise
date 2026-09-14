@@ -47,14 +47,28 @@ short list of real engineering work that is known, scoped, and deliberately not 
   water depth and goes to ~0 on a dry bed rather than negative. Measured creekbed → sensor
   face = 43.5 in = 1105 mm, and that is the `mount_height_mm` default in
   `firmware/esp32_rfm69_gateway/gateway.base.yaml`.
-  Sensor sits ~6 in above bank top, so bank top ≈ 37.5 in above the creekbed.
+  ~~Sensor sits ~6 in above bank top, so bank top ≈ 37.5 in above the creekbed.~~ **Superseded
+  below — that was an eyeball estimate, not a survey.**
   **The §2 mounting geometry is obsolete** — it describes an earlier, abandoned site with a
   higher bank, dropped because it was problematic for solar. This pole is at the property
   low spot; 9-10 ft above bank there is meaningless, and the system's job is warning on
   *creek cresting the bank*, not on a 100-year flood. Do not treat §2's numbers as a target.
-  The placeholder thresholds in `tiers.py` survive the datum change nearly intact by
+  ~~The placeholder thresholds in `tiers.py` survive the datum change nearly intact by
   coincidence: Warning 2.0 ft = 24 in and Emergency 2.5 ft = 30 in both still sit below
-  bank top (≈ 3.13 ft), and Emergency is still ≈ "bank top minus 6 in".
+  bank top (≈ 3.13 ft), and Emergency is still ≈ "bank top minus 6 in".~~ **Superseded below.**
+
+  **UPDATE 2026-09-14 — bank top actually surveyed, and it changes the picture.** Measured
+  creekbed → top of bank at the sensor location = **44.25 in**, not the ~37.5 in eyeballed
+  above. Sensor face is still 43.5 in (1105 mm) — **installation height is not changing yet**
+  — which puts the sensor face **~0.75 in *below* bank top**, not ~6 in above it as previously
+  assumed. That also moves the blanking-zone ceiling (`mount - blanking` = 1105 − 150 = 955 mm
+  ≈ 37.6 in, unchanged since mount is unchanged) to **~6.65 in below bank top**, not
+  coincident with it — see #14, whose "sensor goes blind almost exactly at overtopping"
+  framing was built on the old estimate and needs revisiting; the clamp-not-NaN fix there is
+  still correct regardless of the exact gap. `tiers.py`'s "bank top minus 6 in" comment on
+  `EMERGENCY_STAGE_FT` is now off by ~8 in for the same reason (see #14, #16). A short pole
+  extension to raise the install height is planned this week (#16) — re-measure and update
+  `mount_height_mm` once it's in.
 
 - **#6.** ~~WiFi RSSI at the pole via the outdoor AP (bag test before final mount).~~ **UPDATED:** With the Moteino + RFM69HW architecture, the relevant test is now **RFM69 RSSI** at the pole location. The node is mounted and reporting, so the link works; what is still worth doing is logging `sensor.creek_gateway_creek_node_rssi` over 24 h to confirm margin. Target: sustained RSSI better than −80 dBm with < 1% packet loss. WiFi is no longer in the link path for the creek node (the gateway handles WiFi at the house).
 
@@ -150,16 +164,24 @@ the calibration phase.
 
 - **#14.** ~~Sensor goes blind exactly at the alarm condition, and the tier silently
   de-escalates.~~ **RESOLVED 2026-09-12 (the dangerous half).** Usable range tops out at
-  `mount - blanking` = 1105 − 150 = 955 mm ≈ 37.6 in, which is bank top (#5) — the sensor
-  stops measuring at almost exactly the depth where the creek comes over. The old code
-  published `NaN` there, `features.py` turned that into `stage_ft=None` *and*
-  `rate_of_rise_in_min=None`, and `tiers.py:_ge()` returns False for None, so Warning and
-  Emergency would have **stopped firing at the moment of overtopping**.
+  `mount - blanking` = 1105 − 150 = 955 mm ≈ 37.6 in, which was believed to be bank top (#5)
+  at the time — the sensor stops measuring at almost exactly the depth where the creek comes
+  over. The old code published `NaN` there, `features.py` turned that into `stage_ft=None`
+  *and* `rate_of_rise_in_min=None`, and `tiers.py:_ge()` returns False for None, so Warning
+  and Emergency would have **stopped firing at the moment of overtopping**.
   The fix reframes the reading rather than latching state: a distance *inside* the blanking
   zone is not unknown, it means the water is at least `mount - blanking` deep, so the gateway
   now clamps depth to that ceiling and logs it. Only a distance that is implausibly *far* —
   a genuinely lost target — still publishes NaN. The tier therefore stays where it belongs
   as the creek tops the bank.
+  **UPDATE 2026-09-14: the "almost exactly" part no longer holds.** Bank top is actually
+  44.25 in (#5, re-measured), not ~37.5 in, so the blanking ceiling (37.6 in, unchanged) sits
+  **~6.65 in below** bank top rather than coincident with it. The clamp-not-NaN fix is still
+  correct and still necessary, but as currently mounted the sensor goes blind ~6.65 in of
+  depth *before* the creek tops the bank, not at the moment it does — there's a blind window
+  on the way up, not just at the crest. Raising the install height (#16) closes that gap;
+  until then, treat "reading pinned at the blanking ceiling" as "at least bank top minus
+  ~6.65 in," not "at the bank."
   **Still open (the residual):** a target lost to debris, foam or turbulence at high flow
   still blanks stage, and nothing holds the tier through it. A hold — "keep the last tier for
   N minutes when stage drops out while it was rising" — needs a state-hold policy and is the
@@ -178,12 +200,16 @@ the calibration phase.
   correct. This also silently removed the test that used to enforce the node/add-on
   threshold ordering.
 
-- **#16.** **Optional: raise the pole 24–36 in.** Does *not* change when the alarm fires, so
-  it is not a warning-capability fix. It buys measurable overbank depth (2–3 ft, which
-  un-censors the rare big events for model training) and, more to the point, physical
-  survival — at 6 in above bank, debris in overbank flow at the property low spot is a real
-  threat to the sensor. Needs a coupler, a few feet of pipe, and possibly a lateral tie to
-  the bank.
+- **#16.** **Raise the pole — a short extension planned this week.** Originally framed as
+  optional (buys measurable overbank depth for model training, and physical survival against
+  debris in overbank flow). **UPDATE 2026-09-14:** now also closes the blind window in #14 —
+  with bank top actually at 44.25 in and the sensor's blanking ceiling at 37.6 in, the sensor
+  currently goes blind ~6.65 in of depth *before* the creek tops the bank, not at the moment
+  it does, so this is no longer purely a training/survival nice-to-have. Installation height
+  is not changing until the extension is in; re-measure creekbed → sensor face afterward and
+  update `mount_height_mm` (`firmware/esp32_rfm69_gateway/gateway.base.yaml`) and the
+  geometry tables in `README.md` / `creek-flood-warning-spec.md` / `docs/node-hardware.md`.
+  Needs a coupler, a few feet of pipe, and possibly a lateral tie to the bank.
 
 - **#2.** Google Floods API: does a virtual gauge (hybas) land on the creek, or only on the
   larger receiving reach? What are its thresholds? `google_floods_api_key` exists as an
