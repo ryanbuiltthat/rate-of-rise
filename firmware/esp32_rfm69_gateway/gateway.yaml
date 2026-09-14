@@ -2,7 +2,7 @@
 #
 # Build/flash from this repo:
 #   cp secrets.yaml.example secrets.yaml   # then fill in (gitignored)
-#   esphome run ewfa_gateway.yaml
+#   esphome run gateway.yaml
 #
 # Everything that describes the device lives in gateway.base.yaml, shared verbatim with the
 # Home Assistant Device Builder config at /config/esphome/creek-gateway.yaml. The only thing

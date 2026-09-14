@@ -47,7 +47,7 @@ class DiscoveryPublisher:
         return {
             "identifiers": ["rate_of_rise"],
             "name": "Rate of Rise",
-            "manufacturer": "ewfa",
+            "manufacturer": "ryanbuiltthat",
             "model": "Flood modeling add-on",
         }
 
