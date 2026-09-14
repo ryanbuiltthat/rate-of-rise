@@ -3,6 +3,35 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.20.2
+
+- **Fix: Rollback could not undo the first promotion** — `RegistryError: no history to
+  roll back to`. `promote()` pushed the outgoing model onto `history` only when one
+  already existed, so promoting the very first model recorded nothing behind it. The
+  promotion with the least evidence behind it was the only one that could never be
+  undone, and the sole way back was hand-editing `registry.json` on the HA host while
+  the distrusted model kept driving the alarm.
+
+  "No ML model" is now a real registry state rather than the absence of one: a history
+  entry with a null version restores the threshold estimate, and `promote()` records it
+  like any other. `rollback()` also returns to the threshold when a model is active with
+  nothing behind it, which recovers registries already left in that state by the old
+  code — no manual edit needed.
+
+- **Promote now refuses a candidate that was never validated.** The first candidate this
+  add-on produced scored `test_positives: 0` on 19 test rows — its held-out split had no
+  positive examples in it, so hit rate, false-alarm rate and AUC were all undefined and
+  nothing had checked the model at all. Promoting it raised a Tier 3 Warning on the next
+  inference, because a promoted model's probability alone clears `WARNING_PROBABILITY`
+  (Tier 3, 50%) and `EMERGENCY_PROBABILITY` (Tier 4, 80%).
+
+  A candidate is promotable only if a held-out split could score it (its metrics carry
+  `roc_auc`). On a short record that will keep failing for a while — which is the honest
+  signal that there is not yet enough storm data to tell whether a model beats the
+  threshold estimate, not an obstacle to route around. To promote anyway, publish
+  `force` to `creek/cmd/promote`; the dashboard button publishes `run`, so a plain press
+  stays on the guarded path.
+
 ## 0.20.1
 
 - **Fix: the dashboard's Retrain button failed outright** with

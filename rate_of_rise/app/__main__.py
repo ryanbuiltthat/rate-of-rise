@@ -244,7 +244,7 @@ def main() -> int:
                 cfg.rate_of_rise_confirm_samples),
             "retrain": lambda payload: _nightly_batch(
                 cfg, dataset, mqtt, model, registry, status, storms),
-            "promote": lambda payload: _promote(mqtt, registry),
+            "promote": lambda payload: _promote(mqtt, registry, payload),
             "rollback": lambda payload: _rollback(mqtt, registry),
             "annotate": lambda payload: _annotate(mqtt, storms, payload),
         }
@@ -295,16 +295,22 @@ def main() -> int:
     return 0
 
 
-def _promote(mqtt: MqttClient, registry: ModelRegistry) -> str:
-    version = registry.promote()
+def _promote(mqtt: MqttClient, registry: ModelRegistry, payload: str = "") -> str:
+    """The dashboard button publishes "run", so a plain press is the guarded path;
+    publishing "force" is how an operator overrides the validation check deliberately
+    (ModelRegistry.promote explains what the check is protecting)."""
+    force = payload.strip().lower() == "force"
+    version = registry.promote(force=force)
     _publish_registry(mqtt, registry)
-    return f"promoted {version}"
+    return f"promoted {version}" + (" (forced — unvalidated)" if force else "")
 
 
 def _rollback(mqtt: MqttClient, registry: ModelRegistry) -> str:
     version = registry.rollback()
     _publish_registry(mqtt, registry)
-    return f"rolled back to {version}"
+    # A None version is the threshold estimate, not a missing answer — say so, since
+    # this is what the operator sees on the dashboard after backing out a bad model.
+    return f"rolled back to {version or 'the threshold estimate (no ML model active)'}"
 
 
 def _annotate(mqtt: MqttClient, storms: StormLog, payload: str) -> str:

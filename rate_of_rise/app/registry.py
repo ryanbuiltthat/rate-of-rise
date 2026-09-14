@@ -7,6 +7,12 @@ now; loading the actual `.pkl` artifact stays a Phase-4 concern (see
 `model.py`). Keeping this separate means promote/rollback are testable without a
 broker, HA, or a trained model.
 
+"No ML model" is a first-class state here, not the absence of one: `active: null`
+means `model.py` answers with its threshold estimate, and a history entry whose
+version is null restores exactly that. Without it the *first* promotion — the one
+with the least evidence behind it — would be the only one that could never be
+undone, which is precisely backwards.
+
 Schema (registry.json):
     {
       "active":    {"version", "metrics", "promoted_at"} | null,
@@ -15,6 +21,9 @@ Schema (registry.json):
       "event_count": int,
       "updated_at": iso8601
     }
+
+A history entry's "version" is null for the threshold estimate; `snapshot()`
+renders it as THRESHOLD_LABEL so the dashboard shows a word rather than a blank.
 """
 from __future__ import annotations
 
@@ -33,6 +42,26 @@ def _now() -> str:
 
 class RegistryError(RuntimeError):
     """Raised when a promote/rollback is requested but the state doesn't allow it."""
+
+
+# How `snapshot()` renders the "no ML model" state in the history list.
+THRESHOLD_LABEL = "threshold"
+
+# The metric that marks a candidate as having actually been scored. `train._skill_metrics`
+# emits roc_auc (with hit rate and false-alarm rate) only when the held-out split had both
+# classes in it; when it came back empty or single-class — the normal outcome on a short
+# record, since flood positives are rare — it emits a `note` explaining that and nothing
+# else. So "roc_auc is present" is exactly "a held-out split could tell us whether this
+# model is any good".
+#
+# Checked by key rather than by importing train: registry.py stays free of xgboost and
+# sklearn, so promote/rollback remain testable without them.
+VALIDATION_METRIC = "roc_auc"
+
+
+def is_validated(metrics: dict | None) -> bool:
+    """Whether a candidate's metrics show it was scored against a held-out split."""
+    return bool(metrics) and metrics.get(VALIDATION_METRIC) is not None
 
 
 class ModelRegistry:
@@ -82,7 +111,8 @@ class ModelRegistry:
             "active_metrics": active.get("metrics", {}),
             "candidate_version": candidate.get("version"),
             "candidate_metrics": candidate.get("metrics", {}),
-            "history": [h.get("version") for h in self._data.get("history", [])],
+            "history": [h.get("version") or THRESHOLD_LABEL
+                        for h in self._data.get("history", [])],
             "event_count": self.event_count,
         }
 
@@ -100,54 +130,89 @@ class ModelRegistry:
         }
         self._save()
 
-    def promote(self) -> str:
+    def promote(self, force: bool = False) -> str:
         """Make the candidate the active model.
 
-        The outgoing active (if any) is pushed to the front of `history` so it can
-        be restored. Returns the newly-active version.
+        The outgoing state is always pushed to the front of `history` — including the
+        "no ML model" state, recorded as a null version — so every promotion has
+        somewhere to roll back to. Returns the newly-active version.
+
+        Refuses an unvalidated candidate unless `force`. A promoted model's probability
+        alone raises Tier 3 at WARNING_PROBABILITY and Tier 4 at EMERGENCY_PROBABILITY
+        (`tiers.py`), so promoting one whose held-out split could not score it hands the
+        alarm to something nothing has checked. That is not a hypothetical: the first
+        candidate this add-on ever produced scored `test_positives: 0` on 19 test rows,
+        and promoting it raised a Warning on the next inference. `force` exists because
+        the operator may still have a reason — a deliberate trial on a quiet day — but it
+        has to be asked for rather than being one press of a dashboard button.
         """
         candidate = self._data.get("candidate")
         if not candidate:
             raise RegistryError("no candidate to promote")
-        outgoing = self._data.get("active")
-        if outgoing:
-            outgoing = dict(outgoing)
-            outgoing["retired_at"] = _now()
-            self._data["history"].insert(0, outgoing)
+        metrics = candidate.get("metrics", {})
+        if not force and not is_validated(metrics):
+            raise RegistryError(
+                f"{candidate['version']} has not been validated "
+                f"({metrics.get('note') or f'no {VALIDATION_METRIC} in its metrics'}) — "
+                f"a promoted model can raise Tier 3/4 on its own, so this needs an "
+                f"explicit override: send 'force' as the promote command's payload")
+
+        # dict(... or {"version": None}) is the whole fix for "no history to roll back
+        # to": before, an absent active recorded nothing, so the first promotion could
+        # never be undone.
+        outgoing = dict(self._data.get("active") or {"version": None})
+        outgoing["retired_at"] = _now()
+        self._data["history"].insert(0, outgoing)
         self._data["active"] = {
             "version": candidate["version"],
-            "metrics": candidate.get("metrics", {}),
+            "metrics": metrics,
             "promoted_at": _now(),
         }
         self._data["candidate"] = None
         self._save()
-        log.info("Promoted %s to active", self._data["active"]["version"])
+        log.info("Promoted %s to active%s", self._data["active"]["version"],
+                 " (forced — unvalidated)" if force else "")
         return self._data["active"]["version"]
 
-    def rollback(self) -> str:
-        """Restore the most recently retired model as active (undo a promote).
+    def rollback(self) -> str | None:
+        """Undo a promote: restore the previous active, or the threshold estimate.
 
-        The model being demoted is kept as the candidate so it isn't lost and can
-        be re-promoted. Returns the restored active version.
+        The model being demoted is kept as the candidate so it isn't lost and can be
+        re-promoted. Returns the restored version, or None when the restored state is
+        "no ML model" — `model.py` then answers with its threshold estimate.
         """
         history = self._data.get("history", [])
-        if not history:
-            raise RegistryError("no history to roll back to")
-        restored = history.pop(0)
-        demoted = self._data.get("active")
-        if demoted:
-            demoted = dict(demoted)
+        active = self._data.get("active")
+        if history:
+            restored = history.pop(0)
+        elif active:
+            # A model is active but nothing was recorded behind it — the state every
+            # registry written before 0.20.2 is left in by its first promotion, since
+            # promote() then recorded an outgoing active only when one already existed.
+            # That promotion came from the threshold estimate, so that is where undoing
+            # it goes. Without this the operator's only way back is hand-editing
+            # registry.json on the HA host, with a model they distrust still driving the
+            # alarm in the meantime.
+            log.info("No recorded predecessor for %s — rolling back to the threshold "
+                     "estimate", active.get("version"))
+            restored = {"version": None}
+        else:
+            raise RegistryError("nothing to roll back: no active model and no history")
+
+        if active:
+            demoted = dict(active)
             demoted.pop("promoted_at", None)
             self._data["candidate"] = {
                 "version": demoted["version"],
                 "metrics": demoted.get("metrics", {}),
                 "created_at": _now(),
             }
-        self._data["active"] = {
-            "version": restored["version"],
+        version = restored.get("version")
+        self._data["active"] = None if version is None else {
+            "version": version,
             "metrics": restored.get("metrics", {}),
             "promoted_at": _now(),
         }
         self._save()
-        log.info("Rolled back to %s", self._data["active"]["version"])
-        return self._data["active"]["version"]
+        log.info("Rolled back to %s", version or "the threshold estimate")
+        return version

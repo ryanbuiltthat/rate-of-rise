@@ -313,8 +313,15 @@ views:
           {% for k in keys %}| {{ k }} | {{ a.get(k, '—') }} | {{ c.get(k, '—') }} |
           {% endfor %}
 
-          Use **Promote** to activate the candidate, **Rollback** to restore the
-          previous active. (Skill metrics populate once Phase-4 training lands.)
+          **Promote** activates the candidate — but only one that a held-out split
+          could actually score (it has a `roc_auc`). A candidate whose test split
+          came back empty or single-class is refused, because a promoted model's
+          probability alone raises Tier 3 at 50% and Tier 4 at 80%. To override
+          deliberately, publish `force` to `creek/cmd/promote`.
+
+          **Rollback** undoes the last promote. With no earlier model to return to
+          it restores the threshold estimate, so backing out a bad promotion never
+          requires editing `registry.json` by hand.
 
       - type: entities
         title: Ingestion health
