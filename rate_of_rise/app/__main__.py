@@ -296,15 +296,20 @@ def main() -> int:
 
 
 def _promote(mqtt: MqttClient, registry: ModelRegistry) -> str:
+    """Promoting an unvalidated model is allowed but never silent — the caveat leads the
+    command result, which is what the dashboard's Last Command sensor shows."""
     version = registry.promote()
     _publish_registry(mqtt, registry)
-    return f"promoted {version}"
+    caveat = registry.warning()
+    return f"WARNING: {caveat}" if caveat else f"promoted {version}"
 
 
 def _rollback(mqtt: MqttClient, registry: ModelRegistry) -> str:
     version = registry.rollback()
     _publish_registry(mqtt, registry)
-    return f"rolled back to {version}"
+    # A None version is the threshold estimate, not a missing answer — say so, since
+    # this is what the operator sees on the dashboard after backing out a bad model.
+    return f"rolled back to {version or 'the threshold estimate (no ML model active)'}"
 
 
 def _annotate(mqtt: MqttClient, storms: StormLog, payload: str) -> str:

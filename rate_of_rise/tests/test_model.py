@@ -119,9 +119,10 @@ def test_rollback_also_takes_effect_live():
     registry = ModelRegistry(d)
     registry.set_event_count(Config().min_events_for_ml)
 
-    # ModelRegistry.rollback() restores the *previous* active version, so there has to
-    # be one: promote a placeholder with no real artifact file first (Model will read
-    # this as "threshold", same as test_fails_open_... above), then promote a real one.
+    # Exercise the rollback-to-a-previous-*model* path specifically (rollback can also
+    # land on the threshold estimate — test_registry.py covers that): promote a
+    # placeholder with no real artifact file first (Model reads this as "threshold",
+    # same as test_fails_open_... above), then promote a real one over it.
     registry.set_candidate("placeholder-v0", {})
     registry.promote()
     result = _trained_artifact(d)

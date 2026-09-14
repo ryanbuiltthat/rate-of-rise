@@ -3,6 +3,37 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.20.2
+
+- **Fix: Rollback could not undo the first promotion** — `RegistryError: no history to
+  roll back to`. `promote()` pushed the outgoing model onto `history` only when one
+  already existed, so promoting the very first model recorded nothing behind it. The
+  promotion with the least evidence behind it was the only one that could never be
+  undone, and the sole way back was hand-editing `registry.json` on the HA host while
+  the distrusted model kept driving the alarm.
+
+  "No ML model" is now a real registry state rather than the absence of one: a history
+  entry with a null version restores the threshold estimate, and `promote()` records it
+  like any other. `rollback()` also returns to the threshold when a model is active with
+  nothing behind it, which recovers registries already left in that state by the old
+  code — no manual edit needed.
+
+- **Promoting a model that was never validated now warns.** The first candidate this
+  add-on produced scored `test_positives: 0` on 19 test rows — its held-out split had no
+  positive examples in it, so hit rate, false-alarm rate and AUC were all undefined and
+  nothing had checked the model at all. Promoting it raised a Tier 3 Warning on the next
+  inference, because a promoted model's probability alone clears `WARNING_PROBABILITY`
+  (Tier 3, 50%) and `EMERGENCY_PROBABILITY` (Tier 4, 80%). It did so silently.
+
+  Promote still activates such a candidate — the call belongs to the operator — but it
+  is no longer quiet about it. The caveat names the model, why nothing could score it,
+  and what that costs, and it leads the command result the Last Command sensor shows.
+  Because a command result scrolls away while the model keeps driving the alarm, the
+  registry also publishes `active_validated`, an attribute of the Active Model sensor
+  that stays false for as long as an unscored model is active; the dashboard's Model
+  review card raises a banner off it. A candidate a held-out split *could* score
+  promotes exactly as before, with no warning.
+
 ## 0.20.1
 
 - **Fix: the dashboard's Retrain button failed outright** with
