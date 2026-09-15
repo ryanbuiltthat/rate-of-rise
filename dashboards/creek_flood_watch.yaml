@@ -193,14 +193,14 @@ views:
         title: Downstream gauges (validation)
         show_header_toggle: false
         entities:
-          - entity: sensor.ackerly_creek_modeling_creek_usgs_leggetts_gage_height
+          - entity: sensor.ackerly_creek_modeling_creek_usgs_adjacent_gage_height
             name: regional @ the nearby city (the adjacent creek)
-          - entity: sensor.ackerly_creek_modeling_creek_usgs_leggetts_rise_3h
+          - entity: sensor.ackerly_creek_modeling_creek_usgs_adjacent_rise_3h
             name: ↳ rise (3 h)
           - type: divider
-          - entity: sensor.ackerly_creek_modeling_creek_usgs_tunkhannock_gage_height
+          - entity: sensor.ackerly_creek_modeling_creek_usgs_downstream_gage_height
             name: regional Creek
-          - entity: sensor.ackerly_creek_modeling_creek_usgs_tunkhannock_rise_3h
+          - entity: sensor.ackerly_creek_modeling_creek_usgs_downstream_rise_3h
             name: ↳ rise (3 h)
 
       - type: history-graph
@@ -209,7 +209,7 @@ views:
         entities:
           - entity: sensor.ackerly_creek_modeling_creek_upstream_rain_3h
             name: Upstream rain (3 h)
-          - entity: sensor.ackerly_creek_modeling_creek_usgs_leggetts_gage_height
+          - entity: sensor.ackerly_creek_modeling_creek_usgs_adjacent_gage_height
             name: the adjacent creek gage
 
   # ============================ OPERATOR ==============================

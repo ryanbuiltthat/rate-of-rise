@@ -17,10 +17,18 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "rate_of_rise"))
 
-from app.discovery import DiscoveryPublisher  # noqa: E402
+from app.discovery import DiscoveryPublisher, _slugify  # noqa: E402
 
 DASHBOARD = ROOT / "dashboards" / "creek_flood_watch.yaml"
 PACKAGE = ROOT / "ha-packages" / "creek_warning.yaml"
+
+# The live add-on's MQTT-discovery device is still registered under the name it had before
+# the public repo's genericized "Rate of Rise" rename (41e6caf) — HA doesn't rename entities
+# in an existing install just because discovery.py's device name changes, and re-pointing the
+# live device identity means migrating the entity registry, which hasn't happened. The
+# dashboard intentionally targets this pre-rename prefix (see its own header comment) rather
+# than the one _device() returns today, so it stays usable against the actual live system.
+LEGACY_DEVICE_NAME = "Ackerly Creek Modeling"
 
 # Entities that legitimately come from outside the add-on.
 EXTERNAL = {
@@ -35,6 +43,10 @@ EXTERNAL = {
     "sensor.outside_weather_station_soil_moisture_field",   # Ecowitt WH51 #2 — near creek
     "sensor.outside_weather_station_rain_intensity",
     "sensor.outside_weather_station_rain_daily",
+    # ha-packages/creek_warning.yaml's own unique_id predates the same "Rate of Rise" rename
+    # (41e6caf) and is a plain template-sensor id, not device-prefixed — the live install's
+    # copy of that package hasn't been updated to rate_of_rise_service_stale either.
+    "binary_sensor.creek_modeling_service_stale",
 }
 
 ENTITY_PATTERN = re.compile(r"\b(?:binary_sensor|sensor|button)\.[a-z0-9_]+\b")
@@ -42,6 +54,15 @@ ENTITY_PATTERN = re.compile(r"\b(?:binary_sensor|sensor|button)\.[a-z0-9_]+\b")
 
 def addon_entity_ids():
     return set(DiscoveryPublisher(lambda *a: None, "creek").entity_ids().values())
+
+
+def legacy_addon_entity_ids():
+    """entity_ids(), but minted against the live install's pre-rename device name."""
+    pub = DiscoveryPublisher(lambda *a: None, "creek")
+    return {
+        f"{component}.{_slugify(LEGACY_DEVICE_NAME + ' ' + cfg['name'])}"
+        for component, _slug, cfg in pub._specs()
+    }
 
 
 def package_entity_ids():
@@ -77,7 +98,7 @@ def dashboard_references():
 
 
 def test_every_dashboard_entity_exists_somewhere():
-    known = addon_entity_ids() | package_entity_ids() | EXTERNAL
+    known = addon_entity_ids() | legacy_addon_entity_ids() | package_entity_ids() | EXTERNAL
     missing = sorted(dashboard_references() - known)
     assert not missing, f"dashboard references entities nothing provides: {missing}"
 
