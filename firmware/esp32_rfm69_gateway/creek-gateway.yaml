@@ -1,0 +1,27 @@
+# Creek RFM69 gateway — Home Assistant Device Builder wrapper.
+#
+# This is a tracked mirror of /config/esphome/creek-gateway.yaml on the HA host (H: on this
+# machine). The Device Builder reads the file directly off the HA config share, not from git —
+# git is only where its `packages:`/`external_components:` sources pull gateway.base.yaml and
+# components/rfm69_gateway/ from (ref: main, refresh: 0s). So this file itself is not
+# auto-synced: after editing it here, copy it to /config/esphome/creek-gateway.yaml by hand.
+#
+# Do not "adopt" the gateway if it also appears under the builder's discovered devices —
+# that writes a second, separate YAML into /config/esphome/ that would immediately diverge
+# from this one. See firmware/README.md "Gateway — build paths".
+
+packages:
+  gateway:
+    url: https://github.com/ryanbuiltthat/rate-of-rise
+    ref: main
+    files: [firmware/esp32_rfm69_gateway/gateway.base.yaml]
+    refresh: 0s
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/ryanbuiltthat/rate-of-rise
+      ref: main
+      path: firmware/esp32_rfm69_gateway/components
+    components: [rfm69_gateway]
+    refresh: 0s
