@@ -146,7 +146,7 @@ Settled after working the budget; see open questions #11–12 for the reasoning.
 |---|---|---|
 | Panel | 6 V, 7 W | Covers Mar–Nov; only early Dec is marginal |
 | Charger | CN3791-class 1S MPPT, **or** Waveshare Solar Power Manager **only if the `<2 mA` variant** | MPPT beats the linear bq24074's 67 %. Waveshare adds over-discharge protection but is spec'd at 78 % and some variants idle at 30–80 mA, which exceeds this node's whole budget |
-| Pack | 4P–6P 18650, 1S | On hand; more usable energy at 0 °C than an SLA twice the weight |
+| Pack | 1S4P 18650, 5800 mAh/cell (23.2 Ah total, as-built) | More usable energy at 0 °C than an SLA twice the weight, and far past what the load actually needs — see "Pack sizing" below |
 | Pack protection | 1S protection board (over-discharge / over-current) | Separates "node down" from "pack scrap". **Cell to B+/B− only; charger *and* loads both to P+/P−** — the MOSFETs sit between B− and P−, so a charger on B+/B− bypasses over-charge and over-current entirely |
 | Radar rail | **Pololu U1V11F5** (5 V step-up, product 2562) | **True shutdown**: SHDN low disconnects the load rather than leaking input through, so it *is* the duty-cycle switch. <100 µA off, <1 mA running |
 | C6 rail | **Pololu U1V11F3** (3.3 V step-up, product 2561) | Boosts below 3.3 V and linearly down-regulates above, so it holds 3.3 V across the whole 1S range |
@@ -178,18 +178,20 @@ killing the load.
 5 °C rather than 0 °C is deliberate: it covers the lag between enclosure air and cell
 temperature plus the switch's own tolerance.
 
-**Bench-test before wiring — two things, one of them safety-critical:**
+**Bench-tested before wiring — two things, one of them safety-critical. Both passed:**
 
 1. **Direction.** Standard KSD9700 N/O closes on *rising* temperature, so 5 °C N/O should
    be open below 5 °C and closed above. Budget sellers label low-temperature variants
    inconsistently, and inverted is worse than absent — a circuit that charges *only* when
    freezing. Multimeter on continuity, switch in the freezer: cold must read **open**;
-   warming in the hand must **close** it with a click.
+   warming in the hand must **close** it with a click. **Confirmed correct** — the switch
+   reads open cold and closes on warming.
 2. **Reset differential.** Unpublished, and it runs 5–15 °C across KSD9700 parts. A 10 °C
    differential means a switch that closed at 5 °C stays closed down to −5 °C on the way
    back down — permitting exactly what it was installed to prevent. Same test: note the
    temperature it closes at while warming, and the temperature it opens at while cooling.
-   If it opens below 0 °C, move to the 10 °C variant.
+   If it opens below 0 °C, move to the 10 °C variant. **Confirmed acceptable** — no need
+   for the 10 °C variant.
 
    Mitigating, so measure but do not panic: plating risk scales with charge *current*, and
    the window where the differential bites — cold, falling, low sun angle — is when the
@@ -259,8 +261,8 @@ The chemistry is not the problem. The charger is.
    sense-resistor charge limit against the combined current.
    Decide this from data, not up front: the node reports battery voltage and level, so a
    couple of weeks of logs will show whether the site is shade-limited or area-limited.
-2. **4P–6P of 18650** — free, already on hand, and more usable energy than an SLA twice its
-   weight on a guy-wired pole.
+2. **1S4P of 18650, 5800 mAh/cell (23.2 Ah) — as-built.** More usable energy than an SLA
+   twice its weight on a guy-wired pole, and well past what the duty-cycled load needs.
 3. **Low-voltage protection.** Required for either chemistry.
 4. **Pick the 5 V boost with an enable pin.** That EN line *is* the radar load switch —
    duty-cycling then costs a GPIO and a 100 ms settle, with no separate MOSFET. Choose a
@@ -277,7 +279,7 @@ February with current firmware.
 That makes the winter shutdown the cheap path and unattended winter operation an optional
 upgrade, rather than the other way round.
 
-### Pack sizing (1S × P, ~3000 mAh cells)
+### Pack sizing (1S × P, ~3000 mAh cells) — original planning table
 
 With the load duty-cycled, **4P–6P is plenty** — the earlier 8P–10P recommendation was
 compensating for a surplus problem that pack size cannot solve.
@@ -292,6 +294,18 @@ winter shutdown is legitimate — pull the pack in December, charge it indoors, 
 February. It sidesteps the recovery problem entirely and needs no new hardware. It only
 works if it is deliberate, because the failure mode of *forgetting* is the March outage
 above.
+
+### As-built pack: 1S4P, 5800 mAh/cell (23.2 Ah)
+
+The cells actually used are nearly double the 3000 mAh assumed above, so the built pack
+(23.2 Ah) lands well past either row in that table — roughly 86 Wh usable at 0 °C, versus
+67 Wh for the 6P/18 Ah case planned for. At the ~25 mA the Moteino M0 + RFM69HW is
+estimated to draw (not yet bench-confirmed against the real hardware, vs. the ~80/48 mA
+figures the table above was built around), that's **weeks of runtime with zero recharge**
+at 0 °C — the December recovery problem the duty-cycling and MPPT arguments above were
+solving for is no longer a tight margin with this pack. Duty-cycling the radar and the
+MPPT charger are both still worth having (free efficiency, no downside), but neither is
+load-bearing for winter survival the way the original analysis assumed.
 
 ### If you build the pack
 

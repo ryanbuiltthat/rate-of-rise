@@ -17,8 +17,8 @@ shortcut that, because the numbers that matter are properties of this basin and 
 measured by watching it rain. The alerts are honest about it: every notification carries
 "thresholds are not yet field-calibrated — verify before acting."
 
-So the backlog below is not a list of things that went unfinished. Items 7-13 are the
-calibration phase, and they are gated on weather and on one freezer test, not on code.
+So the backlog below is not a list of things that went unfinished. Items #7–10 are the
+remaining calibration phase, and they are gated on weather, not on code.
 
 **Everything below is grouped accordingly:** *Closed* is decided and needs no revisiting;
 *Field calibration* needs data that only time and storms produce; *Carried into v1.1* is the
@@ -58,12 +58,36 @@ short list of real engineering work that is known, scoped, and deliberately not 
 
 - **#6.** ~~WiFi RSSI at the pole via the outdoor AP (bag test before final mount).~~ **UPDATED:** With the Moteino + RFM69HW architecture, the relevant test is now **RFM69 RSSI** at the pole location. The node is mounted and reporting, so the link works; what is still worth doing is logging `sensor.creek_gateway_creek_node_rssi` over 24 h to confirm margin. Target: sustained RSSI better than −80 dBm with < 1% packet loss. WiFi is no longer in the link path for the creek node (the gateway handles WiFi at the house).
 
+- **#11.** ~~Solar/battery sizing for the creek node.~~ **RESOLVED — as-built.** Final
+  hardware: 6 W solar panel, a CN3791-class 1S MPPT controller, a KSD9700 cold-cutoff
+  switch upstream of the charger (the Adafruit bq24074 board and its NTC input, discussed
+  below as an alternative, was not used — that verification is now moot), and a 1S4P pack
+  of 5800 mAh 18650 cells (23.2 Ah total — roughly double the 12 Ah the original analysis
+  budgeted for). At the Moteino M0 + RFM69HW draw (~25 mA estimated; still not
+  bench-measured against the real hardware) this pack alone covers weeks with zero
+  recharge at 0 °C, so duty-cycling the radar is no longer load-bearing for winter
+  survival — see the updated numbers under "Pack sizing" in `docs/node-hardware.md`. The
+  original ESP32-C6-era analysis is retained there for reference, not because it still
+  describes the as-built system.
+
 - **#12.** ~~Charger and regulator selection for the creek node (spun out of #11).~~ **RESOLVED —
   decision made; see the full reasoning below under "Charger and regulator selection".**
   Keep Li-ion, replace the linear charger with a CN3791-class 1S MPPT module, pair with a
   4P–6P 18650 pack and low-voltage protection, and choose the 5 V boost with an enable pin
   so the same line duty-cycles the radar. Chemistry changes do not solve cold charging and
   12 V controllers idle away a fifth of the node's budget.
+
+- **#13.** ~~Sub-freezing charge cutoff.~~ **RESOLVED — freezer test passed.** KSD9700 5 °C
+  normally-open bimetallic switch in the panel positive line, upstream of the charger.
+  The bench freezer test confirmed the switch reads open when cold and closes on warming
+  (the failure mode budget sellers sometimes ship inverted), and the reset differential
+  came back acceptable — no need to move to the 10 °C variant. See `docs/node-hardware.md`
+  for the wiring rationale (switching the panel line rather than the battery line, so a
+  failed-open switch only costs charging rather than the load).
+
+- **#16.** ~~Optional: raise the pole 24–36 in.~~ **COMPLETED.** Pole raised. Buys overbank
+  depth headroom for model training (un-censoring the rare big events) and reduces the
+  debris-impact risk to the sensor at the property low spot.
 
 ---
 
@@ -85,13 +109,11 @@ the calibration phase.
 - **#10.** Rain-on-snow thresholds (`app/features.py`: 0.20 in SWE, 34 °F) are placeholders, and
   the flag cannot be validated until a winter rain-on-snow event is actually captured.
 
-- **#11.** Solar/battery sizing for the creek node. ~~Load ~80 mA (1.92 Ah/day)~~ **UPDATED:**
-  With Moteino M0 + RFM69HW replacing ESP32-C6 + WiFi, average draw drops to ~25 mA
-  (0.6 Ah/day), which significantly eases the solar budget — a 6 W panel covers the
-  load with margin through November. The December surplus gap is narrower and may close
-  entirely with MPPT + duty-cycled radar. Original analysis (retained below) assumed
-  ~80 mA; revise once real current draw is measured on the Moteino bench test.
-  Load ~80 mA (1.92 Ah/day) ← *original ESP32-C6 estimate, retained for reference.* Scoped to the
+- *#11 is now Closed, above.* What follows is the original ESP32-C6-era sizing analysis
+  that led to that decision — retained as background reasoning, not as a description of
+  the as-built node (which uses a 6 W panel, MPPT, a KSD9700 cutoff, and a 23.2 Ah pack).
+
+  Load ~80 mA (1.92 Ah/day) *— original ESP32-C6 estimate.* Scoped to the
   stated flood season (early spring → mid-December), a **7 W panel** covers March–November
   and is marginal only in early December on a linear charger.
   **The binding constraint is recovery, not capacity.** Li-ion cannot be charged below
@@ -107,9 +129,10 @@ the calibration phase.
   required regardless, or a flat node becomes a scrap pack. With those, **4P–6P is
   plenty**. A deliberate winter shutdown (pull and charge the pack indoors, reinstall in
   February) is a legitimate zero-cost alternative.
-  **Still open:** confirm the Adafruit board exposes the bq24074 NTC input; measure the
-  C6's real draw (an estimate, ~56 % of the budget); PVWatts the actual pole, where tree
-  shading will dominate. See `docs/node-hardware.md`.
+  *(Superseded — the Adafruit/bq24074 NTC question doesn't apply to the as-built KSD9700
+  cutoff, and the C6 draw estimate is moot now that the node is a Moteino. PVWatts against
+  the actual pole, where tree shading will dominate, is still worth doing but isn't
+  blocking.)*
 
 ### Charger and regulator selection — the reasoning behind #12
 
@@ -130,19 +153,7 @@ the calibration phase.
   **OTA over winter:** bring the node indoors with the pack; on USB it stays on WiFi and
   takes updates normally. Winter is when firmware iteration happens anyway.
 
-- **#13.** Sub-freezing charge cutoff — **approach settled, two measurements outstanding.**
-  A KSD9700 5 °C normally-open bimetallic switch in the panel positive line, upstream of
-  the charger. Zero quiescent, no electronics, and switching the panel rather than the
-  battery keeps the discharge path intact so a failed-open switch only costs charging.
-  Deliberately not done with the ESP32: the MCU is powered by the pack it would protect,
-  so fail-open leaves a cold pack charging and fail-closed means a flat pack can never
-  recover — the MCU cannot boot to enable the charging that would let it boot.
-  **Outstanding:** (a) confirm the switch opens when cold and closes when warm — budget
-  sellers mislabel low-temperature N/O parts, and inverted is worse than absent; (b)
-  measure the reset differential, unpublished and 5–15 °C across KSD9700 parts, since a
-  10 °C differential would hold the contacts closed to −5 °C after closing at 5 °C. Move
-  to the 10 °C variant if it opens below 0 °C. Both are one freezer test with a
-  multimeter. See `docs/node-hardware.md`.
+*(#13 is now Closed, above — the freezer test that this section was waiting on has passed.)*
 
 ---
 
@@ -178,12 +189,7 @@ the calibration phase.
   correct. This also silently removed the test that used to enforce the node/add-on
   threshold ordering.
 
-- **#16.** **Optional: raise the pole 24–36 in.** Does *not* change when the alarm fires, so
-  it is not a warning-capability fix. It buys measurable overbank depth (2–3 ft, which
-  un-censors the rare big events for model training) and, more to the point, physical
-  survival — at 6 in above bank, debris in overbank flow at the property low spot is a real
-  threat to the sensor. Needs a coupler, a few feet of pipe, and possibly a lateral tie to
-  the bank.
+*(#16 is now Closed, above — the pole has been raised.)*
 
 - **#2.** Google Floods API: does a virtual gauge (hybas) land on the creek, or only on the
   larger receiving reach? What are its thresholds? `google_floods_api_key` exists as an
