@@ -30,7 +30,7 @@ template:
       # moment each loop, so if Home Assistant ever missed the brief `running` transition
       # its last_changed froze and the watchdog stuck at Problem forever. The timestamp
       # advances every loop by construction, whether or not any state string changes.
-      - name: "Creek Modeling Service Stale"
+      - name: "Rate of Rise Service Stale"
         unique_id: rate_of_rise_service_stale
         device_class: problem
         state: >

@@ -23,7 +23,7 @@ import requests
 
 log = logging.getLogger("app.sources.alerts")
 
-USER_AGENT = "ewfa-creek-modeling (github.com/ryanbuiltthat/rate-of-rise)"
+USER_AGENT = "rate-of-rise (github.com/ryanbuiltthat/rate-of-rise)"
 
 # Matched case-insensitively against `properties.event`. Flash-flood products are kept
 # separate: in a basin this flashy they are the more urgent signal, and §6's escalation

@@ -315,8 +315,20 @@ views:
           {% for k in keys %}| {{ k }} | {{ a.get(k, '—') }} | {{ c.get(k, '—') }} |
           {% endfor %}
 
-          Use **Promote** to activate the candidate, **Rollback** to restore the
-          previous active. (Skill metrics populate once Phase-4 training lands.)
+          {% if state_attr('sensor.rate_of_rise_creek_active_model', 'active_validated') == false %}
+          ⚠️ **The active model was never validated** — its held-out split could not
+          score it (no `roc_auc` above). Its probability alone raises Tier 3 at 50%
+          and Tier 4 at 80%, so treat the next tiers it produces with suspicion, and
+          use **Rollback** if they do not match the creek.
+          {% endif %}
+
+          **Promote** activates the candidate. A candidate a held-out split could not
+          score is still promotable — the call is yours — but it is flagged here and
+          in the command result for as long as it stays active.
+
+          **Rollback** undoes the last promote. With no earlier model to return to
+          it restores the threshold estimate, so backing out a bad promotion never
+          requires editing `registry.json` by hand.
 
       - type: entities
         title: Ingestion health
@@ -325,6 +337,18 @@ views:
           - entity: sensor.creek_gateway_stage
             name: Creek stage
             secondary_info: last-changed
+          - entity: sensor.rate_of_rise_creek_rate_of_rise
+            name: Creek rate of rise
+            secondary_info: last-changed
+          # A blank rate of rise is normal right after the radio link returns — the add-on
+          # will not difference a reading against one from before a dropout. These two say
+          # whether that is what is happening: the link itself, and how old the stage
+          # reading behind the rate is.
+          - entity: binary_sensor.creek_gateway_creek_node_status
+            name: Creek node link
+            secondary_info: last-changed
+          - entity: sensor.rate_of_rise_creek_stage_age
+            name: Stage reading age
           - entity: sensor.outside_weather_station_soil_moisture_willow
             name: Soil — near house
             secondary_info: last-changed

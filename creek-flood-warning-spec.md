@@ -49,20 +49,25 @@
 |---|---|
 | Sensor face (surveyed 2026-09-12) | **43.5 in** (1105 mm) |
 | Sensor range ceiling (blanking zone, 0.15 m) | 37.6 in |
-| Bank top | ~37.5 in |
+| Bank top (measured 2026-09-14) | **44.25 in** |
 | Emergency threshold | 30 in |
 | Warning threshold | 24 in |
 
 - Datum is the **creekbed**, not a low-water surface: it is what can be surveyed precisely, and
   depth above the bed reads as true water depth rather than going negative on a dry bed.
-- The range ceiling and bank top coincide within ~0.1 in, so the sensor stops measuring at
-  almost exactly the depth at which the creek comes over. Readings inside the blanking zone are
-  therefore **clamped to the ceiling, never published as unavailable** — see open question #14.
+- **Bank top was re-measured 2026-09-14** at 44.25 in, ~6.75 in higher than the earlier eyeball
+  estimate (~37.5 in) that #14's "clamp coincides with overtopping" reasoning was built on. The
+  range ceiling and bank top do **not** coincide: the sensor now stops measuring ~6.65 in of
+  depth *before* the creek reaches bank top, not almost exactly at that point. Readings inside
+  the blanking zone are still **clamped to the ceiling, never published as unavailable** — see
+  open question #14 — but that clamp currently kicks in early rather than right at overtopping.
 - Both alert thresholds sit below the ceiling, so the ladder escalates fully on the way up.
 - Plumb the sensor (±3° beam; verify with bubble level). Rigidity matters: pole sway = level noise.
 - **The system's target is the creek cresting its bank**, not a 100-year flood. Overbank depth
-  beyond ~37.6 in is not measurable at this height; raising the pole 24–36 in would buy 2–3 ft
-  of measurable overbank and materially better odds of the sensor surviving debris (#16).
+  beyond ~37.6 in is not measurable at this height; raising the pole (#16, a short extension
+  planned this week) would also close the blanking-zone gap above, buy 2–3 ft of measurable
+  overbank, and materially better odds of the sensor surviving debris. Installation height is
+  unchanged for now — re-measure and update once the extension is in.
 
 ### Creek node firmware (Arduino, Moteino M0)
 - SEN0676 on hardware UART1 (RX/TX), Modbus RTU polling at 115200 baud (datasheet default).
@@ -492,9 +497,26 @@ any wider wake-the-house action remain unbuilt pending §8's dry-run requirement
 ### B.2 Model registry (`/data/models/registry.json`)
 
 `{active, candidate, history[], event_count}` with a `metrics` dict per entry. `promote()`
-moves candidate→active (old active pushed to `history`); `rollback()` restores the most
-recent history entry and keeps the demoted model as the new candidate. Pointer/metric logic
-is live now; loading the `.pkl` artifact stays the Phase-4 stub (§5).
+moves candidate→active (the outgoing state pushed to `history`); `rollback()` restores the
+most recent history entry and keeps the demoted model as the new candidate. The artifact
+behind a version is xgboost JSON plus a `.meta.json` sidecar, not the `.pkl` §4/A.7
+originally specified — see Addendum D for why — and `model.py` loads it live, re-checking
+`active_version` on every `predict()`.
+
+Two properties this doc did not originally require, both added after the first real
+promotion went wrong (0.20.2):
+
+- **"No model active" is a recordable state, not the absence of one.** `promote()` pushes
+  the outgoing state to `history` even when nothing was active, and a history entry with a
+  null version restores the threshold estimate. Otherwise the first promotion — the one
+  with the least evidence behind it — is the only one that can never be rolled back.
+  `rollback()` also falls back to the threshold when a model is active with empty history,
+  which recovers registries written before this.
+- **An unvalidated promotion warns.** `registry.warning()` is non-None while the active
+  model's metrics carry no `roc_auc`, meaning no held-out split could score it. It leads
+  the command result and is published as `active_validated` in `snapshot()`. It does not
+  block: a promoted model raises Tier 3/4 on its own, so the operator is told what they
+  are doing, not prevented from doing it.
 
 ### B.3 HA entities & dashboard
 

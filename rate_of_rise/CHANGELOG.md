@@ -3,6 +3,152 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.20.3
+
+- **Fix: the service-stale watchdog kept the pre-rename name, so its entity ID never
+  moved.** 0.19.0's notes say `"Creek Modeling Service Stale"` became
+  `"Rate of Rise Service Stale"` (`binary_sensor.rate_of_rise_service_stale`). The
+  `unique_id` was changed; the `name` was not, and for a template entity the `name` is what
+  Home Assistant slugifies into the entity ID on first registration. A fresh copy of
+  `ha-packages/creek_warning.yaml` therefore still created
+  `binary_sensor.creek_modeling_service_stale`, while the bundled dashboard — updated in
+  0.19.0 as promised — points at `binary_sensor.rate_of_rise_service_stale`. The Ingestion
+  health card's service-stale row has been dead on every fresh install since.
+
+  The name now matches the `unique_id`. **Re-copy `ha-packages/creek_warning.yaml`.** On an
+  install that already registered this entity the ID is pinned in the entity registry and
+  only the friendly name changes; rename it by hand (Settings → Devices & Services →
+  Entities) if the dashboard row is still blank.
+
+- **The retired `ewfa` project name is gone from everything that ships.** It survived the
+  0.19.0 rename in four places, all of them outward-facing: the MQTT discovery device's
+  `manufacturer` (shown on the HA device page, now `ryanbuiltthat`), and the `User-Agent`
+  this add-on sends to the NWS forecast, NWS alerts and SNODAS APIs (now `rate-of-rise`).
+  The startup log line said "Creek modeling service starting" and now names the add-on.
+  None of this changes an entity ID: the discovery device's `identifiers` and `name` are
+  unchanged, and they are what Home Assistant keys on.
+
+- **Firmware:** the gateway's local ESPHome wrapper is `gateway.yaml`, not
+  `ewfa_gateway.yaml` — it pairs with `gateway.base.yaml` beside it. Device identity lives
+  entirely in the base config, so this renames a file and nothing else: same device name,
+  same OTA target. Build with `esphome run gateway.yaml`; the first build after the rename
+  recompiles from scratch.
+
+  `LEGACY_SHARE_SUBDIR = "creek_modeling"` in `app/storms.py` is deliberately **kept** — it
+  is how a storm log written before 0.19.0 is still found and migrated.
+
+## 0.20.2
+
+- **Fix: Rollback could not undo the first promotion** — `RegistryError: no history to
+  roll back to`. `promote()` pushed the outgoing model onto `history` only when one
+  already existed, so promoting the very first model recorded nothing behind it. The
+  promotion with the least evidence behind it was the only one that could never be
+  undone, and the sole way back was hand-editing `registry.json` on the HA host while
+  the distrusted model kept driving the alarm.
+
+  "No ML model" is now a real registry state rather than the absence of one: a history
+  entry with a null version restores the threshold estimate, and `promote()` records it
+  like any other. `rollback()` also returns to the threshold when a model is active with
+  nothing behind it, which recovers registries already left in that state by the old
+  code — no manual edit needed.
+
+- **Promoting a model that was never validated now warns.** The first candidate this
+  add-on produced scored `test_positives: 0` on 19 test rows — its held-out split had no
+  positive examples in it, so hit rate, false-alarm rate and AUC were all undefined and
+  nothing had checked the model at all. Promoting it raised a Tier 3 Warning on the next
+  inference, because a promoted model's probability alone clears `WARNING_PROBABILITY`
+  (Tier 3, 50%) and `EMERGENCY_PROBABILITY` (Tier 4, 80%). It did so silently.
+
+  Promote still activates such a candidate — the call belongs to the operator — but it
+  is no longer quiet about it. The caveat names the model, why nothing could score it,
+  and what that costs, and it leads the command result the Last Command sensor shows.
+  Because a command result scrolls away while the model keeps driving the alarm, the
+  registry also publishes `active_validated`, an attribute of the Active Model sensor
+  that stays false for as long as an unscored model is active; the dashboard's Model
+  review card raises a banner off it. A candidate a held-out split *could* score
+  promotes exactly as before, with no warning.
+
+## 0.20.1
+
+- **Fix: the dashboard's Retrain button failed outright** with
+  `ValueError: DataFrame.dtypes for data must be int, float, bool or category.
+  Invalid columns:soil_moisture_near_creek_pct: object`. The retrain reached xgboost
+  for the first time — 17 storms on record cleared `min_events_for_ml`, and the creek
+  node's stage data finally made the label mean something — and fell over on a dtype.
+
+  `train.build_matrix` padded feature columns that were *absent* from the dataset with
+  NaN, but not one that is present on every row and has never carried a value. The
+  near-creek WH51 is exactly that: recorded each loop, always `None`. pandas reads a
+  column of `None` back as dtype `object`, and xgboost's `DMatrix` rejects an object
+  column outright rather than treating it as missing — the one thing xgboost was chosen
+  for. Every feature column is now coerced with `pd.to_numeric(errors="coerce")` before
+  training, so an unreported probe becomes NaN (missing) and an unparseable value
+  becomes NaN instead of failing the whole retrain. Inference already did this
+  (`model._ml_predict`); training now matches.
+
+  No data was lost — the nightly batch consolidates before training, so the failing
+  retrains still folded their part files into the dataset.
+
+## 0.20.0
+
+- **Fix: a dropped radio link to the creek node could manufacture a Tier 3 Warning.**
+  Observed in the field — the node went quiet, the gateway was moved to recover the link,
+  and the first reading back fired a critical flood alert. The cause: when the node stops
+  answering, the gateway does not blank `sensor.creek_gateway_stage`, it just stops updating
+  it, so Home Assistant keeps serving the last value the node sent.
+  `FeatureBuilder._rate_of_rise` differenced the first fresh reading against that stale one
+  and divided by a single loop interval, charging the entire outage's level change to five
+  minutes: a creek that rose 3 in over a 40-minute dropout read as 0.6 in/min, twelve times
+  `WARNING_RATE_OF_RISE_IN_MIN`. One reading was all it took — there was no gap check, no
+  link check, and no confirmation.
+
+  Rate of rise is now computed only from samples that can honestly be differenced:
+
+  - **The link is checked first.** The new `creek_node_status_entity` option reads the
+    gateway's packet-driven connectivity sensor (ON while the node's 60 s reports arrive,
+    OFF after five are missed). While it is OFF, no rate is produced.
+  - **Samples are timestamped by the reading, not the poll.** `last_updated` from Home
+    Assistant is used, so the interval is the one the creek actually moved over.
+  - **Gaps are never charged to one interval.** Beyond `rate_of_rise_max_gap_minutes`
+    (default 10) the rate is withheld and the baseline re-seeded at the creek's current
+    level, so the next loop measures real movement.
+  - **The first samples back must be confirmed.** After a dropout, the rate must clear the
+    threshold on `rate_of_rise_confirm_samples` (default 2) consecutive gap-free samples
+    before it alone raises Tier 3. The counter saturates, so on a healthy link this adds no
+    delay at all. Stage, model probability and the NWS floors are not gated — a creek that
+    is genuinely high still warns on the first reading back.
+
+- **Fix: the `Stage Stale` watchdog sat at OK through the whole dropout**, because it only
+  ever asked whether `stage_ft` was `None` — and a stale-but-present number never is. It now
+  also trips on a dead link (`creek_node_online`) or a stage reading older than its 30-minute
+  threshold.
+
+- **New:** `sensor.rate_of_rise_creek_stage_age` (diagnostic, minutes) — how old the reading
+  behind the current rate of rise is. Added to the dashboard's *Ingestion health* card
+  alongside the node's link state, so a blank rate of rise can be read as "the link just came
+  back" rather than "the creek is not moving".
+
+- **New options:** `creek_node_status_entity`, `stage_max_age_minutes` (6),
+  `rate_of_rise_max_gap_minutes` (10), `rate_of_rise_confirm_samples` (2). Defaults suit the
+  node's 60 s reporting and the gateway's 5-minute offline timeout; no configuration change
+  is needed on update. Consider `fast_loop_minutes: 1` to match the telemetry cadence — it
+  makes the post-reconnect confirmation cost about two minutes instead of ten.
+
+## 0.19.1
+
+- **Fix: no entity ever existed for the creek gauge's rate of rise.** Stage is published
+  by the RFM69 gateway itself (`sensor.creek_gateway_stage`), but rate-of-rise
+  (`FeatureBuilder._rate_of_rise` in `app/features.py`) was computed only for internal use
+  by `tiers.py`/`model.py` — it was never added to the `creek/features` MQTT payload, so
+  there was nothing for MQTT discovery to expose. Both stage and rate-of-rise are named as
+  primary features in spec §1/§4; only stage ever actually reached Home Assistant.
+
+  `rate_of_rise_in_min` now rides along in `creek/features` (added to
+  `features.DERIVED_KEYS`, same mechanism `temp_f`/`rain_on_snow_flag` already use) and is
+  auto-provisioned as **`sensor.rate_of_rise_creek_rate_of_rise`** (`in/min`) via MQTT
+  discovery, alongside the existing gauge stage on the bundled dashboard's Ingestion health
+  card. No configuration change needed — it appears automatically on update.
+
 ## 0.19.0
 
 - **BREAKING — add-on renamed to Rate of Rise, top to bottom.** The add-on's official name

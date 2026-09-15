@@ -24,7 +24,7 @@ Two things still need a **one-time** manual setup (they can't come from the add-
 
 1. **Layer-1 package** — the service-stale watchdog and the alert-tier automation. Copy
    `ha-packages/creek_warning.yaml` from the
-   [ewfa repo](https://github.com/ryanbuiltthat/rate-of-rise) → `/config/ha-packages/`, and enable
+   [Rate of Rise repo](https://github.com/ryanbuiltthat/rate-of-rise) → `/config/ha-packages/`, and enable
    packages in `/config/configuration.yaml`:
 
    ```yaml
@@ -138,11 +138,15 @@ Set these on the **Configuration** tab.
 | `storm_start_rain_1h_in` | `0.10` | 1 h rain (on-site **or** upstream) that opens a storm event |
 | `storm_continue_rain_1h_in` | `0.02` | Below this a storm counts as paused; the quiet clock runs |
 | `storm_quiet_hours` | `6` | Paused this long and the storm has ended. Too long merges separate storms, too short splits one in two — tune against observed storms |
+| `stage_max_age_minutes` | `6` | How old a stage reading may be and still be differenced into a rate of rise. Only consulted when `creek_node_status_entity` is blank or unavailable |
+| `rate_of_rise_max_gap_minutes` | `10` | Longest gap between two stage samples that still yields a rate. Past it the rate is withheld and the baseline re-seeded — see *Radio dropouts and false rate-of-rise alarms* |
+| `rate_of_rise_confirm_samples` | `2` | Consecutive gap-free samples a rate must survive after a dropout before it alone can raise Tier 3. Costs nothing while the link is up |
 | `google_floods_api_key` | `""` | Optional (Google Flood status) |
 | `wu_api_key` | `""` | Optional (Weather Underground PWS) |
 | `nwm_reach_id` | `<nwm reach id>` | NWM reach at the sensor site (open question #3) |
 | `upstream_pws_ids` | `<upstream PWS 1>`, `<upstream PWS 2>` | Upstream PWS in the upstream corridor (open question #4) |
 | `stage_entity` | `sensor.creek_gateway_stage` | Creek depth above the bed, published by the RFM69 gateway |
+| `creek_node_status_entity` | `binary_sensor.creek_gateway_creek_node_status` | Radio-link state for the creek node, published by the same gateway: ON while the node's 60 s reports arrive, OFF after five are missed. Blank to disable the check and fall back to `stage_max_age_minutes` |
 | `soil_moisture_entities` | WH51 #1, #2 | `..._soil_moisture_willow` (near house), `..._soil_moisture_field` (near creek); order is significant |
 | `onsite_rain_rate_entity` | `sensor.outside_weather_station_rain_intensity` | Ecowitt |
 | `onsite_rain_daily_entity` | `sensor.outside_weather_station_rain_24hr` | Ecowitt. **Currently unused** — the rolling rain accumulations are integrated from `onsite_rain_rate_entity`, not read from here |
@@ -187,10 +191,56 @@ An active NWS product additionally sets a **floor** on the tier, whatever our ow
 say (spec §6): Flood Watch → ≥ Advisory, Flood Warning → ≥ Watch, Flash Flood Warning →
 ≥ Warning. A floor never lowers a tier the sensors have already earned.
 
-Levels 1–2 run entirely off forecast and rainfall data, so the system issues useful
-warnings before the SEN0676 is mounted. Levels 3–4 stay dormant until the ESPHome node
-reports stage. **All thresholds are placeholders** pending the surveyed datum (open
-question #5), WH51 calibration (#7), and observed storms (Phase 3).
+Levels 1–2 run entirely off forecast and rainfall data, which is what made the system
+useful before the SEN0676 was mounted — and is what keeps it useful whenever the radio
+link to the creek node drops. Levels 3–4 need stage from the node, which has been
+reporting since 2026-09-12. **All thresholds are placeholders** pending WH51 calibration
+(open question #7) and observed storms; the surveyed datum (#5) is resolved.
+
+### Radio dropouts and false rate-of-rise alarms
+
+Stage is an absolute measurement: if it reads 2.1 ft, the creek is 2.1 ft deep, and one
+reading is enough to mean it. **Rate of rise is a difference between two readings**, so it
+can be manufactured by the radio link rather than by the creek — and that is a real failure
+mode, not a theoretical one.
+
+When the creek node stops answering, the gateway does not blank
+`sensor.creek_gateway_stage`; it simply stops updating it, and Home Assistant keeps serving
+the last value the node sent. Difference the first reading after the link returns against
+that stale one and the whole outage's worth of level change lands in a single loop interval:
+a creek that rose 3 in over a 40-minute dropout reads as **0.6 in/min**, twelve times the
+Tier 3 threshold, instead of the 0.075 in/min it actually did. With the package's
+`critical_from_tier: 2`, that is a critical alarm-stream push for a creek doing nothing
+unusual.
+
+Three guards stop it, all in `app/features.py` and `app/tiers.py`:
+
+1. **The link is checked before the reading is used.** `creek_node_status_entity` is
+   packet-driven — it is OFF because reports stopped arriving, not because the number
+   stopped changing — so a steady creek is never mistaken for a dead one, and a dead one is
+   never mistaken for a steady creek. While it is OFF no rate is computed at all.
+2. **A gap is never charged to one interval.** Samples are timestamped by the gateway's
+   `last_updated`, not by when the add-on happened to poll. If more than
+   `rate_of_rise_max_gap_minutes` separates two samples, the rate is withheld and the
+   baseline re-seeded at the creek's current level, so the *next* loop measures real
+   movement from a real starting point.
+3. **The first samples back are confirmed before they can alarm.** After any dropout the
+   rate must clear the threshold on `rate_of_rise_confirm_samples` consecutive gap-free
+   samples before it alone raises Tier 3. The counter saturates, so on a link that has been
+   up this adds no delay whatsoever; it only defers the minutes right after a reconnect,
+   which is exactly when the number deserves the least trust.
+
+The cost is bounded and one-sided: after a dropout, a Warning driven *only* by rate of rise
+is delayed by `rate_of_rise_confirm_samples` loop intervals. Nothing else is delayed —
+stage, model probability and the NWS floors are untouched, so a creek that is genuinely high
+still warns on the first reading back. Because the delay is measured in loop intervals, set
+`fast_loop_minutes: 1` to match the node's 60 s telemetry and that worst case becomes about
+two minutes.
+
+Three entities make this visible on the dashboard's *Ingestion health* card: the node's link
+state, `sensor.rate_of_rise_creek_stage_age` (how old the reading behind the rate is), and
+the `Stage Stale` watchdog — which now trips on a dead link holding a stale number, where
+before it only tripped when the entity went away entirely.
 
 ## Persistent storage
 
@@ -232,12 +282,25 @@ fast loop's writes are sub-millisecond.
 
 ## Status
 
-Phase 2 (Ingest) — complete except for Google Flood Forecasting, which is waiting on API
-access. Live: on-site rain accumulations, the Antecedent Precipitation Index, NWS QPF, NWS
-active alert products, Weather Underground upstream PWS, NWM reach forecast, USGS gauges,
-SNODAS snowpack with a rain-on-snow flag, forecast-driven alert tiers, and watchdogs on
-every ingest source. Gradient-boosting inference and
-nightly retrain land in Phase 4 behind the same interfaces (`app/model.py`).
+**Ingest (Phase 2)** — complete except for Google Flood Forecasting, which is waiting on
+API access. Live: on-site rain accumulations, the Antecedent Precipitation Index, NWS QPF,
+NWS active alert products, Weather Underground upstream PWS, NWM reach forecast, USGS
+gauges, SNODAS snowpack with a rain-on-snow flag, NEXRAD cell tracking, the WPC Excessive
+Rainfall Outlook, on-site stage and rate-of-rise from the creek node, and watchdogs on
+every ingest source.
+
+**Correlate (Phase 3)** — the rainfall→response lag estimate runs nightly (`app/lag.py`).
+
+**Predict (Phase 4)** — built and now running against real data: gradient-boosting
+inference (`app/model.py`), the nightly retrain (`app/train.py`) and the model registry
+(`app/registry.py`). The storm log has cleared `min_events_for_ml`, so Retrain produces
+promotable candidates.
+
+What remains is **calibration, not code**. A record this short still yields held-out
+splits with no Warning-tier crossings in them, so a candidate usually cannot be scored at
+all; Promote says so at the press and keeps saying so while such a model is active. Until
+storms accumulate, the threshold estimate is the honest answer and the tier thresholds
+stay placeholders.
 
 > **Calibration note:** WH51 soil-moisture readings are relative (0–100 %) and site-specific.
 > The saturated/dry endpoints need field calibration (open question #7) before the ponding

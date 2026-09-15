@@ -31,8 +31,12 @@ prompt to go look, not as a validated alarm.
 """
 from __future__ import annotations
 
+import logging
+
 from .features import FeatureRow
 from .sources.ero import RISK_LABELS as ERO_LABELS
+
+log = logging.getLogger("app.tiers")
 
 TIER_LABELS = {
     0: "All-clear",
@@ -87,9 +91,19 @@ WATCH_RADAR_CONFIRM_SCANS = 2.0
 WARNING_STAGE_FT = 2.0             # bank top is +3 ft (spec §2)
 WARNING_RATE_OF_RISE_IN_MIN = 0.05
 WARNING_PROBABILITY = 0.50
+# Rate of rise is a *difference* between two stage samples, so unlike stage it can be
+# manufactured by the radio link rather than by the creek: the first reading after the node
+# reconnects differs from the last one before it went quiet by however much the water moved
+# in between. features.py already refuses to compute a rate across such a gap; this is the
+# second half of the same guard — after any dropout the rate must survive this many
+# consecutive gap-free samples before it alone earns a Warning. The counter saturates
+# (features.RATE_OF_RISE_SAMPLE_CAP), so on a link that has been up this costs nothing:
+# it only delays the first minutes after a reconnect, which is exactly when the number is
+# least trustworthy. Stage is not gated — an absolute depth needs no history to be true.
+WARNING_RATE_OF_RISE_CONFIRM_SAMPLES = 2
 
 # --- Tier 4 Emergency: overbank imminent (gauge required) ---
-EMERGENCY_STAGE_FT = 2.5           # bank top minus a 6 in margin
+EMERGENCY_STAGE_FT = 2.5           # bank top (3.69 ft, surveyed 2026-09-14) minus ~14 in margin
 EMERGENCY_PROBABILITY = 0.80
 
 # --- NWS product force-promotion floors (spec §6) ---
@@ -109,9 +123,15 @@ def _ge(value: float | None, threshold: float) -> bool:
     return value is not None and value >= threshold
 
 
-def compute_tier(row: FeatureRow, flood_probability: float | None) -> tuple[int, str, list[str]]:
+def compute_tier(
+    row: FeatureRow,
+    flood_probability: float | None,
+    ror_confirm_samples: int | None = None,
+) -> tuple[int, str, list[str]]:
     """Highest tier whose conditions are met, with the reasons that got it there."""
     p = flood_probability or 0.0
+    if ror_confirm_samples is None:
+        ror_confirm_samples = WARNING_RATE_OF_RISE_CONFIRM_SAMPLES
     reasons: list[tuple[int, str]] = []
 
     # --- Tier 1 Advisory (forecast only; no gauge needed) ---
@@ -177,7 +197,18 @@ def compute_tier(row: FeatureRow, flood_probability: float | None) -> tuple[int,
     if _ge(row.stage_ft, WARNING_STAGE_FT):
         reasons.append((3, f"stage {row.stage_ft:.2f} ft"))
     if _ge(row.rate_of_rise_in_min, WARNING_RATE_OF_RISE_IN_MIN):
-        reasons.append((3, f"rising {row.rate_of_rise_in_min:.3f} in/min"))
+        # A None count means the row predates the guard (an old dataset row, or a caller
+        # that builds a row by hand) — no information is not evidence of a dropout, so it
+        # is trusted, exactly as it was before.
+        count = row.rate_of_rise_sample_count
+        if count is None or count >= ror_confirm_samples:
+            reasons.append((3, f"rising {row.rate_of_rise_in_min:.3f} in/min"))
+        else:
+            log.info(
+                "rate of rise %.3f in/min held below Warning: only %d gap-free sample(s) "
+                "since the creek node last reconnected (need %d)",
+                row.rate_of_rise_in_min, int(count), ror_confirm_samples,
+            )
     if p >= WARNING_PROBABILITY:
         reasons.append((3, f"model probability {p * 100:.0f}%"))
 

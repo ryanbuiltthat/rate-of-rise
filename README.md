@@ -56,17 +56,21 @@ the answer is still to move things rather than to bail them out.
 
 ## Measured against the bed, not a guess
 
-As-built geometry, surveyed 2026-09-12. Datum is the creekbed itself, so depth reads as
-true water depth and falls to zero on a dry bed rather than going negative. The sensor sits
-just ~6 in above bank top, so its blanking zone begins almost exactly where the creek comes
-over — readings inside it are clamped to the ceiling, never blanked, so the alarm cannot
-quietly stand down at the worst possible moment.
+As-built geometry. Datum is the creekbed itself, so depth reads as true water depth and
+falls to zero on a dry bed rather than going negative. Sensor face was surveyed 2026-09-12;
+bank top was re-measured 2026-09-14 and turned out ~6.75 in higher than the earlier eyeball
+estimate — the sensor now sits **just below** bank top rather than above it, so its blanking
+zone begins ~6.65 in of depth *before* the creek tops the bank, not almost exactly at that
+point. Readings inside the blanking zone are still clamped to the ceiling, never blanked, so
+the alarm cannot quietly stand down — but the clamp now kicks in before overtopping rather
+than at it. A short pole extension to close that gap is planned; installation height is not
+changing until it's in.
 
 | | Height above creekbed |
 |---|---|
 | Sensor face | **43.5 in** (1105 mm) |
 | Sensor range ceiling (blanking zone) | 37.6 in |
-| Bank top | ~37.5 in |
+| Bank top (measured 2026-09-14) | **44.25 in** |
 | Emergency threshold | 30 in |
 | Warning threshold | 24 in |
 

@@ -64,13 +64,13 @@ def _publish_registry(mqtt: MqttClient, registry: ModelRegistry) -> None:
 def _run_inference_once(
     features: FeatureBuilder, model: Model, dataset: DatasetWriter,
     mqtt: MqttClient, status: dict, health: HealthTracker = None, sources=None,
-    storms: StormLog = None,
+    storms: StormLog = None, ror_confirm_samples: int | None = None,
 ) -> str:
     row = features.build()
     pred = model.predict(row)
     mqtt.publish("flood_probability", {"value": pred.flood_probability, "method": pred.method})
     mqtt.publish("predicted_crest", {"value": pred.predicted_crest_ft})
-    tier, label, reasons = compute_tier(row, pred.flood_probability)
+    tier, label, reasons = compute_tier(row, pred.flood_probability, ror_confirm_samples)
     mqtt.publish("alert_tier", {"value": tier, "label": label, "reasons": reasons,
                                 "why": "; ".join(reasons) or "nothing elevated"})
     mqtt.publish("features",
@@ -200,7 +200,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _handle_sigterm)
 
     data_dir = DATA_DIR
-    log.info("Creek modeling service starting (loop=%dm)", cfg.fast_loop_minutes)
+    log.info("Rate of Rise service starting (loop=%dm)", cfg.fast_loop_minutes)
 
     ha = HAClient(cfg.ha_api_url, cfg.supervisor_token)
     if not ha.ping():
@@ -240,7 +240,8 @@ def main() -> int:
     processor = CommandProcessor(
         {
             "run_inference": lambda payload: _run_inference_once(
-                features, model, dataset, mqtt, status, health, sources, storms),
+                features, model, dataset, mqtt, status, health, sources, storms,
+                cfg.rate_of_rise_confirm_samples),
             "retrain": lambda payload: _nightly_batch(
                 cfg, dataset, mqtt, model, registry, status, storms),
             "promote": lambda payload: _promote(mqtt, registry),
@@ -266,7 +267,8 @@ def main() -> int:
             _publish_pipeline(mqtt, status, "running", "inference")
             try:
                 _run_inference_once(
-                    features, model, dataset, mqtt, status, health, sources, storms)
+                    features, model, dataset, mqtt, status, health, sources, storms,
+                    cfg.rate_of_rise_confirm_samples)
             except Exception:  # a transient feature/predict error must not kill the loop
                 log.exception("Inference failed")
                 status["last_error"] = "inference failed (see log)"
@@ -294,15 +296,20 @@ def main() -> int:
 
 
 def _promote(mqtt: MqttClient, registry: ModelRegistry) -> str:
+    """Promoting an unvalidated model is allowed but never silent — the caveat leads the
+    command result, which is what the dashboard's Last Command sensor shows."""
     version = registry.promote()
     _publish_registry(mqtt, registry)
-    return f"promoted {version}"
+    caveat = registry.warning()
+    return f"WARNING: {caveat}" if caveat else f"promoted {version}"
 
 
 def _rollback(mqtt: MqttClient, registry: ModelRegistry) -> str:
     version = registry.rollback()
     _publish_registry(mqtt, registry)
-    return f"rolled back to {version}"
+    # A None version is the threshold estimate, not a missing answer — say so, since
+    # this is what the operator sees on the dashboard after backing out a bad model.
+    return f"rolled back to {version or 'the threshold estimate (no ML model active)'}"
 
 
 def _annotate(mqtt: MqttClient, storms: StormLog, payload: str) -> str:

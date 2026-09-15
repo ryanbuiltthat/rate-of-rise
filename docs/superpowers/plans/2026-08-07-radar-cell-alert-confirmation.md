@@ -1,5 +1,10 @@
 # Radar-cell alert confirmation + ground-priming Implementation Plan
 
+> **Historical record — 2026-08-07.** Kept as written, as the record of what was planned
+> and done at the time. Every `creek_modeling/` path below predates the rename to
+> `rate_of_rise/` (0.19.0); substitute the new directory when reading. The work itself
+> shipped and is described in `rate_of_rise/CHANGELOG.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stop Watch-tier flapping on marginal inbound storm cells by requiring multi-scan

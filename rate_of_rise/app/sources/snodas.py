@@ -35,7 +35,7 @@ import requests
 
 log = logging.getLogger("app.sources.snodas")
 
-USER_AGENT = "ewfa-creek-modeling (github.com/ryanbuiltthat/rate-of-rise)"
+USER_AGENT = "rate-of-rise (github.com/ryanbuiltthat/rate-of-rise)"
 BASE_URL = "https://noaadata.apps.nsidc.org/NOAA/G02158/masked"
 SWE_PRODUCT = "11034"
 

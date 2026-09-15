@@ -47,7 +47,7 @@ class DiscoveryPublisher:
         return {
             "identifiers": ["rate_of_rise"],
             "name": "Rate of Rise",
-            "manufacturer": "ewfa",
+            "manufacturer": "ryanbuiltthat",
             "model": "Flood modeling add-on",
         }
 
@@ -176,6 +176,30 @@ class DiscoveryPublisher:
                 "state_topic": f"{b}/status/registry",
                 "value_template": "{{ value_json.candidate_version if value_json.candidate_version is not none else 'none' }}",
                 "icon": "mdi:cube-scan"}),
+            # --- local creek gauge (SEN0676 via Moteino -> RFM69 gateway) ---
+            # Stage itself is already published by the gateway as `sensor.creek_gateway_stage`
+            # (firmware/esp32_rfm69_gateway/gateway.base.yaml), so it is not repeated here.
+            # rate_of_rise_in_min, though, only ever existed inside the add-on process
+            # (FeatureBuilder._rate_of_rise, consumed by tiers.py/model.py) and was never
+            # published anywhere HA could see it — spec §1/§4 name it as a primary feature
+            # alongside stage, but no entity for it ever existed.
+            ("sensor", "creek_rate_of_rise", {
+                "name": "Creek Rate Of Rise",
+                "state_topic": f"{b}/features",
+                "value_template": "{{ value_json.rate_of_rise_in_min if value_json.rate_of_rise_in_min is not none else none }}",
+                "unit_of_measurement": "in/min", "state_class": "measurement",
+                "icon": "mdi:trending-up"}),
+            # How old the stage reading behind that rate is. Blank rate + a climbing age is
+            # the signature of a dropped radio link, and it is the difference between "the
+            # creek is not rising" and "nobody is watching the creek" — which the stage
+            # entity alone cannot show, because the gateway keeps serving the last value the
+            # node sent (see FeatureBuilder._rate_of_rise).
+            ("sensor", "creek_stage_age", {
+                "name": "Creek Stage Age",
+                "state_topic": f"{b}/features",
+                "value_template": "{{ value_json.stage_age_min if value_json.stage_age_min is not none else none }}",
+                "unit_of_measurement": "min", "state_class": "measurement",
+                "entity_category": "diagnostic", "icon": "mdi:clock-alert-outline"}),
             # --- ingested features (Addendum C 2a): rain accumulations + NWS QPF ---
             *(
                 ("sensor", f"creek_rain_{w}h", {

@@ -46,9 +46,13 @@ to the creekbed. Depth is then `installation_height − distance`, published by 
 `sensor.creek_gateway_stage` (ft, what `app/tiers.py` thresholds against) and
 `sensor.creek_gateway_creek_depth` (in, the readable one).
 
-Surveyed 2026-09-12 at **1105 mm (43.5 in)**, which puts the sensor ~6 in above bank top. The
-number is `restore_value: true`, so it survives reboots and reflashes; if the pole is ever
-moved, re-measure face-to-bed and set the number — nothing else needs to change.
+Surveyed 2026-09-12 at **1105 mm (43.5 in)**. Bank top at the sensor location was re-measured
+2026-09-14 at 44.25 in above the creekbed — higher than the earlier ~37.5 in eyeball estimate
+— which puts the sensor face ~0.75 in *below* bank top, not ~6 in above it. A short pole
+extension to raise the install height is planned this week; installation height is unchanged
+for now. The number is `restore_value: true`, so it survives reboots and reflashes; if the
+pole height ever changes, re-measure face-to-bed and set the number — nothing else needs to
+change.
 
 Because the datum is the bed rather than a low-water surface, depth reads as true water depth
 and reads ~0 when the creek is dry, not negative.
@@ -56,14 +60,22 @@ and reads ~0 when the creek is dry, not negative.
 ## Power budget
 
 Worked per the EE skill's §4.1 method, sized for the **early-spring to mid-December**
-flood season rather than year-round. **One assumption is soft:** the C6 figure is an
-estimate and is ~56 % of the total — measure it on the bench before buying anything.
+flood season rather than year-round.
+
+**This budget is the retired ESP32-C6 WiFi node's, and it is pessimistic for the hardware
+actually on the pole.** The Moteino M0 + RFM69HW that replaced it draws far less than a
+C6 holding up WiFi — roughly ~25 mA average rather than ~80 mA (open question #11), which
+is a different and much easier budget. The C6 numbers are kept because the panel and pack
+were sized against them, so they are the conservative case the installed system beats; the
+sizing conclusions below therefore still hold, with margin. **Neither figure is measured** —
+open question #11 wants the Moteino's real draw on the bench.
 
 | | |
 |---|---|
 | SEN0676 | 30 mA (datasheet), ~35 mA from the cell through an 85 %-efficient boost |
-| ESP32-C6 | ~45 mA, WiFi up with `power_save_mode: LIGHT` — **estimate** |
-| **Average** | **~80 mA** → **1.92 Ah/day = 7.1 Wh/day** at 3.7 V |
+| ~~ESP32-C6~~ *(retired)* | ~45 mA, WiFi up with `power_save_mode: LIGHT` — **estimate** |
+| **Average, as sized** | **~80 mA** → **1.92 Ah/day = 7.1 Wh/day** at 3.7 V |
+| Moteino M0 + RFM69HW *(installed)* | ~25 mA total → ~0.6 Ah/day — **estimate, unmeasured** |
 
 ### A 7 W panel covers the season
 

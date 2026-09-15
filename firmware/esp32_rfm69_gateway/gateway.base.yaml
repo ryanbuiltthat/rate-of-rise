@@ -4,7 +4,7 @@
 # wrappers include it as an ESPHome package and supply the one thing that genuinely differs
 # between them, the `external_components:` source.
 #
-#   ewfa_gateway.yaml            (this repo)          -> component from the local components/ dir
+#   gateway.yaml                 (this repo)          -> component from the local components/ dir
 #   /config/esphome/creek-gateway.yaml (HA add-on)    -> component from git, this file from git
 #
 # The Device Builder wrapper pulls both this file and components/rfm69_gateway/ straight from
@@ -166,11 +166,13 @@ rfm69_gateway:
             }
 
             // Too CLOSE is NOT unknown, and treating it as unknown is dangerous here.
-            // The sensor sits ~6 in above bank top, so the blanking zone begins at almost
-            // exactly the depth where the creek tops the bank. Publishing NaN there would
-            // blank stage and rate-of-rise at the very moment of overtopping, and the
-            // add-on's tier logic drops any tier whose feature is None -- the alarm would
-            // de-escalate as the creek came over. A reading inside the blanking zone means
+            // Bank top is 44.25 in above the creekbed (surveyed 2026-09-14); at the current
+            // 1105 mm mount, the blanking zone begins ~6.65 in of depth *before* the creek
+            // tops the bank, not at it (a short pole extension to close that gap is planned --
+            // see docs/open-questions.md #16). Publishing NaN in the blanking zone would blank
+            // stage and rate-of-rise on the way up to overtopping, and the add-on's tier logic
+            // drops any tier whose feature is None -- the alarm would de-escalate exactly when
+            // the creek is closing in on the bank. A reading inside the blanking zone means
             // the water is at least (mount - blanking) deep, so clamp to that floor and
             // keep the tier where it belongs.
             float depth_mm = mount - d;
@@ -192,8 +194,10 @@ rfm69_gateway:
     name: Node OTA Status
 
 # --- Calibration ------------------------------------------------------------------------
-# Surveyed 2026-09-12: creekbed -> sensor face = 43.5 in = 1105 mm, which puts the sensor
-# ~6 in above bank top. Set from Home Assistant if the pole is ever re-mounted; restore_value
+# Surveyed 2026-09-12: creekbed -> sensor face = 43.5 in = 1105 mm. Bank top was re-measured
+# 2026-09-14 at 44.25 in, which puts the sensor ~0.75 in *below* bank top, not ~6 in above it
+# as earlier estimated -- a pole extension to raise this is planned, but the install height
+# has not changed yet. Set from Home Assistant if the pole is ever re-mounted; restore_value
 # keeps it across reboots, so a reflash does not silently revert the datum to this default.
 number:
   - platform: template

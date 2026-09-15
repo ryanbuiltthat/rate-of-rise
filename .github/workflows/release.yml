@@ -1,7 +1,7 @@
 name: release
 
-# Fires only when the add-on's version actually changes, and only on main (this repo
-# commits straight to main — see tests.yml). tests.yml already fails the build if a
+# Fires only when the add-on's version actually changes, and only on main — whether the
+# push is a direct commit or a PR merge. tests.yml already fails the build if a
 # version bump ships without a matching CHANGELOG.md section, so by the time this runs
 # the changelog entry is guaranteed to exist; this workflow's job is to turn that
 # already-bumped version into a git tag + GitHub Release, and to catch a bad bump
@@ -11,7 +11,7 @@ on:
   push:
     branches: ["main"]
     paths:
-      - "creek_modeling/config.yaml"
+      - "rate_of_rise/config.yaml"
 
 permissions:
   contents: write
@@ -42,7 +42,7 @@ jobs:
           def read_version(ref):
               try:
                   text = subprocess.run(
-                      ["git", "show", f"{ref}:creek_modeling/config.yaml"],
+                      ["git", "show", f"{ref}:rate_of_rise/config.yaml"],
                       check=True, capture_output=True, text=True,
                   ).stdout
               except subprocess.CalledProcessError:
@@ -96,7 +96,7 @@ jobs:
           import pathlib, re, sys
 
           version = "${{ steps.version.outputs.version }}"
-          changelog = pathlib.Path("creek_modeling/CHANGELOG.md").read_text(encoding="utf-8")
+          changelog = pathlib.Path("rate_of_rise/CHANGELOG.md").read_text(encoding="utf-8")
           match = re.search(
               rf"\n## {re.escape(version)}\n(.*?)(\n## |\Z)", changelog, re.DOTALL,
           )
