@@ -142,7 +142,15 @@ Built with [PlatformIO](https://platformio.org/) (`board = moteino_zero`,
    extension in VS Code, or `pio run` from that directory).
 2. Set `ENCRYPT_KEY` in `src/main.cpp` to your chosen key.
 3. Connect via USB and run Upload (`pio run -t upload`).
-4. After a successful build, convert the ELF to Intel HEX format and copy it to the repo: `~/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-objcopy -O ihex .pio/build/moteino_creek_node/firmware.elf firmware.hex`. The atmelsam platform does not emit a .hex directly, so this conversion step is required before committing the artifact for the gateway's OTA fetch.
+4. **`firmware.hex` regenerates itself — you don't need to run `objcopy` by hand.**
+   `.github/workflows/firmware-hex.yml` builds `src/**` and `platformio.ini` on every
+   push to `main` that touches them, runs the same `arm-none-eabi-objcopy -O ihex
+   .pio/build/moteino_creek_node/firmware.elf firmware.hex` conversion (the atmelsam
+   platform doesn't emit a `.hex` on its own), and commits the result back to `main`
+   if it changed. A pull request only gets the build-and-verify half — the workflow
+   skips the commit-back step there, so `firmware.hex` on a PR branch stays whatever
+   you pushed until it merges. Trigger it manually from the Actions tab
+   (`workflow_dispatch`) if you need a rebuild without a source change.
 
 **If the board stops being recognized by USB:** the SAMD21's native USB
 drops off the bus while asleep (`LowPower.standby()`), so once the sketch
@@ -257,10 +265,12 @@ side through `CheckForWirelessHEX()`. The whole gateway-side path lives in
 
 ### Procedure
 
-1. **Build the node image and regenerate `firmware.hex`.** See "Build & Flash → Creek node
-   (Moteino M0)" step 4 for the `arm-none-eabi-objcopy` command — PlatformIO's `atmelsam`
-   platform does not emit a `.hex` on its own, so that conversion step is not optional.
-2. **Commit `firmware.hex` and push to `main`.** The gateway fetches from a URL hardcoded to
+1. **Build the node image.** Push your `src/main.cpp` (or `platformio.ini`) change to `main`
+   and let `.github/workflows/firmware-hex.yml` build it and regenerate `firmware.hex` — see
+   "Build & Flash → Creek node (Moteino M0)" step 4. PlatformIO's `atmelsam` platform does not
+   emit a `.hex` on its own, so that conversion step is not optional, but it no longer needs to
+   be run by hand.
+2. **Confirm `firmware.hex` landed on `main`.** The gateway fetches from a URL hardcoded to
    that ref — `node_hex_url` in `gateway.base.yaml` is
    `raw.githubusercontent.com/ryanbuiltthat/rate-of-rise/main/firmware/moteino_creek_node/firmware.hex`
    — so pushing to a branch or opening a PR does nothing until it lands on `main`.
