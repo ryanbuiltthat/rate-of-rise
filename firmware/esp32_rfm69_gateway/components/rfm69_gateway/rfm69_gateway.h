@@ -113,6 +113,8 @@ enum class OtaState : uint8_t {
 // Rfm69Gateway is complete.
 class Rfm69Gateway;
 void ota_task_trampoline(void *arg);
+// Same reason, for the fetch phase -- see run_ota_fetch() for why it has its own task too.
+void ota_fetch_task_trampoline(void *arg);
 
 class Rfm69Gateway : public Component {
  public:
@@ -228,6 +230,21 @@ class Rfm69Gateway : public Component {
 
   void loop() override {
     this->publish_ota_status_();
+    // The fetch task signals completion by flipping ota_fetch_done_ and exits right after --
+    // exchange() both reads and clears it atomically, so this only fires once, and its acquire
+    // order is what makes reading ota_image_/ota_image_len_/ota_fetch_ok_ below safe without a
+    // mutex: the fetch task's writes to all three happen-before its release store to this flag
+    // (see run_ota_fetch()), so this acquire-load happens-after them too.
+    if (this->ota_fetch_done_.exchange(false, std::memory_order_acquire)) {
+      if (this->ota_fetch_ok_) {
+        this->ota_armed_ = true;
+        this->ota_deadline_ms_ = millis() + OTA_ARM_TIMEOUT_MS;
+        this->set_ota_status_(OtaState::ARMED, 0, "");
+        ESP_LOGI(TAG, "OTA armed; waiting for the node's next report");
+      }
+      // On failure fetch_hex_() has already published FAILED with a specific reason -- nothing
+      // more to do here.
+    }
     // Non-blocking on purpose. During an OTA push the transfer task holds this mutex for the
     // whole transfer; a blocking take here would stall the main task for that entire time and
     // defeat the reason the transfer runs on its own task at all. Skipping a few iterations of
@@ -271,28 +288,48 @@ class Rfm69Gateway : public Component {
 
   // Public: called from a button.template on_press lambda in gateway.base.yaml.
   void start_ota_push() {
-    // Both flags, not just ota_armed_. try_start_transfer_() clears ota_armed_ *before* it spawns
-    // the transfer task, so for the whole multi-minute transfer ota_armed_ is false while the
-    // task is streaming ota_image_ over the radio. A second press would then reach fetch_hex_(),
-    // which mallocs a fresh buffer and only publishes it to ota_image_/ota_image_len_ once fully
-    // decoded -- reassigning those two fields out from under the transfer task, which rereads
-    // them every loop iteration on a different task with no lock protecting either. That is a
-    // data race on top of leaking whatever buffer the transfer task was still reading from.
-    // ota_active_ spans exactly the window ota_armed_ does not.
-    if (this->ota_armed_ || this->ota_active_) {
+    // All three flags, not just ota_armed_/ota_active_. try_start_transfer_() clears ota_armed_
+    // *before* it spawns the transfer task, so for the whole multi-minute transfer ota_armed_ is
+    // false while the task is streaming ota_image_ over the radio; ota_fetching_ is false by
+    // then too, but true for the whole fetch that precedes it. A second press slipping into any
+    // of these three windows would re-enter fetch_hex_() and reassign ota_image_/ota_image_len_
+    // out from under whichever task is still reading them, with no lock protecting either field
+    // -- a data race on top of leaking whatever buffer that task was still using. The three
+    // flags together span every window from the first press to the transfer's end.
+    if (this->ota_fetching_ || this->ota_armed_ || this->ota_active_) {
       ESP_LOGW(TAG, "OTA push already in progress, ignoring");
       return;
     }
     ESP_LOGI(TAG, "OTA push requested, fetching %s", this->ota_hex_url_.c_str());
     this->set_ota_status_(OtaState::FETCHING, 0, "");
-    this->publish_ota_status_();  // make "fetching" visible before the blocking GET
-    if (!this->fetch_hex_()) {
-      return;
+    this->publish_ota_status_();  // make "fetching" visible before the fetch task starts
+    // ota_fetching_ has to be set before the task exists, same reasoning as ota_active_ in
+    // try_start_transfer_() below: the task never sets it itself, so a failed xTaskCreate() has
+    // to roll it back by hand or every future press would find it already "in progress" forever.
+    this->ota_fetching_ = true;
+    // 12 KB, larger than the transfer task's 8 KB (try_start_transfer_() below): this task's
+    // call chain goes through a full TLS handshake (WiFiClientSecure/mbedTLS), which is more
+    // stack-hungry than the transfer task's plain RFM69 SPI/radio calls. Not bench-verified
+    // against a worst-case handshake, just sized with margin above the transfer task's figure.
+    if (xTaskCreate(ota_fetch_task_trampoline, "rfm69_ota_fetch", 12288, this, 1, nullptr) !=
+        pdPASS) {
+      ESP_LOGE(TAG, "Could not create the OTA fetch task; aborting the push");
+      this->ota_fetching_ = false;
+      this->set_ota_status_(OtaState::FAILED, 0, "no memory for fetch task");
     }
-    this->ota_armed_ = true;
-    this->ota_deadline_ms_ = millis() + OTA_ARM_TIMEOUT_MS;
-    this->set_ota_status_(OtaState::ARMED, 0, "");
-    ESP_LOGI(TAG, "OTA armed; waiting for the node's next report");
+  }
+
+  // Runs on its own task -- see fetch_hex_() for why. Mirrors run_ota_transfer()'s shape: do the
+  // work, then hand the outcome back to the main task rather than touching any ESPHome object or
+  // the main-task-only ota_armed_/ota_deadline_ms_ from here.
+  void run_ota_fetch() {
+    const bool ok = this->fetch_hex_();
+    this->ota_fetch_ok_ = ok;
+    this->ota_fetching_ = false;
+    // Release order: everything fetch_hex_() wrote (ota_image_/ota_image_len_ on success, or the
+    // FAILED status via set_ota_status_() on failure) must be visible to loop() before it can
+    // observe ota_fetch_done_ true. See loop()'s exchange() for the acquire side of this edge.
+    this->ota_fetch_done_.store(true, std::memory_order_release);
   }
 
   // Runs on its own task. Holds the radio for the whole transfer so the main loop keeps
@@ -479,9 +516,17 @@ class Rfm69Gateway : public Component {
     this->ota_image_len_ = 0;
   }
 
-  // Runs inline on the main task. It is a ~150 KB GET over WiFi -- a couple of seconds -- and
-  // putting it on the transfer task would mean reporting download failures across a thread
-  // boundary for no benefit. The slow part that needs its own task is the radio transfer.
+  // Runs on its own task (spawned by start_ota_push(), see run_ota_fetch()) -- it did not
+  // always. The original design ran this inline on the main task on the theory that a ~150 KB
+  // GET over local WiFi is only a couple of seconds and not worth a thread boundary. On real
+  // hardware it is not that fast: http.GET() below does DNS + TCP connect + a full TLS
+  // handshake with raw.githubusercontent.com as one blocking call with no yield point
+  // HTTPClient exposes, and a live crash trace caught it taking long enough to starve loopTask's
+  // ESP-IDF task watchdog (~4 s to the abort, against ESP-IDF's 5 s default) -- Core 0 stuck in
+  // xQueueSemaphoreTake, then a hard reset, every single press. Newly created FreeRTOS tasks are
+  // not subscribed to that watchdog by default (only loopTask is), which is exactly why
+  // run_ota_transfer() already worked this way for the radio phase and why this phase needed
+  // the same fix.
   //
   // The .hex file is ASCII text -- Intel HEX records, one per line -- but the node only ever
   // sees the binary payload underneath: ~45 KB against the ~124 KB of hex text. Decoding here,
@@ -846,17 +891,32 @@ class Rfm69Gateway : public Component {
   uint8_t published_percent_{255};
 
   std::string ota_hex_url_;
-  // ota_armed_ stays a plain bool: it is only ever touched from the main task.
+  // ota_armed_ stays a plain bool: it is only ever touched from the main task -- run_ota_fetch()
+  // does not set it directly; loop() does, after observing ota_fetch_done_ (see loop()).
   bool ota_armed_{false};
   uint32_t ota_deadline_ms_{0};
+
+  // Written by the main task (start_ota_push(), true) and the fetch task (run_ota_fetch(),
+  // false right before it exits) -- std::atomic for the same reason as ota_active_ below: a
+  // plain bool gives the compiler no reason not to reorder or cache a write across that
+  // cross-task boundary.
+  std::atomic<bool> ota_fetching_{false};
+  // Sequences the handoff of ota_image_/ota_image_len_/ota_fetch_ok_ from the fetch task back to
+  // the main task -- see run_ota_fetch() (release store) and loop() (acquire exchange).
+  std::atomic<bool> ota_fetch_done_{false};
+  // Valid only once ota_fetch_done_ has been observed true; the same release/acquire pair that
+  // guards ota_image_/ota_image_len_ covers this too, so it does not need to be atomic itself.
+  bool ota_fetch_ok_{false};
 
   // The decoded firmware image. The .hex is ~124 KB of ASCII; the payload the node actually
   // receives is the ~45 KB of binary underneath it, so decode during the fetch and hold only
   // that. Lives from a successful fetch until the transfer ends or the arm window expires --
   // free_ota_image_() is the only thing allowed to release it, and every path that ends a push
-  // calls it exactly once. Written by the main task (fetch_hex_(), and every free_ota_image_()
-  // call except the one in run_ota_transfer()) before the transfer task exists or after it has
-  // exited, so nothing ever touches these two fields from both tasks at once.
+  // calls it exactly once. Written by the fetch task (fetch_hex_(), inside run_ota_fetch())
+  // before its release store to ota_fetch_done_, and by the main task (every free_ota_image_()
+  // call) only after that store has been observed or before the fetch task exists -- so nothing
+  // ever touches these two fields from both tasks at once. See loop() and run_ota_fetch() for
+  // the happens-before edge between the fetch and transfer phases.
   uint8_t *ota_image_{nullptr};
   size_t ota_image_len_{0};
 
@@ -873,6 +933,11 @@ class Rfm69Gateway : public Component {
 
 inline void ota_task_trampoline(void *arg) {
   static_cast<Rfm69Gateway *>(arg)->run_ota_transfer();
+  vTaskDelete(nullptr);
+}
+
+inline void ota_fetch_task_trampoline(void *arg) {
+  static_cast<Rfm69Gateway *>(arg)->run_ota_fetch();
   vTaskDelete(nullptr);
 }
 
