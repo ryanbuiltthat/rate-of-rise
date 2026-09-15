@@ -1,0 +1,67 @@
+name: firmware-hex
+
+# The atmelsam PlatformIO platform only emits an .elf, but the gateway's OTA push
+# fetches firmware.hex from raw.githubusercontent.com at a URL hardcoded to main
+# (see firmware/README.md "OTA Firmware Updates"). This workflow replaces the
+# manual "pio run, then objcopy, then commit" steps documented there: it builds
+# the node firmware whenever its source changes and keeps firmware.hex on main
+# in sync automatically. Pull requests only get the build-and-verify half — the
+# commit-back step is skipped so a PR branch is never pushed to on the author's
+# behalf.
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "firmware/moteino_creek_node/src/**"
+      - "firmware/moteino_creek_node/platformio.ini"
+  pull_request:
+    paths:
+      - "firmware/moteino_creek_node/src/**"
+      - "firmware/moteino_creek_node/platformio.ini"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-hex:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ hashFiles('firmware/moteino_creek_node/platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build firmware
+        working-directory: firmware/moteino_creek_node
+        run: pio run -e moteino_creek_node
+
+      - name: Convert ELF to Intel HEX
+        working-directory: firmware/moteino_creek_node
+        run: |
+          objcopy=$(find ~/.platformio/packages/toolchain-gccarmnoneeabi/bin -name 'arm-none-eabi-objcopy')
+          "$objcopy" -O ihex .pio/build/moteino_creek_node/firmware.elf firmware.hex
+
+      - name: Commit and push firmware.hex
+        if: github.event_name != 'pull_request'
+        working-directory: firmware/moteino_creek_node
+        run: |
+          if git diff --quiet -- firmware.hex; then
+            echo "firmware.hex unchanged, nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add firmware.hex
+          git commit -m "firmware: regenerate firmware.hex from source [skip ci]"
+          git push
