@@ -3,6 +3,16 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.20.4
+
+- **Fix: four USGS gauge cards on the dashboard pointed at entity IDs that never
+  existed.** `dashboards/creek_flood_watch.yaml`'s "Downstream gauges (validation)" section
+  referenced `sensor.*_usgs_leggetts_*` / `*_usgs_tunkhannock_*` — the internal site labels
+  `discovery.py` uses for value templates and object IDs, not the display names
+  ("Adjacent"/"Downstream") Home Assistant actually mints entity IDs from. Those four cards
+  showed "Entity not found" on every install. Corrected to `*_usgs_adjacent_*` /
+  `*_usgs_downstream_*`.
+
 ## 0.20.3
 
 - **Fix: the service-stale watchdog kept the pre-rename name, so its entity ID never
