@@ -42,8 +42,8 @@
 #define ENCRYPT_KEY   "KksDNqcNb6mCY4xA"
 //This setting enables this gateway to work with remote nodes that have ATC enabled to
 //dial their power down to only the required level (ATC_RSSI)
-//#define ENABLE_ATC    //comment out this line to disable AUTO TRANSMISSION CONTROLg
-#define ATC_RSSI      -85
+#define ENABLE_ATC    //comment out this line to disable AUTO TRANSMISSION CONTROLg
+#define ATC_RSSI      -78
 
 // ─── Pins ────────────────────────────────────────────────────────────────────
 #define RFM69_CS      8
