@@ -214,21 +214,26 @@ the calibration phase.
 *(#16 is now Closed, above — the pole has been raised.)*
 
 - **#2.** Google Floods API: does a virtual gauge (hybas) land on the creek, or only on the
-  larger receiving reach? What are its thresholds? **Half answered as of 0.21.0.**
-  `app/sources/google_floods.py` now searches `gauges:searchGaugesByArea` for every gauge
-  Google models within 25 mi — non-quality-verified and virtual HydroBASINS gauges
-  included, which are the only plausible candidates on a creek this small — and reads
-  `floodStatus:queryLatestFloodStatusByGaugeIds` for the nearest ten. So the first half of
-  the question is now answered by running it with a key: the `Creek Google Flood Gauges`
-  sensor is the count, and the add-on log names each gauge with its river, distance and
-  verification state on every daily re-discovery. A count of 0 is the answer that this
-  source is dead weight here, and it is a real reading rather than a fault.
+  larger receiving reach? What are its thresholds? **Answered as of 0.22.0, with a
+  residual.** `app/sources/google_floods.py` searches `gauges:searchGaugesByArea` for
+  every gauge Google models within 25 mi — non-quality-verified and virtual HydroBASINS
+  gauges included, which are the only plausible candidates on a creek this small — and
+  reads `floodStatus:queryLatestFloodStatusByGaugeIds` for the nearest ten. The `Creek
+  Google Flood Gauges` sensor is the count, and the add-on log names each gauge with its
+  river, distance and verification state on every daily re-discovery. A count of 0
+  answers that no gauge, verified or virtual, lands close enough to be a useful proxy
+  for this creek.
 
-  The thresholds half is still open, and is deliberately not built: `gaugeModels.batchGet`
-  carries each gauge's warning/danger/extreme levels and `gauges.queryGaugeForecasts` the
-  forecast values, which together would replace the 4-step severity ladder with a
-  continuous "fraction of the way to warning level" — a much better model feature. The
-  work is the per-gauge units (metres of stage on one gauge, m³/s of discharge on another,
-  meaningless until paired with that gauge's own thresholds), and it is worth doing only
-  once a gauge near enough to matter is known to exist. Which is what the count now tells
-  us.
+  The second half — does Google's *flash flood* product (a different, ungauged-basin
+  forecast, not a gauge) reach a basin this small — is also answered by the same 0.22.0
+  release: `flashFloods:search` plus `serializedPolygons/{id}` polygon geometry are now
+  checked against the site's own coordinates every 30 min (`google_flash_flood_likely`,
+  `google_flash_flood_highly_likely`, `google_flash_flood_events`; Addendum C 2j). Unlike
+  the gauge search, this is a direct read of the site itself, not a neighbouring proxy.
+
+  **Residual:** #2 also asked "what are its thresholds?" — the gauge severity ladder
+  (2i) is still Google's 4-step category, not the gauge's own numeric thresholds.
+  `gaugeModels.batchGet` thresholds and `gauges.queryGaugeForecasts` values remain not
+  ingested (see `creek-flood-warning-spec.md`'s 2i entry) — worth doing only once a
+  gauge near enough to matter is known to exist, which 2i's own gauge count has now
+  confirmed one way or the other.

@@ -114,6 +114,13 @@ no reach this small — so it is capped at Tier 2 Watch. Whether it says anythin
 depends on Google having a modelled gauge within 25 mi, which is open question #2 and is
 now answered by a sensor rather than by speculation.
 
+The same release (0.22.0) adds a second, independent read from the same API:
+`flashFloods:search` plus polygon geometry, checked directly against the site's own
+coordinates rather than a neighbouring gauge. It answers a different question — is
+*this exact point* inside a forecast flash-flood area — and is capped at the same Tier
+2 Watch ceiling for the same reason (still a Google model forecast, not the creek's own
+instrument). See `docs/open-questions.md` #2 and Addendum C 2j.
+
 ---
 
 ## 4. Alert tiers (`app/tiers.py`)

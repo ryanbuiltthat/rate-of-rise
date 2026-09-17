@@ -1,5 +1,5 @@
 name: Rate of Rise
-version: "0.21.1"
+version: "0.22.0"
 slug: rate_of_rise
 description: Flood-probability + predicted-stage inference and nightly retrain for the creek.
 url: https://github.com/ryanbuiltthat/rate-of-rise
@@ -54,10 +54,10 @@ options:
   rate_of_rise_max_gap_minutes: 10
   rate_of_rise_confirm_samples: 2
   # Google Flood Forecasting (floodforecasting.googleapis.com) — needs a Google Cloud
-  # project with the API enabled and an API key. Setting it enables the source, which
-  # finds the gauges Google models within 25 mi of the site and reads its forecast flood
-  # status for them. Those are neighbouring rivers, not this creek; the status is
-  # regional context and tops out at Tier 2 Watch. Blank disables it entirely.
+  # project with the API enabled and an API key. Setting it enables two reads: the
+  # gauges Google models within 25 mi of the site (neighbouring rivers, not this creek —
+  # regional context, tops out at Tier 2 Watch), and flash-flood polygon containment of
+  # the site itself (also capped at Tier 2 Watch). Blank disables both entirely.
   google_floods_api_key: ""
   wu_api_key: ""
   # --- Site-specific IDs: BLANK ON PURPOSE -------------------------------------------

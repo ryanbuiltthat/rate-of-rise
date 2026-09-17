@@ -50,9 +50,17 @@ would give a continuous "fraction of the way to warning level" rather than this 
 ladder, which is the better model feature. They are left for a later slice because the
 values are per-gauge units (metres of stage on one, m³/s of discharge on another) that
 mean nothing until they are paired with that gauge's own thresholds — real work, and
-worth doing only once a gauge near enough to matter is known to exist. `flashFloods`
-and `inundationMapSet` are satellite-derived products for ungauged basins outside the
-US and have no bearing here.
+worth doing only once a gauge near enough to matter is known to exist.
+
+FLASH FLOODS. `flashFloods:search` (filtered by country code only — no lat/lon filter
+exists at the API level) plus `serializedPolygons/{id}` (KML geometry per polygon,
+resolved via app/sources/kml_geometry.py's point-in-polygon test) answer a question the
+gauge search cannot: is the site itself — not a neighbouring gauge — inside a forecast
+flash-flood area. `event_polygon_id` is the union of the likely and highly-likely
+polygons, so it is checked first as a cheap reject; only a site inside it pays for a
+second fetch to tell "likely" from "highly likely". `inundationMapSet` (raster
+depth/probability maps) is still not ingested — a heavier product than a scalar
+containment read needs.
 
 KEY HANDLING. The key rides in the `X-Goog-Api-Key` header rather than the documented
 `?key=` query parameter, so it cannot reach a log line or a traceback with the URL.
@@ -66,6 +74,8 @@ from urllib.parse import urlencode
 
 import requests
 
+from .kml_geometry import point_in_kml, point_in_rings, parse_kml_rings
+
 log = logging.getLogger("app.sources.google_floods")
 
 FEATURE_KEYS = (
@@ -73,6 +83,9 @@ FEATURE_KEYS = (
     "google_flood_trend",
     "google_flood_gauge_mi",
     "google_flood_gauges",
+    "google_flash_flood_likely",
+    "google_flash_flood_highly_likely",
+    "google_flash_flood_events",
 )
 
 BASE_URL = "https://floodforecasting.googleapis.com/v1"
@@ -85,6 +98,19 @@ SEARCH_RADIUS_MI = 25.0
 MAX_GAUGES = 10                  # nearest N; a status further out is regional noise
 GAUGE_REFRESH_SECONDS = 24 * 3600
 PAGE_SIZE = 1000                 # a box this size holds tens of gauges, not thousands
+
+# Above this many active national events in one flashFloods:search response, log a
+# warning rather than silently resolving geometry for all of them — there is no
+# geographic prefilter at the API level (see the module docstring), so an unbounded
+# severe-weather day is the one scenario where this read could get expensive.
+FLASH_FLOOD_EVENT_WARN_COUNT = 50
+
+# Wall-clock budget for resolving flash-flood polygons in one poll() call. This runs on
+# the same thread as feature-build -> predict -> tier -> publish (app/__main__.py), so an
+# unbounded number of slow polygon fetches would stall the creek's own tier evaluation --
+# exactly the moment (a national severe-weather day) it must not stall. Comfortably under
+# a 5-minute fast-loop cadence; past it, remaining events are left unresolved this cycle.
+FLASH_FLOOD_POLL_BUDGET_SECONDS = 15.0
 
 # Severity as an ordered ladder, the same shape as the ERO's (sources/ero.py): a real
 # "Google looked and forecasts no flooding" is 0.0, and None means only that nothing
@@ -148,9 +174,10 @@ def search_box(lat: float, lon: float, radius_mi: float) -> list[dict]:
 class GoogleFloods:
     name = "google_floods"
     # Google's riverine forecasts are issued on a roughly daily cycle, so this is far
-    # more often than the data changes. It stays at half an hour anyway: the call is one
-    # cheap request against at most MAX_GAUGES ids, and the point of a short interval is
-    # that the watchdog notices the API going dark long before the next storm needs it.
+    # more often than the data changes. It stays at half an hour anyway: the point of a
+    # short interval is that the watchdog notices either read going dark long before the
+    # next storm needs it. The flash-flood read shares this cadence rather than getting
+    # its own -- FLASH_FLOOD_POLL_BUDGET_SECONDS is what bounds its per-poll cost.
     refresh_seconds = 30 * 60
 
     def __init__(self, lat: float, lon: float, api_key: str,
@@ -162,6 +189,7 @@ class GoogleFloods:
         self._now = now_fn
         self._gauges: dict[str, dict] | None = None   # gauge id -> {name, river, mi, ...}
         self._gauges_at = 0.0
+        self._polygon_cache: dict[str, str] = {}   # polygon_id -> kml, forever (immutable)
 
     # --- gauge discovery ------------------------------------------------------------
 
@@ -273,35 +301,159 @@ class GoogleFloods:
                         status.get("severity"), status.get("gaugeId"))
         return None
 
+    # --- flash flood polygons --------------------------------------------------------
+
+    def _flash_flood_events(self) -> list[dict]:
+        payload = self._fetch(
+            f"{BASE_URL}/flashFloods:search", self._headers(),
+            {"countryCodes": ["US"], "pageSize": PAGE_SIZE},
+        )
+        events = payload.get("flashFloodEvents") or []
+        if payload.get("nextPageToken"):
+            # Only reachable with more than PAGE_SIZE active events nationally at once --
+            # matches _discover()'s own page-size note: a real occurrence would be a
+            # once-in-a-generation nationwide event, not something to build pagination
+            # for speculatively. FLASH_FLOOD_EVENT_WARN_COUNT below already bounds the
+            # per-poll cost regardless of how many pages exist.
+            log.warning("flashFloods:search returned a full page of %d events", PAGE_SIZE)
+        if len(events) > FLASH_FLOOD_EVENT_WARN_COUNT:
+            log.warning(
+                "flashFloods:search returned %d active events nationally -- resolving "
+                "geometry for only the first %d this poll",
+                len(events), FLASH_FLOOD_EVENT_WARN_COUNT,
+            )
+            events = events[:FLASH_FLOOD_EVENT_WARN_COUNT]
+        return events
+
+    def _polygon_kml(self, polygon_id: str) -> str:
+        """Cached for the process lifetime: a polygon_id is immutable once minted, so a
+        multi-hour event's geometry does not need re-fetching every 30-min poll."""
+        if polygon_id in self._polygon_cache:
+            return self._polygon_cache[polygon_id]
+        payload = self._fetch(f"{BASE_URL}/serializedPolygons/{polygon_id}", self._headers())
+        kml = payload.get("kml") or ""
+        self._polygon_cache[polygon_id] = kml
+        return kml
+
+    def _flash_floods(self) -> dict:
+        """Site containment across every currently active national event.
+
+        `event_polygon_id` (the union of likely + highly-likely, per Google's docs) is
+        checked first: outside it means outside both, so most events cost one polygon
+        fetch, not two. A polygon fetch failure, an unparseable KML shape, or the poll
+        running out of time budget before every event is resolved all mean that
+        contribution is *unknown*, not "not affected" -- reported as None, never a false
+        0.0. A positive result from one event is never erased by a failure on another:
+        once the site is known to be inside a highly-likely area, nothing that happens
+        to a different event can make that less true, so a known-positive flag is
+        reported even when `fully_resolved` is False.
+        """
+        deadline = self._now() + FLASH_FLOOD_POLL_BUDGET_SECONDS
+        likely_any = False
+        highly_likely_any = False
+        count = 0.0
+        fully_resolved = True
+
+        for event in self._flash_flood_events():
+            if self._now() > deadline:
+                log.warning(
+                    "flash flood polygon budget (%.0fs) exceeded; remaining events "
+                    "unresolved this poll", FLASH_FLOOD_POLL_BUDGET_SECONDS,
+                )
+                fully_resolved = False
+                break
+
+            event_polygon_id = event.get("eventPolygonId")
+            if not event_polygon_id:
+                continue
+            try:
+                event_kml = self._polygon_kml(event_polygon_id)
+            except Exception:
+                log.warning("could not resolve flash flood event polygon %s",
+                            event_polygon_id, exc_info=True)
+                fully_resolved = False
+                continue
+
+            rings = parse_kml_rings(event_kml)
+            if event_kml and not rings:
+                log.warning("flash flood event polygon %s did not parse to any ring "
+                            "(unrecognized KML shape?)", event_polygon_id)
+            if not point_in_rings(self._lat, self._lon, rings):
+                continue
+
+            count += 1.0
+            is_highly_likely = False
+            highly_likely_id = event.get("highlyLikelyAffectedPolygonId")
+            if highly_likely_id:
+                try:
+                    hl_kml = self._polygon_kml(highly_likely_id)
+                    is_highly_likely = point_in_kml(self._lat, self._lon, hl_kml)
+                except Exception:
+                    log.warning("could not resolve highly-likely polygon %s",
+                                highly_likely_id, exc_info=True)
+                    # Unknown, not "not highly likely" -- do not let this event assert
+                    # `likely` either; a resolved verdict on a different event can still
+                    # promote the overall reading below.
+                    fully_resolved = False
+                    continue
+            if is_highly_likely:
+                highly_likely_any = True
+            else:
+                likely_any = True
+
+        def _flag(is_set: bool) -> float | None:
+            if is_set:
+                return 1.0
+            return 0.0 if fully_resolved else None
+
+        return {
+            "google_flash_flood_likely": _flag(likely_any and not highly_likely_any),
+            "google_flash_flood_highly_likely": _flag(highly_likely_any),
+            "google_flash_flood_events": count,
+        }
+
     def poll(self) -> dict:
         blank: dict[str, float | None] = {k: None for k in FEATURE_KEYS}
+        out = dict(blank)
+
         gauges = self._known_gauges()
-        if not gauges:
+        if gauges:
+            statuses = self._statuses(list(gauges))
+            out["google_flood_gauges"] = float(len(statuses))
+
+            # One gauge governs all three of the remaining features, so they always
+            # describe the same place: the worst severity on offer, nearest first among
+            # equals. Mixing a severity from one gauge with a trend from another would
+            # read as a single coherent forecast and be nothing of the kind.
+            governing: tuple[float, float, dict] | None = None
+            for status in statuses:
+                severity = self._severity(status)
+                gauge = gauges.get(status.get("gaugeId"))
+                if severity is None or gauge is None:
+                    continue
+                rank = (severity, -gauge["mi"])
+                if governing is None or rank > governing[:2]:
+                    governing = (severity, -gauge["mi"], status)
+
+            if governing is not None:
+                severity, neg_mi, status = governing
+                out["google_flood_severity"] = severity
+                out["google_flood_gauge_mi"] = round(-neg_mi, 1)
+                out["google_flood_trend"] = TREND.get(
+                    (status.get("forecastTrend") or "").strip().upper())
+        else:
             # Nothing modelled nearby is a real reading, not a fault: zero gauges is the
             # honest count, and the rest stay unknown because nobody looked.
-            return {**blank, "google_flood_gauges": 0.0}
+            out["google_flood_gauges"] = 0.0
 
-        statuses = self._statuses(list(gauges))
-        out = {**blank, "google_flood_gauges": float(len(statuses))}
+        try:
+            out.update(self._flash_floods())
+        except Exception:
+            # A different Google product on the same key, reachable independently of
+            # gauge coverage -- an outage here must not take a working gauge-severity
+            # read down with it. (A first-ever gauge-discovery failure above is still
+            # allowed to raise, matching the existing, unrelated contract for that path.)
+            log.warning("flash flood polygon read failed; leaving it unread this poll",
+                        exc_info=True)
 
-        # One gauge governs all three of the remaining features, so they always describe
-        # the same place: the worst severity on offer, nearest first among equals. Mixing
-        # a severity from one gauge with a trend from another would read as a single
-        # coherent forecast and be nothing of the kind.
-        governing: tuple[float, float, dict] | None = None
-        for status in statuses:
-            severity = self._severity(status)
-            gauge = gauges.get(status.get("gaugeId"))
-            if severity is None or gauge is None:
-                continue
-            rank = (severity, -gauge["mi"])
-            if governing is None or rank > governing[:2]:
-                governing = (severity, -gauge["mi"], status)
-
-        if governing is not None:
-            severity, neg_mi, status = governing
-            out["google_flood_severity"] = severity
-            out["google_flood_gauge_mi"] = round(-neg_mi, 1)
-            out["google_flood_trend"] = TREND.get(
-                (status.get("forecastTrend") or "").strip().upper())
         return out

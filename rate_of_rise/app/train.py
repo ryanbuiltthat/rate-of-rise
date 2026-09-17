@@ -124,6 +124,12 @@ FEATURE_COLUMNS = (
     # which is a property of Google's coverage and this add-on's search radius, not of
     # the weather, and a model given it would learn the day the coverage changed.
     "google_flood_severity", "google_flood_trend", "google_flood_gauge_mi",
+    # 2j Google Flash Flood polygons. Unlike google_flood_gauges above, containment is
+    # itself a weather signal (the site is or isn't inside a forecast flash-flood area),
+    # not a coverage artifact, so all three ride along — same reasoning as severity/
+    # trend rather than the gauge count.
+    "google_flash_flood_likely", "google_flash_flood_highly_likely",
+    "google_flash_flood_events",
 )
 # Cast to 0/1 before handing to xgboost; everything else is already numeric-or-NaN.
 BOOL_COLUMNS = ("ponding_flag", "rain_on_snow_flag")

@@ -78,6 +78,14 @@ WATCH_GOOGLE_SEVERITY = 2.0        # SEVERE or EXTREME
 # regional headline, not a reason to go look at the creek.
 GOOGLE_TIER_RADIUS_MI = 15.0
 
+# --- Google Flash Flood polygons (spec Addendum C 2j) ---
+# A direct containment test of the site itself, not a nearby proxy -- no distance
+# gating needed here the way the gauge severity block needs GOOGLE_TIER_RADIUS_MI.
+# Still a Google model forecast rather than the creek's own instrument, so it tops out
+# at Watch, same ceiling and same reasoning as the gauge severity block above. The two
+# features are already 0/1 flags, so the rule below tests them directly -- no threshold
+# constant to name, unlike the severity ladder above it.
+
 # --- Rain-on-snow: rain actually falling (rather than forecast) onto a pack ---
 ROS_WATCH_RAIN_1H_IN = 0.05
 
@@ -186,6 +194,12 @@ def compute_tier(
                                f"flooding at a gauge {where}"))
         elif gsev >= ADVISORY_GOOGLE_SEVERITY:
             reasons.append((1, f"Google forecasts an above-normal river {where}"))
+
+    # --- Google Flash Flood polygons (spec Addendum C 2j) ---
+    if row.google_flash_flood_highly_likely:
+        reasons.append((2, "Google forecasts flash flooding highly likely at this location"))
+    elif row.google_flash_flood_likely:
+        reasons.append((1, "Google forecasts flash flooding likely at this location"))
 
     # --- Rain-on-snow (spec §1: a major regional flood driver) ---
     # The pack contributes meltwater on top of the rain, so the same QPF produces more

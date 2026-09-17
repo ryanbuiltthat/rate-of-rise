@@ -37,6 +37,7 @@
 | `rate_of_rise/app/train.py` | **Modify.** `FEATURE_COLUMNS` gains the three new names. |
 | `rate_of_rise/tests/test_train.py` | **No content change** — its column-list assertions are dynamic (`list(t.FEATURE_COLUMNS)`); just re-run it. |
 | `rate_of_rise/app/discovery.py` | **Modify.** Two new entity specs. |
+| `rate_of_rise/tests/test_discovery.py` | **Modify.** `test_topics_and_counts` and `test_publish_all_emits_retained_json` hardcode exact entity counts that the two new sensor specs will break; new existence checks for the two new specs, mirroring `test_rain_and_qpf_sensors_present`. |
 | `dashboards/creek_flood_watch.yaml` | **Modify.** Two new rows in the existing "Google flood status" card. |
 | `rate_of_rise/tests/test_dashboard_entities.py` | **No content change** — its `"google" in slug` check already covers new Google entities generically; just re-run it. |
 | `docs/open-questions.md`, `docs/project-knowledge.md`, `creek-flood-warning-spec.md`, `rate_of_rise/CHANGELOG.md`, `rate_of_rise/DOCS.md`, `rate_of_rise/config.yaml` | **Modify.** Docs + version bump, final task. |
@@ -723,10 +724,10 @@ In `rate_of_rise/app/features.py`, after the existing `google_flood_*` fields:
     google_flood_gauges: float | None = None
     # Google Flash Flood polygons (slice 2j) — direct containment of the site itself in
     # Google's forecast flash-flood area, not a nearby gauge's severity. `likely`/
-    # `highly_likely` are 0/1 flags (1.0 real absence of coverage, 0.0 real "not inside",
-    # None only if nothing could be read); `events` is the count of active national
-    # events the site falls inside (almost always 0, occasionally 1; a count rather than
-    # a flag because overlap across events is possible).
+    # `highly_likely` are 0/1 flags (1.0 = the site is inside; 0.0 = a real reading that
+    # it is not; None only if nothing could be read); `events` is the count of active
+    # national events the site falls inside (almost always 0, occasionally 1; a count
+    # rather than a flag because overlap across events is possible).
     google_flash_flood_likely: float | None = None
     google_flash_flood_highly_likely: float | None = None
     google_flash_flood_events: float | None = None
@@ -807,16 +808,18 @@ about the new fields yet); all existing tests still `PASS`.
 
 - [ ] **Step 3: Add the rule block to `tiers.py`**
 
-Add constants after the existing `GOOGLE_TIER_RADIUS_MI` block:
+Add a comment after the existing `GOOGLE_TIER_RADIUS_MI` block (no new constants —
+unlike the severity block, `google_flash_flood_likely`/`_highly_likely` are already 0/1
+flags with no threshold left to name):
 
 ```python
 # --- Google Flash Flood polygons (spec Addendum C 2j) ---
 # A direct containment test of the site itself, not a nearby proxy -- no distance
 # gating needed here the way the gauge severity block needs GOOGLE_TIER_RADIUS_MI.
 # Still a Google model forecast rather than the creek's own instrument, so it tops out
-# at Watch, same ceiling and same reasoning as the gauge severity block above.
-ADVISORY_GOOGLE_FLASH_FLOOD_LIKELY = True
-WATCH_GOOGLE_FLASH_FLOOD_HIGHLY_LIKELY = True
+# at Watch, same ceiling and same reasoning as the gauge severity block above. The two
+# features are already 0/1 flags, so the rule below tests them directly -- no threshold
+# constant to name, unlike the severity ladder above it.
 ```
 
 Add the rule inside `compute_tier`, immediately after the existing Google Flood
@@ -903,6 +906,7 @@ git commit -m "Add flash flood containment features to the trained model's featu
 
 **Files:**
 - Modify: `rate_of_rise/app/discovery.py`
+- Modify: `rate_of_rise/tests/test_discovery.py`
 
 **Interfaces:**
 - Consumes: `google_flash_flood_likely`, `google_flash_flood_highly_likely`,
@@ -942,15 +946,73 @@ Flash Flood Status"` → `creek_google_flash_flood_status`, matching the existin
 every other entity here follows (per `entity_ids()`'s own warning about the two
 diverging).
 
-- [ ] **Step 2: Verify the minted entity_ids and the naming-convention guard**
+- [ ] **Step 2: Run `test_discovery.py` to see it fail on the hardcoded counts**
+
+`rate_of_rise/tests/test_discovery.py` has two tests that hardcode exact entity counts
+across the whole `DiscoveryPublisher` output — adding two new `"sensor"` specs breaks
+both:
+
+Run: `python rate_of_rise/tests/test_discovery.py`
+Expected: `test_topics_and_counts` `FAIL` (`assert len(sensors) == 56` — actual is now
+58) and `test_publish_all_emits_retained_json` `FAIL` (`assert len(published) == 79` —
+actual is now 81); every other test still `PASS`.
+
+- [ ] **Step 3: Update the hardcoded counts and add existence checks**
+
+In `rate_of_rise/tests/test_discovery.py`, this comment's running total does not fully
+reconcile even today (it predates this task and is out of this task's scope to
+reconcile) — leave every existing line as-is and only change the asserted number and
+add one new trailing line for the two sensors this task adds:
+
+```python
+    # 16 status/model (incl. Phase 3 lag series) + 1 local gauge rate-of-rise
+    # + 8 (2a incl. API index) + 8 (2b) + 6 (2c) + 1 (2d) + 2 (2e) + 4 (2g radar cells)
+    # + 3 (2h WPC ERO) + 1 soil mean (migrated out of the HA package)
+    # + 1 storm-to-annotate (dashboard annotation)
+    # + 2 (2j Google flash flood)
+    assert len(sensors) == 58, len(sensors)
+```
+
+```python
+def test_publish_all_emits_retained_json():
+    pub, published = build()
+    pub.publish_all()
+    assert len(published) == 81
+    for topic, payload, retain in published:
+        assert retain is True
+        json.loads(payload)  # valid JSON
+```
+
+Add a new test near `test_rain_and_qpf_sensors_present`, matching its style:
+
+```python
+def test_google_flash_flood_sensors_present():
+    pub, _ = build()
+    cfgs = {c["object_id"]: c for _, c in pub.configs()}
+    status = cfgs["creek_google_flash_flood_status"]
+    assert status["state_topic"] == "creek/features"
+    assert "google_flash_flood_highly_likely" in status["value_template"]
+    assert "google_flash_flood_likely" in status["value_template"]
+    events = cfgs["creek_google_flash_flood_events"]
+    assert events["state_topic"] == "creek/features"
+    assert "google_flash_flood_events" in events["value_template"]
+```
+
+- [ ] **Step 4: Run the full test file to verify it passes**
+
+Run: `python rate_of_rise/tests/test_discovery.py`
+Expected: all tests `PASS`.
+
+- [ ] **Step 5: Verify the minted entity_ids and the naming-convention guard**
 
 Run: `python rate_of_rise/tests/test_dashboard_entities.py`
 Expected: all 4 tests `PASS`. In particular,
 `test_entities_added_after_the_rename_use_the_current_device_prefix` iterates every
 spec slug containing `"google"` and asserts its minted id starts with `rate_of_rise_` —
-the two new specs are covered by that loop automatically, no test-file change needed.
+the two new specs are covered by that loop automatically, no test-file change needed
+there.
 
-As a manual spot-check (optional, not a committed step), confirm the exact strings:
+Also confirm the exact minted strings (this is what Task 7 references verbatim):
 
 ```bash
 python -c "
@@ -967,10 +1029,10 @@ sensor.rate_of_rise_creek_google_flash_flood_status
 sensor.rate_of_rise_creek_google_flash_flood_events
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add rate_of_rise/app/discovery.py
+git add rate_of_rise/app/discovery.py rate_of_rise/tests/test_discovery.py
 git commit -m "Publish HA discovery entities for Google flash flood status"
 ```
 
@@ -1170,7 +1232,8 @@ In `rate_of_rise/config.yaml`, update the comment above `google_floods_api_key`:
 ```bash
 for f in rate_of_rise/tests/test_kml_geometry.py rate_of_rise/tests/test_google_floods.py \
          rate_of_rise/tests/test_sources.py rate_of_rise/tests/test_tiers.py \
-         rate_of_rise/tests/test_train.py rate_of_rise/tests/test_dashboard_entities.py; do
+         rate_of_rise/tests/test_train.py rate_of_rise/tests/test_discovery.py \
+         rate_of_rise/tests/test_dashboard_entities.py; do
   echo "=== $f ==="
   python "$f" || exit 1
 done

@@ -135,11 +135,13 @@ views:
           - entity: sensor.ackerly_creek_modeling_creek_wpc_excessive_rain_risk_day_3
             name: Day 3
 
-      # Google's Flood Forecasting model, read at the nearest gauges it runs. Those are
-      # neighbouring rivers, never this creek -- so this is regional context, graded
-      # against each gauge's own warning/danger thresholds. Distance is shown because
-      # the status cannot be read without it. Gauges = 0 means Google models nothing
-      # within 25 mi (open question #2).
+      # Google's Flood Forecasting model, read two ways: gauge severity at the nearest
+      # gauges it runs (neighbouring rivers, never this creek -- regional context graded
+      # against each gauge's own warning/danger thresholds; distance is shown because
+      # the status cannot be read without it; gauges = 0 means Google models nothing
+      # within 25 mi, open question #2's gauge half) and flash-flood polygon containment
+      # of the site itself (open question #2's flash-flood half -- a direct read of
+      # whether this exact point is inside a forecast flash-flood area).
       - type: entities
         title: Google flood status (nearby rivers)
         show_header_toggle: false
@@ -152,6 +154,11 @@ views:
             name: ↳ distance to that gauge
           - entity: sensor.rate_of_rise_creek_google_flood_gauges
             name: Gauges watched
+          - type: divider
+          - entity: sensor.rate_of_rise_creek_google_flash_flood_status
+            name: Flash flood risk (this location)
+          - entity: sensor.rate_of_rise_creek_google_flash_flood_events
+            name: Active national events overlapping the site
 
       # Inbound convective cells from <nexrad site>'s storm-attribute table. The one leading
       # indicator that works for the dominant W/NW approach, where a cell reaches the

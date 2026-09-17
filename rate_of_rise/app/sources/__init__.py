@@ -55,6 +55,9 @@ FEATURE_KEYS = (
     # 2i — Google Flood Forecasting status at the nearest modelled gauges
     "google_flood_severity", "google_flood_trend",
     "google_flood_gauge_mi", "google_flood_gauges",
+    # 2j — Google Flash Flood polygon containment at the site itself
+    "google_flash_flood_likely", "google_flash_flood_highly_likely",
+    "google_flash_flood_events",
 )
 
 
