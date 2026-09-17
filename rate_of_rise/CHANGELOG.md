@@ -3,6 +3,19 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.22.0
+
+- **Google Flash Flood polygon containment (spec Addendum C 2j, closes open question
+  #2).** `google_floods.py` now also calls `flashFloods:search` and resolves each
+  event's polygon geometry (`serializedPolygons/{id}`, parsed as KML —
+  `app/sources/kml_geometry.py`) against the site's own coordinates, alongside the
+  existing gauge-severity read. Unlike the gauge search, this reads the site itself, not
+  a neighbouring river: `google_flash_flood_likely` / `google_flash_flood_highly_likely`
+  (published as `Creek Google Flash Flood Status`) and `google_flash_flood_events`
+  (`Creek Google Flash Flood Events`). Capped at Tier 2 Watch, same ceiling and reasoning
+  as the existing gauge-severity rule — still a Google model forecast, not the creek's
+  own instrument. No new config key; reuses `google_floods_api_key`.
+
 ## 0.21.1
 
 - **Fix: every Google Flood card on the dashboard read "Entity not found."** 0.21.0's four

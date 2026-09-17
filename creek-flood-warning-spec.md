@@ -96,7 +96,7 @@
 | NWS `api.weather.gov` | None (User-Agent header) | Gridded QPF (forecast precip) for `<site lat>`,`<site lon>`; active Flood Watch/Warning products for the county |
 | NOAA NWPS API `api.water.noaa.gov/nwps/v1` | None | National Water Model reach forecast for the creek segment — reach `<nwm reach id>` (open question #3, resolved) |
 | USGS Water Services | None | Instantaneous values — gauges `<usgs downstream>` (downstream reach) and `<usgs adjacent>` (adjacent-basin reach); see §1 |
-| Google Flood Forecasting API `floodforecasting.googleapis.com` | Google Cloud project + enable API + API key | **Built (Addendum C 2i).** `gauges:searchGaugesByArea` over a 25 mi box → the gauges Google models near the site, real and virtual (hybas), incl. non-quality-verified; then `floodStatus:queryLatestFloodStatusByGaugeIds` for forecast severity and trend. Gauge-model thresholds and `v1.flashFloods` are not ingested — see 2i |
+| Google Flood Forecasting API `floodforecasting.googleapis.com` | Google Cloud project + enable API + API key | **Built (Addendum C 2i).** `gauges:searchGaugesByArea` over a 25 mi box → the gauges Google models near the site, real and virtual (hybas), incl. non-quality-verified; then `floodStatus:queryLatestFloodStatusByGaugeIds` for forecast severity and trend. Gauge-model thresholds are not ingested; `v1.flashFloods` is ingested separately — see 2j |
 | SNODAS (NOHRSC) | None | Snow water equivalent for grid cell — rain-on-snow feature |
 
 ## 4. Architecture
@@ -654,8 +654,26 @@ read once from HA `/api/config` — no new option.
 
   Not ingested: `gaugeModels.batchGet` thresholds and `gauges.queryGaugeForecasts` values,
   which would replace the 4-step ladder with a continuous "fraction of the way to warning
-  level" (open question #2's residual); and `flashFloods` / `inundationMapSet`, which are
-  satellite products for ungauged basins outside the US.
+  level" (open question #2's residual); and `inundationMapSet`, a satellite-derived
+  inundation product for ungauged basins outside the US. `flashFloods` is a separate
+  endpoint from both and *is* ingested — see 2j.
+
+- **2j — Google Flash Flood polygon containment (done):** `google_floods.py`, same key
+  as 2i. `flashFloods:search` (filtered only by country code — no lat/lon filter exists
+  at this API's level) returns every currently active or forecast flash-flood event
+  nationally as polygon IDs, not coordinates or a severity field. Each event's
+  `event_polygon_id` (the union of its likely- and highly-likely-affected areas) is
+  resolved via `serializedPolygons/{id}` to KML and checked against the site's own
+  lat/lon with a hand-rolled point-in-polygon test (`app/sources/kml_geometry.py`) —
+  outside the union means outside both, so only a site inside it pays for a second fetch
+  to tell "likely" from "highly likely."
+
+  This is the answer to open question #2's remaining half: unlike 2i, which reads a
+  *neighbouring gauge*, this reads the site itself. Features: `google_flash_flood_likely`
+  and `google_flash_flood_highly_likely` (0/1, mutually describing the worst event
+  overlapping the site) and `google_flash_flood_events` (count of active national events
+  the site falls inside — almost always 0). Same Tier 2 Watch ceiling as 2i, for the same
+  reason: still a Google model forecast, not the creek's own instrument.
 
 Phase 2 ingest is complete.
 
