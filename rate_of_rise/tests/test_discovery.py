@@ -25,7 +25,8 @@ def test_topics_and_counts():
     # + 8 (2a incl. API index) + 8 (2b) + 6 (2c) + 1 (2d) + 2 (2e) + 4 (2g radar cells)
     # + 3 (2h WPC ERO) + 1 soil mean (migrated out of the HA package)
     # + 1 storm-to-annotate (dashboard annotation)
-    assert len(sensors) == 56, len(sensors)
+    # + 2 (2j Google flash flood)
+    assert len(sensors) == 58, len(sensors)
     # 3 NWS flags + rain-on-snow + ponding + storm-in-progress + 11 watchdogs
     assert len(binaries) == 18, len(binaries)
     assert len(buttons) == 4, len(buttons)
@@ -107,6 +108,18 @@ def test_rain_and_qpf_sensors_present():
     assert cfgs["creek_qpf_24h"]["unit_of_measurement"] == "in"
 
 
+def test_google_flash_flood_sensors_present():
+    pub, _ = build()
+    cfgs = {c["object_id"]: c for _, c in pub.configs()}
+    status = cfgs["creek_google_flash_flood_status"]
+    assert status["state_topic"] == "creek/features"
+    assert "google_flash_flood_highly_likely" in status["value_template"]
+    assert "google_flash_flood_likely" in status["value_template"]
+    events = cfgs["creek_google_flash_flood_events"]
+    assert events["state_topic"] == "creek/features"
+    assert "google_flash_flood_events" in events["value_template"]
+
+
 def test_local_gauge_rate_of_rise_sensor_present():
     """Regression guard for the gap this closes: stage is published by the RFM69 gateway
     directly, but rate_of_rise_in_min only ever lived inside the add-on process
@@ -122,7 +135,7 @@ def test_local_gauge_rate_of_rise_sensor_present():
 def test_publish_all_emits_retained_json():
     pub, published = build()
     pub.publish_all()
-    assert len(published) == 79
+    assert len(published) == 81
     for topic, payload, retain in published:
         assert retain is True
         json.loads(payload)  # valid JSON

@@ -402,6 +402,21 @@ class DiscoveryPublisher:
                 "state_topic": f"{b}/features",
                 "value_template": "{{ value_json.google_flood_gauges if value_json.google_flood_gauges is not none else none }}",
                 "state_class": "measurement", "icon": "mdi:map-marker-multiple"}),
+            ("sensor", "creek_google_flash_flood_status", {
+                "name": "Creek Google Flash Flood Status",
+                "state_topic": f"{b}/features",
+                "value_template": (
+                    "{% set hl = value_json.google_flash_flood_highly_likely %}"
+                    "{% set l = value_json.google_flash_flood_likely %}"
+                    "{{ 'unknown' if hl is none and l is none else"
+                    " 'Highly likely' if hl == 1 else"
+                    " 'Likely' if l == 1 else 'None' }}"),
+                "icon": "mdi:weather-pouring"}),
+            ("sensor", "creek_google_flash_flood_events", {
+                "name": "Creek Google Flash Flood Events",
+                "state_topic": f"{b}/features",
+                "value_template": "{{ value_json.google_flash_flood_events if value_json.google_flash_flood_events is not none else none }}",
+                "state_class": "measurement", "icon": "mdi:map-marker-alert"}),
             # --- soil moisture (migrated out of the HA package) ---
             ("sensor", "creek_soil_moisture_mean", {
                 "name": "Creek Soil Moisture Mean",
