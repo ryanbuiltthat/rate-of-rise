@@ -1232,7 +1232,8 @@ In `rate_of_rise/config.yaml`, update the comment above `google_floods_api_key`:
 ```bash
 for f in rate_of_rise/tests/test_kml_geometry.py rate_of_rise/tests/test_google_floods.py \
          rate_of_rise/tests/test_sources.py rate_of_rise/tests/test_tiers.py \
-         rate_of_rise/tests/test_train.py rate_of_rise/tests/test_dashboard_entities.py; do
+         rate_of_rise/tests/test_train.py rate_of_rise/tests/test_discovery.py \
+         rate_of_rise/tests/test_dashboard_entities.py; do
   echo "=== $f ==="
   python "$f" || exit 1
 done
