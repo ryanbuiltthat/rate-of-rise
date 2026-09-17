@@ -3,6 +3,32 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.21.1
+
+- **Fix: every Google Flood card on the dashboard read "Entity not found."** 0.21.0's four
+  Google Flood cards and its watchdog row were written with the
+  `ackerly_creek_modeling_*` prefix, copied from the cards around them. That prefix is
+  correct for those neighbours and wrong for anything new: Home Assistant freezes an
+  entity_id at first registration and never recomputes it when a device is renamed, so
+  entities that predate the "Rate of Rise" device rename (41e6caf) keep the old prefix
+  forever, while entities registered *after* it — which is every entity 0.21.0 added — come
+  out as `sensor.rate_of_rise_creek_*`. The five cards named entities that exist on no
+  install, old or fresh, and so were dead from the first restart after the update. They now
+  point at `sensor.rate_of_rise_creek_google_flood_{status,trend,gauge_distance,gauges}`
+  and `binary_sensor.rate_of_rise_creek_google_flood_status_missing`, matching what
+  `discovery.py`'s `entity_ids()` has said all along.
+
+  **Re-copy `dashboards/creek_flood_watch.yaml`.** Nothing else changed — the add-on was
+  publishing these entities correctly the whole time, so the data was there and only the
+  dashboard was looking in the wrong place.
+
+  `tests/test_dashboard_entities.py` could not have caught this: it generated a
+  legacy-prefixed ID for *every* entity, so both prefixes validated for all of them. The
+  legacy set is now restricted to the entities that actually have a legacy ID (frozen as
+  `PRE_RENAME_SLUGS`), and a new test fails if the dashboard names a post-rename entity by
+  a pre-rename ID. The dashboard's own header comment, which documented only the legacy
+  prefix and is what the 0.21.0 cards were copied from, now spells out both rules.
+
 ## 0.21.0
 
 - **Google Flood Forecasting is built (spec §3/§5, Addendum C slice 2i).** The

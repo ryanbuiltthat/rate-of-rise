@@ -17,12 +17,22 @@
 # binary_sensor.creek_modeling_service_stale comes from ha-packages/creek_warning.yaml, and
 # sensor.creek_gateway_* from the RFM69 gateway; both degrade gracefully when absent.
 #
-# ENTITY IDs: add-on entities are MQTT-discovery entities on the "Ackerly Creek Modeling"
-# device (device name predates the public repo's genericized "Creek Modeling" naming —
-# do not "fix" this prefix to match discovery.py without also re-pointing the live add-on's
-# device identity and migrating the entity registry), so HA prefixes them ->
-# sensor.ackerly_creek_modeling_creek_*. The two exceptions
-# above are unprefixed -> sensor.creek_*.
+# ENTITY IDs: TWO PREFIXES COEXIST HERE, AND WHICH ONE IS CORRECT DEPENDS ON THE ENTITY.
+# Home Assistant freezes an entity_id at first registration and never recomputes it when the
+# device is renamed. The add-on's MQTT-discovery device was renamed to "Rate of Rise"
+# (41e6caf), so:
+#
+#   * Entities that existed BEFORE that rename keep the old device's prefix ->
+#     sensor.ackerly_creek_modeling_creek_*. Do not "fix" these to match discovery.py
+#     without re-pointing the live device identity and migrating the entity registry.
+#   * Entities added AFTER it register against the current device name ->
+#     sensor.rate_of_rise_creek_* (creek_rate_of_rise, creek_stage_age, the Google Flood
+#     cards). Copying a neighbouring card's legacy prefix for one of these names an entity
+#     that exists on no install — that shipped in 0.21.0 and is what 0.21.1 fixes.
+#
+# `app/discovery.py`'s entity_ids() is authoritative for anything new; check against it
+# rather than against the card above. tests/test_dashboard_entities.py enforces both rules.
+# The two exceptions above are unprefixed -> sensor.creek_*.
 #
 # NOTE: `theme: Prism` assumes that theme is installed under that exact name — adjust or
 # remove the theme keys if yours differs.
@@ -134,13 +144,13 @@ views:
         title: Google flood status (nearby rivers)
         show_header_toggle: false
         entities:
-          - entity: sensor.ackerly_creek_modeling_creek_google_flood_status
+          - entity: sensor.rate_of_rise_creek_google_flood_status
             name: Forecast status
-          - entity: sensor.ackerly_creek_modeling_creek_google_flood_trend
+          - entity: sensor.rate_of_rise_creek_google_flood_trend
             name: ↳ trend
-          - entity: sensor.ackerly_creek_modeling_creek_google_flood_gauge_distance
+          - entity: sensor.rate_of_rise_creek_google_flood_gauge_distance
             name: ↳ distance to that gauge
-          - entity: sensor.ackerly_creek_modeling_creek_google_flood_gauges
+          - entity: sensor.rate_of_rise_creek_google_flood_gauges
             name: Gauges watched
 
       # Inbound convective cells from <nexrad site>'s storm-attribute table. The one leading
@@ -412,5 +422,5 @@ views:
             name: Radar cell feed missing
           - entity: binary_sensor.ackerly_creek_modeling_creek_wpc_outlook_missing
             name: WPC outlook missing
-          - entity: binary_sensor.ackerly_creek_modeling_creek_google_flood_status_missing
+          - entity: binary_sensor.rate_of_rise_creek_google_flood_status_missing
             name: Google flood status missing
