@@ -41,9 +41,10 @@ API surface, not modeling anything.
 --- Why xgboost -----------------------------------------------------------
 
 Chosen for one concrete, current reason: it handles missing feature values
-natively. Most rows in the live dataset have gaps — Google Floods is unbuilt,
-WU upstream needs 2 keys configured, and stage/rate-of-rise are always None
-pre-hardware — and xgboost trains and predicts through NaN without imputation,
+natively. Most rows in the live dataset have gaps — Google Floods needs a key
+and a gauge Google models near the site, WU upstream needs 2 keys configured,
+and stage/rate-of-rise are always None pre-hardware — and xgboost trains and
+predicts through NaN without imputation,
 where a hand-rolled model would need a missing-value strategy invented for
 data whose actual missingness pattern is not yet known. `requirements.txt`
 already carries it for exactly this (Addendum A.2), and the Dockerfile's
@@ -117,6 +118,12 @@ FEATURE_COLUMNS = (
     # 2h WPC Excessive Rainfall Outlook. The only input that grades rain against what
     # the ground can absorb, on a day-scale horizon nothing else here reaches.
     "wpc_ero_day1_risk", "wpc_ero_day2_risk", "wpc_ero_day3_risk",
+    # 2i Google Flood Forecasting. The only input that has already graded a river
+    # against its own warning/danger thresholds rather than leaving that to us.
+    # `google_flood_gauges` is deliberately absent: it counts how many gauges answered,
+    # which is a property of Google's coverage and this add-on's search radius, not of
+    # the weather, and a model given it would learn the day the coverage changed.
+    "google_flood_severity", "google_flood_trend", "google_flood_gauge_mi",
 )
 # Cast to 0/1 before handing to xgboost; everything else is already numeric-or-NaN.
 BOOL_COLUMNS = ("ponding_flag", "rain_on_snow_flag")

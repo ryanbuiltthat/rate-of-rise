@@ -369,6 +369,39 @@ class DiscoveryPublisher:
                     "icon": "mdi:weather-pouring"})
                 for d in (1, 2, 3)
             ),
+            # --- ingested features (Addendum C 2i): Google Flood Forecasting ---
+            # Same reasoning as the ERO entities above: the operator sees Google's own
+            # wording ("Severe"), not the ladder position it occupies. The distance is a
+            # separate entity because the status is unreadable without it — Google gauges
+            # neighbouring rivers, never this creek.
+            ("sensor", "creek_google_flood_status", {
+                "name": "Creek Google Flood Status",
+                "state_topic": f"{b}/features",
+                "value_template": (
+                    "{% set s = value_json.google_flood_severity %}"
+                    "{{ 'unknown' if s is none else"
+                    " {0: 'No flooding', 1: 'Above normal', 2: 'Severe',"
+                    " 3: 'Extreme'}.get(s | int, s) }}"),
+                "icon": "mdi:sign-caution"}),
+            ("sensor", "creek_google_flood_trend", {
+                "name": "Creek Google Flood Trend",
+                "state_topic": f"{b}/features",
+                "value_template": (
+                    "{% set t = value_json.google_flood_trend %}"
+                    "{{ 'unknown' if t is none else"
+                    " {-1: 'Falling', 0: 'Steady', 1: 'Rising'}.get(t | int, t) }}"),
+                "icon": "mdi:chart-line-variant"}),
+            ("sensor", "creek_google_flood_gauge_distance", {
+                "name": "Creek Google Flood Gauge Distance",
+                "state_topic": f"{b}/features",
+                "value_template": "{{ value_json.google_flood_gauge_mi if value_json.google_flood_gauge_mi is not none else none }}",
+                "unit_of_measurement": "mi", "state_class": "measurement",
+                "icon": "mdi:map-marker-distance"}),
+            ("sensor", "creek_google_flood_gauges", {
+                "name": "Creek Google Flood Gauges",
+                "state_topic": f"{b}/features",
+                "value_template": "{{ value_json.google_flood_gauges if value_json.google_flood_gauges is not none else none }}",
+                "state_class": "measurement", "icon": "mdi:map-marker-multiple"}),
             # --- soil moisture (migrated out of the HA package) ---
             ("sensor", "creek_soil_moisture_mean", {
                 "name": "Creek Soil Moisture Mean",
@@ -403,6 +436,8 @@ class DiscoveryPublisher:
                     ("snowpack_data_missing", "Snowpack Data Missing", "mdi:snowflake-off"),
                     ("radar_cells_missing", "Radar Cells Missing", "mdi:radar"),
                     ("ero_outlook_missing", "WPC Outlook Missing", "mdi:cloud-off-outline"),
+                    ("google_flood_status_missing", "Google Flood Status Missing",
+                     "mdi:cloud-off-outline"),
                 )
             ),
             # --- command buttons ---

@@ -96,7 +96,7 @@
 | NWS `api.weather.gov` | None (User-Agent header) | Gridded QPF (forecast precip) for `<site lat>`,`<site lon>`; active Flood Watch/Warning products for the county |
 | NOAA NWPS API `api.water.noaa.gov/nwps/v1` | None | National Water Model reach forecast for the creek segment — reach `<nwm reach id>` (open question #3, resolved) |
 | USGS Water Services | None | Instantaneous values — gauges `<usgs downstream>` (downstream reach) and `<usgs adjacent>` (adjacent-basin reach); see §1 |
-| Google Flood Forecasting API `floodforecasting.googleapis.com` | Google Cloud project + enable API + API key (pilot signup may apply) | `gauges:searchGaugesByArea` over watershed polygon → find real/virtual (hybas) gauges incl. non-quality-verified; gauge model thresholds (warning/danger/extreme); flood status; `v1.flashFloods` |
+| Google Flood Forecasting API `floodforecasting.googleapis.com` | Google Cloud project + enable API + API key | **Built (Addendum C 2i).** `gauges:searchGaugesByArea` over a 25 mi box → the gauges Google models near the site, real and virtual (hybas), incl. non-quality-verified; then `floodStatus:queryLatestFloodStatusByGaugeIds` for forecast severity and trend. Gauge-model thresholds and `v1.flashFloods` are not ingested — see 2i |
 | SNODAS (NOHRSC) | None | Snow water equivalent for grid cell — rain-on-snow feature |
 
 ## 4. Architecture
@@ -124,7 +124,7 @@
 ## 5. Model Approach
 
 - Target: creek stage (and/or exceedance probability of tier thresholds) at +30 min, +1 h, +3 h horizons.
-- Features: current stage, rate-of-rise, on-site + upstream rain accumulations (1/3/6/24/72 h), API/soil moisture (WH51), QPF next 6/24 h, NWM reach forecast, Google flood status, season, SNODAS SWE, temperature (rain-on-snow flag).
+- Features: current stage, rate-of-rise, on-site + upstream rain accumulations (1/3/6/24/72 h), API/soil moisture (WH51), QPF next 6/24 h, NWM reach forecast, Google flood status (severity, trend and distance to the gauge that set them), season, SNODAS SWE, temperature (rain-on-snow flag).
 - Start simple → escalate only as data justifies: (1) empirical lag + linear rainfall-runoff response conditioned on soil moisture; (2) gradient boosting (XGBoost/LightGBM) once ≥ ~10 significant rain events are captured; (3) revisit later.
 - Honest constraint: no meaningful model tuning until several storms are recorded. Early months = data collection + threshold-based alerting only.
 
@@ -172,7 +172,7 @@ Pole/arm install per §2 geometry; ~~WH51 probes into Ecowitt~~ **done (×2 inst
 - **Follow-up:** Confirm WH51 entities appear in HA via the Ecowitt integration and are captured in recorder long-term statistics (check `state_class`); these feed the nightly dataset builder.
 
 **Phase 2 — Ingest (weeks 1–4, parallel):**
-`ha-packages/creek_warning.yaml` with all REST sensors; enumerate upstream WU station IDs; resolve NWM reach ID; register Google Floods API and run `searchGaugesByArea` over the watershed; SNODAS fetch; data-quality watchdogs.
+`ha-packages/creek_warning.yaml` with all REST sensors; enumerate upstream WU station IDs; resolve NWM reach ID; ~~register Google Floods API and run `searchGaugesByArea` over the watershed~~ **done** (Addendum C 2i — the search runs on a 25 mi box around the site rather than a hand-drawn watershed polygon, and re-runs daily); SNODAS fetch; data-quality watchdogs.
 
 **Phase 3 — Collect & correlate (months 1–3):**
 ~~Nightly dataset builder~~ **done** (`app/dataset.py`: per-day JSONL parts, consolidated
@@ -623,8 +623,41 @@ read once from HA `/api/config` — no new option.
   quiet day from a broken feed. Verified against the live service on 2026-08-02, which
   returned a Day-1 Slight over the site during the storm that had raised the Watch tier.
 
-Still to build for Phase 2: **Google Flood Forecasting** (`gauges:searchGaugesByArea`, §3)
-— deferred pending API access, and open question #2 stays open with it.
+- **2i — Google Flood Forecasting status (done):** `google_floods.py`
+  (`gauges:searchGaugesByArea` over a 25 mi box to find the gauges Google models near the
+  site, then `floodStatus:queryLatestFloodStatusByGaugeIds` for the nearest ten; needs a
+  Google Cloud project, the API enabled, and `google_floods_api_key`). Non-quality-verified
+  and virtual HydroBASINS gauges are deliberately included — on a creek this small they are
+  the only plausible candidates, and they are exactly what the default filter drops.
+
+  This is the only input in the system that is a forecast of **flooding** rather than of
+  weather. QPF says how much rain; the ERO says whether that rain exceeds flash-flood
+  guidance somewhere in a multi-county risk area; NWM gives raw discharge for one reach
+  with no notion of what is high for it. Google has already graded each reach against that
+  reach's own warning / danger / extreme thresholds.
+
+  It is also the only source that can be correctly enabled and still report nothing.
+  Google gauges no reach as small as this creek, so a status here is about the
+  neighbouring river network — the same family as 2c's USGS gauges, a regional answer to
+  the same rain on a bigger and slower system. Features: `google_flood_severity`
+  (0 no flooding · 1 above normal · 2 severe · 3 extreme), `google_flood_trend`
+  (+1 rising / 0 steady / -1 falling), `google_flood_gauge_mi` and `google_flood_gauges`.
+  The first three always describe the same gauge — worst severity, nearest first among
+  equals — so they read as one forecast. A count of 0 means Google models nothing within
+  25 mi, which is a real reading, not a fault, and is the answer to open question #2.
+
+  Because the reach is never ours, this source is capped at **Tier 2 Watch**: an
+  above-normal river within 15 mi is an Advisory, severe or extreme is a Watch, and
+  Warning / Emergency stay reserved for the creek's own instrument. The 15 mi tier radius
+  is tighter than the 25 mi search radius on purpose — the wider box is the right width
+  for a model feature, not for an alarm.
+
+  Not ingested: `gaugeModels.batchGet` thresholds and `gauges.queryGaugeForecasts` values,
+  which would replace the 4-step ladder with a continuous "fraction of the way to warning
+  level" (open question #2's residual); and `flashFloods` / `inundationMapSet`, which are
+  satellite products for ungauged basins outside the US.
+
+Phase 2 ingest is complete.
 
 ### C.3 Consumption
 
@@ -662,8 +695,9 @@ in front of it, both intentional:
   of the three §5 asks for, kept alone because three untested horizons cost three times the
   surface for no way to validate any of them before real storms exist.
 - **Model:** xgboost binary classifier (`binary:logistic`), chosen concretely because it
-  handles missing feature values natively — most rows have gaps today (Google Floods
-  unbuilt, WU needs both keys configured, stage/rate-of-rise always `None` pre-hardware),
+  handles missing feature values natively — most rows have gaps today (Google Floods needs
+  a key *and* a gauge Google models nearby, WU needs both keys configured, stage and
+  rate-of-rise are always `None` pre-hardware),
   and a hand-rolled model would need an imputation strategy invented for a missingness
   pattern that is not yet known. `requirements.txt` already carries it for this
   (Addendum A.2); the Dockerfile's `libgomp1` exists only to support it.

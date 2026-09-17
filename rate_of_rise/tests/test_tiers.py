@@ -98,6 +98,47 @@ def test_the_forecast_days_beyond_today_do_not_drive_the_tier():
     assert compute_tier(row(wpc_ero_day2_risk=4.0, wpc_ero_day3_risk=4.0), 0.0)[0] == 0
 
 
+def test_google_above_normal_is_an_advisory_and_flooding_is_a_watch():
+    """Google grades a neighbouring river against that river's own thresholds -- the one
+    input here that has already asked "is this number bad *for this reach*"."""
+    tier, label, reasons = compute_tier(
+        row(google_flood_severity=1.0, google_flood_gauge_mi=6.0), 0.0)
+    assert (tier, label) == (1, "Advisory")
+    assert "above-normal river 6 mi away" in reasons[0]
+
+    tier, label, reasons = compute_tier(
+        row(google_flood_severity=2.0, google_flood_gauge_mi=6.0), 0.0)
+    assert (tier, label) == (2, "Watch")
+    assert "Severe" in reasons[0]
+    assert compute_tier(row(google_flood_severity=3.0, google_flood_gauge_mi=6.0), 0.0)[0] == 2
+
+
+def test_google_flood_status_never_reaches_warning():
+    """Warning and Emergency mean *this creek* is responding, and Google does not gauge
+    it. An extreme forecast on the next river over is not evidence about ours."""
+    tier, _, _ = compute_tier(
+        row(google_flood_severity=3.0, google_flood_gauge_mi=1.0), 0.0)
+    assert tier == 2
+
+
+def test_a_google_status_from_too_far_away_never_fires():
+    """The source searches 25 mi because that is the right width for a model feature.
+    A severe status on a major river at the far edge of it is a regional headline, not a
+    reason to go look at the creek."""
+    assert compute_tier(row(google_flood_severity=3.0, google_flood_gauge_mi=22.0), 0.0)[0] == 0
+
+
+def test_a_google_status_with_no_distance_never_fires():
+    """Severity without a distance cannot be placed, and an unplaceable number must not
+    alarm -- the same rule every other missing feature follows."""
+    assert compute_tier(row(google_flood_severity=3.0), 0.0)[0] == 0
+    assert compute_tier(row(google_flood_severity=None, google_flood_gauge_mi=2.0), 0.0)[0] == 0
+
+
+def test_google_forecasting_no_flooding_nearby_is_not_a_tier():
+    assert compute_tier(row(google_flood_severity=0.0, google_flood_gauge_mi=2.0), 0.0)[0] == 0
+
+
 def test_an_inbound_radar_cell_is_a_watch_before_any_gauge_sees_rain():
     """The 2g slice's whole purpose: on the dominant W/NW approach the upstream gauges
     are geometrically behind the house, so the radar track is the only leading signal."""

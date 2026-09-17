@@ -35,6 +35,7 @@ import logging
 
 from .features import FeatureRow
 from .sources.ero import RISK_LABELS as ERO_LABELS
+from .sources.google_floods import SEVERITY_LABELS as GOOGLE_LABELS
 
 log = logging.getLogger("app.tiers")
 
@@ -62,6 +63,20 @@ ADVISORY_API_INDEX_IN = 2.0
 # advises only in combination.
 ADVISORY_ERO_ALONE = 3.0        # Moderate or High
 ADVISORY_ERO_WITH_WET_GROUND = 2.0
+
+# --- Google Flood Forecasting status (spec Addendum C 2i) ---
+# Google's model grading a *neighbouring* gauge against that gauge's own warning/danger
+# thresholds. Above-normal on a river a few miles away says this rain is already moving
+# more water than that system normally carries; severe or extreme says it is flooding
+# there. Neither is a statement about this creek, which Google does not gauge, so these
+# top out at Watch: Warning and Emergency belong to the creek's own instrument.
+ADVISORY_GOOGLE_SEVERITY = 1.0     # ABOVE_NORMAL
+WATCH_GOOGLE_SEVERITY = 2.0        # SEVERE or EXTREME
+# ...and only from a gauge close enough to be answering our weather. The source already
+# searches a 25 mi box, which is the right width for a model feature but too wide for an
+# operator-facing tier — a severe status on a major river at the far edge of it is a
+# regional headline, not a reason to go look at the creek.
+GOOGLE_TIER_RADIUS_MI = 15.0
 
 # --- Rain-on-snow: rain actually falling (rather than forecast) onto a pack ---
 ROS_WATCH_RAIN_1H_IN = 0.05
@@ -159,6 +174,18 @@ def compute_tier(
     ):
         reasons.append((1, f"WPC {ERO_LABELS.get(ero, ero)} risk of excessive rainfall "
                            f"onto already-wet ground"))
+
+    # --- Google Flood Forecasting status (spec Addendum C 2i) ---
+    # The distance is part of the reading, not decoration: without it a severity number
+    # cannot be placed, so an unknown distance fires nothing at all.
+    gsev, gmi = row.google_flood_severity, row.google_flood_gauge_mi
+    if gsev is not None and gmi is not None and gmi <= GOOGLE_TIER_RADIUS_MI:
+        where = f"{gmi:.0f} mi away"
+        if gsev >= WATCH_GOOGLE_SEVERITY:
+            reasons.append((2, f"Google forecasts {GOOGLE_LABELS.get(gsev, gsev)} "
+                               f"flooding at a gauge {where}"))
+        elif gsev >= ADVISORY_GOOGLE_SEVERITY:
+            reasons.append((1, f"Google forecasts an above-normal river {where}"))
 
     # --- Rain-on-snow (spec §1: a major regional flood driver) ---
     # The pack contributes meltwater on top of the rain, so the same QPF produces more

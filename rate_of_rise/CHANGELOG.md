@@ -3,6 +3,45 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.21.0
+
+- **Google Flood Forecasting is built (spec §3/§5, Addendum C slice 2i).** The
+  `google_floods_api_key` option has existed since 0.1 with nothing behind it; setting it
+  now enables a real source. It searches `gauges:searchGaugesByArea` for every gauge
+  Google models within 25 mi of the site — virtual HydroBASINS gauges included, since on a
+  creek this small those are the only plausible candidates — and reads
+  `floodStatus:queryLatestFloodStatusByGaugeIds` for the nearest ten every 30 minutes.
+
+  This is the only input here that forecasts *flooding* rather than weather: Google has
+  already graded each reach against that reach's own warning/danger/extreme thresholds,
+  which QPF, the ERO and the raw NWM discharge all leave to us. It is also the only one
+  that can come back empty — if Google models no gauge near this creek, the new
+  `Creek Google Flood Gauges` sensor reads 0 and the rest stay unknown. That number is
+  the answer to open question #2, and the add-on log names each gauge it found, with its
+  river, distance and quality-verification state, on every daily re-discovery.
+
+  Four new features are recorded and published: `google_flood_severity` (0 no flooding ·
+  1 above normal · 2 severe · 3 extreme), `google_flood_trend` (+1 rising / 0 steady /
+  -1 falling), `google_flood_gauge_mi` and `google_flood_gauges`. The first three always
+  describe the same gauge — the worst severity on offer, nearest first among equals — so
+  they read as one forecast rather than three unrelated numbers. New entities:
+  `sensor.rate_of_rise_creek_google_flood_status` (Google's own wording, not the ladder
+  position), `..._trend`, `..._gauge_distance`, `..._gauges`, and a
+  `..._google_flood_status_missing` watchdog. The bundled dashboard gains a card for
+  them.
+
+  **The tier ceiling for this source is Watch.** Google gauges neighbouring rivers, never
+  this creek, so an above-normal river within 15 mi is an Advisory and a severe or extreme
+  one is a Watch; Warning and Emergency stay reserved for the creek's own instrument. A
+  status from further out than 15 mi, or one with no distance, fires nothing — the source
+  searches wider than that because a 25 mi radius is the right width for a *model
+  feature*, not for an alarm. `google_flood_severity`, `_trend` and `_gauge_mi` join the
+  model's feature columns; `_gauges` deliberately does not, being a property of Google's
+  coverage rather than of the weather.
+
+  The API key travels in an `X-Goog-Api-Key` header rather than the documented `?key=`
+  query parameter, so it cannot reach a log line or a traceback alongside a failed URL.
+
 ## 0.20.4
 
 - **Fix: four USGS gauge cards on the dashboard pointed at entity IDs that never
