@@ -161,17 +161,34 @@ NWS Flash Flood Warning — this is still a Google model forecast about the poin
 
 ### 6. HA discovery (`discovery.py`)
 
-Two new entities beside the existing `creek_google_flood_*` block:
+Two new specs beside the existing `creek_google_flood_*` block, object_id and `name`
+kept in agreement (per `entity_ids()`'s own warning: HA mints the entity_id from the
+device name + entity **name**, not the published `object_id`, and this module's
+`test_entities_added_after_the_rename_use_the_current_device_prefix` already asserts
+that *any* spec slug containing `"google"` mints under the `rate_of_rise_` prefix — so
+these two are covered by that guard automatically, no test change needed there):
 
-- `sensor.creek_google_flash_flood_status` — value-templated from the two flags into
-  "None / Likely / Highly likely" (same `{{ 'unknown' if ... is none else {...} }}`
-  template shape as `creek_google_flood_status`), icon `mdi:weather-pouring`. Attributes
-  carry `forecast_issue_time` / `forecast_period_hours` for the raw event, when present —
-  human-readable context, not model input.
-- `sensor.creek_google_flash_flood_events` — the raw count, `state_class: measurement`,
-  icon `mdi:map-marker-alert`.
+- object_id `creek_google_flash_flood_status`, name `"Creek Google Flash Flood Status"`
+  → mints as `sensor.rate_of_rise_creek_google_flash_flood_status`. Value-templated from
+  the two flags into "None / Likely / Highly likely" (same
+  `{{ 'unknown' if ... is none else {...} }}` shape as `creek_google_flood_status`),
+  icon `mdi:weather-pouring`. Attributes carry `forecast_issue_time` /
+  `forecast_period_hours` for the raw event, when present — human-readable context, not
+  model input.
+- object_id `creek_google_flash_flood_events`, name `"Creek Google Flash Flood Events"`
+  → mints as `sensor.rate_of_rise_creek_google_flash_flood_events`. The raw count,
+  `state_class: measurement`, icon `mdi:map-marker-alert`.
 
 No new watchdog binary_sensor (§3 — shares `google_flood_status_missing`).
+
+**Dashboard.** `dashboards/creek_flood_watch.yaml` already has a "Forecast status" card
+(the entities-card holding `rate_of_rise_creek_google_flood_status/_trend/
+_gauge_distance/_gauges`, around line 145). Add the two new entities there by their full
+minted IDs above — never by the `object_id` form — so
+`test_dashboard_entities.py::test_every_dashboard_entity_exists_somewhere` and
+`::test_entities_added_after_the_rename_use_the_current_device_prefix` both pass. This is
+exactly the mistake `PRE_RENAME_SLUGS`/`LEGACY_DEVICE_NAME` in that test file documents
+happening once already for the original four Google Flood cards.
 
 ### 7. Config
 
@@ -223,6 +240,8 @@ contract `compute_tier` already has).
 - `docs/project-knowledge.md` — extend the Google Flood Forecasting paragraph to mention
   the flash-flood polygon check and what it adds beyond the gauge severity read.
 - `creek-flood-warning-spec.md` — new Addendum C sub-item "2j" alongside 2i.
+- `dashboards/creek_flood_watch.yaml` — two new rows in the existing Forecast status
+  card, by minted entity_id (§6).
 - `CHANGELOG.md` — new entry.
 
 ## Out of scope
