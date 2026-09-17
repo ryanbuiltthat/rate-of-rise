@@ -141,7 +141,7 @@ Set these on the **Configuration** tab.
 | `stage_max_age_minutes` | `6` | How old a stage reading may be and still be differenced into a rate of rise. Only consulted when `creek_node_status_entity` is blank or unavailable |
 | `rate_of_rise_max_gap_minutes` | `10` | Longest gap between two stage samples that still yields a rate. Past it the rate is withheld and the baseline re-seeded — see *Radio dropouts and false rate-of-rise alarms* |
 | `rate_of_rise_confirm_samples` | `2` | Consecutive gap-free samples a rate must survive after a dropout before it alone can raise Tier 3. Costs nothing while the link is up |
-| `google_floods_api_key` | `""` | Optional (Google Flood status) |
+| `google_floods_api_key` | `""` | Google Flood Forecasting API key (Google Cloud project + the API enabled). Setting it enables the source: the gauges Google models within 25 mi of the site, and its forecast flood status for them. Those are neighbouring rivers, not this creek — regional context, capped at Tier 2 Watch. Blank disables it |
 | `wu_api_key` | `""` | Optional (Weather Underground PWS) |
 | `nwm_reach_id` | `<nwm reach id>` | NWM reach at the sensor site (open question #3) |
 | `upstream_pws_ids` | `<upstream PWS 1>`, `<upstream PWS 2>` | Upstream PWS in the upstream corridor (open question #4) |
@@ -282,12 +282,17 @@ fast loop's writes are sub-millisecond.
 
 ## Status
 
-**Ingest (Phase 2)** — complete except for Google Flood Forecasting, which is waiting on
-API access. Live: on-site rain accumulations, the Antecedent Precipitation Index, NWS QPF,
-NWS active alert products, Weather Underground upstream PWS, NWM reach forecast, USGS
-gauges, SNODAS snowpack with a rain-on-snow flag, NEXRAD cell tracking, the WPC Excessive
-Rainfall Outlook, on-site stage and rate-of-rise from the creek node, and watchdogs on
-every ingest source.
+**Ingest (Phase 2)** — complete. Live: on-site rain accumulations, the Antecedent
+Precipitation Index, NWS QPF, NWS active alert products, Weather Underground upstream PWS,
+NWM reach forecast, USGS gauges, SNODAS snowpack with a rain-on-snow flag, NEXRAD cell
+tracking, the WPC Excessive Rainfall Outlook, Google Flood Forecasting status at the
+nearest gauges Google models, on-site stage and rate-of-rise from the creek node, and
+watchdogs on every ingest source.
+
+Google Floods is the one source that can be enabled and still report nothing: it needs an
+API key, and it only has an answer if Google models a gauge within 25 mi. `Creek Google
+Flood Gauges` reading 0 means it does not — that is a real reading, not a fault, and it is
+the answer to open question #2.
 
 **Correlate (Phase 3)** — the rainfall→response lag estimate runs nightly (`app/lag.py`).
 

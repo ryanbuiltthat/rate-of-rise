@@ -71,8 +71,12 @@ today; the rest fill in through Phase 3/4 as sources come online.
   before the ponding threshold and Tier 0 condition are meaningful.
 - **Rainfall** — on-site rate/daily (Ecowitt) and upstream PWS accumulations (1/3/6/24/72 h),
   plus an Antecedent Precipitation Index summarising weeks of rainfall as one wetness number.
-- **Forecast/model** — NWS QPF (next 6/24 h) and NWM reach forecast (live); Google flood
-  status (not built yet).
+- **Forecast/model** — NWS QPF (next 6/24 h), NWM reach forecast, and Google Flood
+  Forecasting status at the nearest gauges Google models: severity (0–3), trend and the
+  distance to the gauge that set them. Google gauges neighbouring rivers, not this creek,
+  so the status is regional context — the only input here that is a forecast of *flooding*
+  rather than of weather, because Google has already graded that reach against its own
+  warning/danger thresholds.
 - **Neighbouring gauges** — USGS `<usgs downstream>` (downstream reach) and `<usgs adjacent>`
   (adjacent-basin reach): gage height, discharge and 3 h rise. Different basins with their own lag,
   so not a stand-in for creek level; they are the

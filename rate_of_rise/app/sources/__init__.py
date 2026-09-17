@@ -18,6 +18,7 @@ from ..config import Config
 from ..ha import HAClient
 from .alerts import NwsAlerts
 from .ero import WpcEro
+from .google_floods import GoogleFloods
 from .nwm import NwmReach
 from .nws import NwsQpf
 from .radar_cells import RadarCells
@@ -51,6 +52,9 @@ FEATURE_KEYS = (
     "radar_threat_eta_min", "radar_threat_max_dbz", "radar_threat_scan_count",
     # 2h — WPC Excessive Rainfall Outlook (day-scale flood-risk forecast)
     "wpc_ero_day1_risk", "wpc_ero_day2_risk", "wpc_ero_day3_risk",
+    # 2i — Google Flood Forecasting status at the nearest modelled gauges
+    "google_flood_severity", "google_flood_trend",
+    "google_flood_gauge_mi", "google_flood_gauges",
 )
 
 
@@ -78,9 +82,16 @@ class SourceCoordinator:
             if cfg.wpc_ero:
                 self._sources.append(WpcEro(*latlon))
                 log.info("WPC Excessive Rainfall Outlook enabled")
+            # The area search needs the site's coordinates, so this belongs with the
+            # other lat/lon sources rather than beside the key-only WU block below.
+            if cfg.google_floods_api_key:
+                self._sources.append(GoogleFloods(*latlon, cfg.google_floods_api_key))
+                log.info("Google Flood Forecasting enabled")
+            else:
+                log.info("Google Flood Forecasting disabled (needs google_floods_api_key)")
         else:
             log.warning("No lat/lon from HA config — NWS QPF, alerts, SNODAS, "
-                        "NEXRAD cells and WPC ERO disabled")
+                        "NEXRAD cells, WPC ERO and Google Floods disabled")
 
         if cfg.wu_api_key and cfg.upstream_pws_ids:
             self._sources.append(WuUpstream(cfg.wu_api_key, cfg.upstream_pws_ids, data_dir))

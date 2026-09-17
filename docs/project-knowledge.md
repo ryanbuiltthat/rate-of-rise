@@ -105,7 +105,14 @@ a flaky API never stalls the loop.
   SCIT motion vectors. The only input that leads for W/NW storms.
 - **Now scale:** on-site rain gauge, upstream PWS, USGS response.
 
-Not built: **Google Flood Forecasting** (open question #2, deferred pending API access).
+Across all three scales the same gap holds: every one of them forecasts or measures
+*weather*, and leaves "is that number bad for this reach" to us. **Google Flood
+Forecasting** (`app/sources/google_floods.py`, added 0.21.0) is the one input that has
+already taken that step, grading a neighbouring gauge against that gauge's own
+warning/danger/extreme thresholds. It is regional, never about this creek — Google gauges
+no reach this small — so it is capped at Tier 2 Watch. Whether it says anything at all
+depends on Google having a modelled gauge within 25 mi, which is open question #2 and is
+now answered by a sensor rather than by speculation.
 
 ---
 
@@ -326,8 +333,12 @@ lands single-class, which is why promote warns rather than reassures.
 
 **Available to build:** adaptive crest sampling on the node (#15 — lost in the Moteino
 port, so a flashy crest is sampled at a fixed 60 s); a tier hold across a stage dropout
-(#14's residual); Google Flood Forecasting (#2); more upstream PWS stations (#4 — two
-configured, spec wants 3–5, and with two, one dropout halves the sample).
+(#14's residual); more upstream PWS stations (#4 — two configured, spec wants 3–5, and
+with two, one dropout halves the sample); the per-gauge thresholds and forecast values
+behind Google's severity ladder (#2's residual — `gaugeModels.batchGet` plus
+`gauges.queryGaugeForecasts` would turn 4 steps into a continuous "fraction of the way to
+warning level", and is worth the per-gauge unit handling only once a gauge near enough to
+matter is known to exist).
 
 **Standing caveat for anything user-facing:** NWS/NOAA remains the real alerting path.
 This system is a data-collection and early-warning aid whose thresholds are not yet

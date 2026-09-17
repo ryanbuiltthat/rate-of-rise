@@ -214,6 +214,21 @@ the calibration phase.
 *(#16 is now Closed, above — the pole has been raised.)*
 
 - **#2.** Google Floods API: does a virtual gauge (hybas) land on the creek, or only on the
-  larger receiving reach? What are its thresholds? `google_floods_api_key` exists as an
-  option but no source module is built. Lowest priority of anything here — eleven sources
-  already feed the model, and this one may well have no gauge near enough to be useful.
+  larger receiving reach? What are its thresholds? **Half answered as of 0.21.0.**
+  `app/sources/google_floods.py` now searches `gauges:searchGaugesByArea` for every gauge
+  Google models within 25 mi — non-quality-verified and virtual HydroBASINS gauges
+  included, which are the only plausible candidates on a creek this small — and reads
+  `floodStatus:queryLatestFloodStatusByGaugeIds` for the nearest ten. So the first half of
+  the question is now answered by running it with a key: the `Creek Google Flood Gauges`
+  sensor is the count, and the add-on log names each gauge with its river, distance and
+  verification state on every daily re-discovery. A count of 0 is the answer that this
+  source is dead weight here, and it is a real reading rather than a fault.
+
+  The thresholds half is still open, and is deliberately not built: `gaugeModels.batchGet`
+  carries each gauge's warning/danger/extreme levels and `gauges.queryGaugeForecasts` the
+  forecast values, which together would replace the 4-step severity ladder with a
+  continuous "fraction of the way to warning level" — a much better model feature. The
+  work is the per-gauge units (metres of stage on one gauge, m³/s of discharge on another,
+  meaningless until paired with that gauge's own thresholds), and it is worth doing only
+  once a gauge near enough to matter is known to exist. Which is what the count now tells
+  us.

@@ -125,6 +125,24 @@ views:
           - entity: sensor.ackerly_creek_modeling_creek_wpc_excessive_rain_risk_day_3
             name: Day 3
 
+      # Google's Flood Forecasting model, read at the nearest gauges it runs. Those are
+      # neighbouring rivers, never this creek -- so this is regional context, graded
+      # against each gauge's own warning/danger thresholds. Distance is shown because
+      # the status cannot be read without it. Gauges = 0 means Google models nothing
+      # within 25 mi (open question #2).
+      - type: entities
+        title: Google flood status (nearby rivers)
+        show_header_toggle: false
+        entities:
+          - entity: sensor.ackerly_creek_modeling_creek_google_flood_status
+            name: Forecast status
+          - entity: sensor.ackerly_creek_modeling_creek_google_flood_trend
+            name: ↳ trend
+          - entity: sensor.ackerly_creek_modeling_creek_google_flood_gauge_distance
+            name: ↳ distance to that gauge
+          - entity: sensor.ackerly_creek_modeling_creek_google_flood_gauges
+            name: Gauges watched
+
       # Inbound convective cells from <nexrad site>'s storm-attribute table. The one leading
       # indicator that works for the dominant W/NW approach, where a cell reaches the
       # house before the SE upstream gauges see any rain. ETA empty = nothing inbound.
@@ -394,3 +412,5 @@ views:
             name: Radar cell feed missing
           - entity: binary_sensor.ackerly_creek_modeling_creek_wpc_outlook_missing
             name: WPC outlook missing
+          - entity: binary_sensor.ackerly_creek_modeling_creek_google_flood_status_missing
+            name: Google flood status missing

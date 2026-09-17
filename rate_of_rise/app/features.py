@@ -3,9 +3,9 @@
 Builds the live feature row each fast loop: the cheap local features computed here
 (stage, rate-of-rise, soil moisture, ponding) plus everything the SourceCoordinator
 ingests (rain accumulations, the antecedent precipitation index, QPF, NWS alerts, upstream
-PWS, NWM reach, USGS gauges, SNODAS snowpack). Cross-source features that belong to no
-single source — temperature normalisation and the rain-on-snow flag — are derived here.
-Still outstanding from spec §5: Google flood status.
+PWS, NWM reach, USGS gauges, SNODAS snowpack, Google flood status). Cross-source
+features that belong to no single source — temperature normalisation and the
+rain-on-snow flag — are derived here.
 """
 from __future__ import annotations
 
@@ -82,6 +82,16 @@ class FeatureRow:
     wpc_ero_day1_risk: float | None = None
     wpc_ero_day2_risk: float | None = None
     wpc_ero_day3_risk: float | None = None
+    # Google Flood Forecasting (slice 2i) — its model's current call on the nearest
+    # gauges it runs, which are neighbouring rivers rather than this creek. Severity is
+    # 0 no flooding · 1 above normal · 2 severe · 3 extreme; trend is +1 rising / 0
+    # steady / -1 falling; `gauge_mi` is how far away the gauge that set the severity
+    # is, without which the severity cannot be read. None means nothing could be read;
+    # `gauges` = 0.0 means Google models nothing near here at all.
+    google_flood_severity: float | None = None
+    google_flood_trend: float | None = None
+    google_flood_gauge_mi: float | None = None
+    google_flood_gauges: float | None = None
     temp_f: float | None = None
     rain_on_snow_flag: bool = False
 
