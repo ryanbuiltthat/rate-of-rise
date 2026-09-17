@@ -959,21 +959,19 @@ actual is now 81); every other test still `PASS`.
 
 - [ ] **Step 3: Update the hardcoded counts and add existence checks**
 
-In `rate_of_rise/tests/test_discovery.py`:
+In `rate_of_rise/tests/test_discovery.py`, this comment's running total does not fully
+reconcile even today (it predates this task and is out of this task's scope to
+reconcile) — leave every existing line as-is and only change the asserted number and
+add one new trailing line for the two sensors this task adds:
 
 ```python
     # 16 status/model (incl. Phase 3 lag series) + 1 local gauge rate-of-rise
     # + 8 (2a incl. API index) + 8 (2b) + 6 (2c) + 1 (2d) + 2 (2e) + 4 (2g radar cells)
-    # + 3 (2h WPC ERO) + 4 (2i/2j Google flood + flash flood)
-    # + 1 soil mean (migrated out of the HA package)
+    # + 3 (2h WPC ERO) + 1 soil mean (migrated out of the HA package)
     # + 1 storm-to-annotate (dashboard annotation)
+    # + 2 (2j Google flash flood)
     assert len(sensors) == 58, len(sensors)
 ```
-
-(This replaces the existing comment block and its `assert len(sensors) == 56` — the
-`+ 4 (2i/2j Google flood + flash flood)` line replaces whatever the existing comment
-currently says for the Google Flood sensors, folding the two new ones into the same
-count note.)
 
 ```python
 def test_publish_all_emits_retained_json():
