@@ -10,6 +10,13 @@ whitespace/comma-delimited "lon,lat[,alt] ..." text, and ray-casting over the re
 point list is small enough to hand-roll and pin with tests, matching this package's
 existing choice (google_floods.py's hand-rolled great-circle distance) to avoid a geo
 dependency for one narrow need.
+
+This treats degrees of latitude/longitude as a flat Cartesian plane (ray-casting in
+longitude at constant latitude) rather than doing real spherical geometry -- correct to
+well under a metre at the scales and mid-latitudes this project operates at, and the
+right trade-off for the same no-dependency reason above, but it would not hold for a
+polygon crossing the ±180° antimeridian. Not a concern for a single fixed site in
+Pennsylvania.
 """
 from __future__ import annotations
 

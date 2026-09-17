@@ -172,9 +172,9 @@ these two are covered by that guard automatically, no test change needed there):
   → mints as `sensor.rate_of_rise_creek_google_flash_flood_status`. Value-templated from
   the two flags into "None / Likely / Highly likely" (same
   `{{ 'unknown' if ... is none else {...} }}` shape as `creek_google_flood_status`),
-  icon `mdi:weather-pouring`. Attributes carry `forecast_issue_time` /
-  `forecast_period_hours` for the raw event, when present — human-readable context, not
-  model input.
+  icon `mdi:weather-pouring`. (Originally scoped to also carry `forecast_issue_time` /
+  `forecast_period_hours` as attributes on this sensor — see the "Correction" at the end
+  of this document: dropped during the final review's fix wave rather than implemented.)
 - object_id `creek_google_flash_flood_events`, name `"Creek Google Flash Flood Events"`
   → mints as `sensor.rate_of_rise_creek_google_flash_flood_events`. The raw count,
   `state_class: measurement`, icon `mdi:map-marker-alert`.
@@ -253,3 +253,19 @@ contract `compute_tier` already has).
 - A distance-based or count-based cap on events resolved per cycle — see §2; added only
   if the sanity-warning threshold above is ever actually hit in production logs.
 - Feeding `forecast_issue_time` / `forecast_period_hours` into the model — see §4.
+
+## Correction (2026-09-17): §6's sensor-attribute requirement dropped
+
+§6 above specified that `Creek Google Flash Flood Status` would carry
+`forecast_issue_time` / `forecast_period_hours` as HA attributes, human-readable context
+alongside the model-facing `google_flash_flood_likely`/`_highly_likely` features. This
+was never implemented — no task's brief carried it into an actual step, and the final
+whole-branch review caught the gap.
+
+Ruling made during that review's fix wave: amend this spec rather than implement it now.
+Implementing it needs a new data path — the MQTT `json_attributes_topic` mechanism,
+populated from per-event fields that `_flash_floods()` deliberately does not surface as
+`FEATURE_KEYS` (§4 excludes them from the trained model on purpose) — which is real
+plumbing work, not a small addition, for attribute-only display value. Left for a later
+slice if the "how long is this forecast valid for" question turns out to matter in
+practice once the sensor has been live for a while.

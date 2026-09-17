@@ -7,7 +7,8 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.sources.google_floods import (  # noqa: E402
-    GAUGE_REFRESH_SECONDS, MAX_GAUGES, MI_PER_DEG_LAT, SEARCH_RADIUS_MI, GoogleFloods,
+    GAUGE_REFRESH_SECONDS, MAX_GAUGES, MI_PER_DEG_LAT, SEARCH_RADIUS_MI, PAGE_SIZE,
+    FLASH_FLOOD_EVENT_WARN_COUNT, FLASH_FLOOD_POLL_BUDGET_SECONDS, GoogleFloods,
 )
 
 SITE_LAT, SITE_LON = 41.0, -75.5
@@ -393,17 +394,17 @@ def test_a_polygon_fetch_failure_skips_just_that_event_not_the_whole_poll():
     assert out["google_flash_flood_likely"] == 1.0
 
 
-def test_flash_flood_search_failure_propagates_like_the_status_query_does():
-    """No caching layer sits in front of flashFloods:search (unlike gauge discovery's
-    daily-refresh cache) — a failure here fails the whole poll every time, exactly like
-    a floodStatus query failure already does. The coordinator's own try/except is what
-    keeps the source's last-good values alive across a bad poll (app/sources/__init__.py)."""
-    src, _, _ = build([], flash_events=[], fail_flash_search=True)
-    try:
-        src.poll()
-    except RuntimeError:
-        return
-    raise AssertionError("a flashFloods:search failure must propagate out of poll()")
+def test_flash_flood_search_failure_does_not_break_the_gauge_read():
+    """A different Google product on the same key, reachable independently of gauge
+    coverage -- an outage here must not freeze a healthy gauge-severity read too (unlike
+    a floodStatus query failure, which legitimately does fail the whole poll, since that
+    IS the gauge read)."""
+    src, _, _ = build([at(2.0, "g1", "SEVERE")], flash_events=[], fail_flash_search=True)
+    out = src.poll()
+    assert out["google_flood_severity"] == 2.0          # gauge read still works
+    assert out["google_flash_flood_likely"] is None     # flash flood read: unknown
+    assert out["google_flash_flood_highly_likely"] is None
+    assert out["google_flash_flood_events"] is None
 
 
 def test_an_event_with_no_polygon_id_is_skipped_not_fatal():
@@ -412,6 +413,69 @@ def test_an_event_with_no_polygon_id_is_skipped_not_fatal():
     out = src.poll()
     assert out["google_flash_flood_events"] == 0.0
     assert calls["polygon"] == []
+
+
+def test_flash_flood_search_requests_the_full_page_size():
+    src, calls, _ = build([], flash_events=[])
+    src.poll()
+    assert calls["flash_search"][0][1]["pageSize"] == PAGE_SIZE
+
+
+def test_more_than_the_warn_count_of_events_are_capped_not_all_resolved():
+    events = [_flash_event(f"ev{i}")[0] for i in range(FLASH_FLOOD_EVENT_WARN_COUNT + 5)]
+    src, calls, _ = build([], flash_events=events)
+    src.poll()
+    assert len(calls["polygon"]) == FLASH_FLOOD_EVENT_WARN_COUNT
+
+
+def test_a_polygons_geometry_is_cached_across_polls():
+    event, polygons = _flash_event("ev1", union_kml=_rect_kml(*FAR_HIGHLY_LIKELY_BOX))
+    src, calls, clock = build([], flash_events=[event], polygons=polygons)
+    src.poll()
+    clock.t += 1.0
+    src.poll()
+    assert calls["polygon"].count("ev1_event") == 1    # fetched once, reused the second time
+
+
+def test_a_wall_clock_budget_stops_resolving_further_events():
+    ev1, poly1 = _flash_event("ev1", union_kml=_rect_kml(*FAR_HIGHLY_LIKELY_BOX))
+    ev2, poly2 = _flash_event("ev2", union_kml=_rect_kml(*SITE_UNION_BOX))
+    src, calls, clock = build([], flash_events=[ev1, ev2], polygons={**poly1, **poly2})
+
+    real_fetch = src._fetch
+
+    def slow_fetch(url, headers, body=None, timeout=20.0):
+        if "serializedPolygons/ev1_event" in url:
+            clock.t += FLASH_FLOOD_POLL_BUDGET_SECONDS + 1
+        return real_fetch(url, headers, body, timeout)
+
+    src._fetch = slow_fetch
+    out = src.poll()
+    assert calls["polygon"] == ["ev1_event"]           # ev2 never reached
+    assert out["google_flash_flood_likely"] is None    # unresolved, not a confident 0.0
+
+
+def test_one_highly_likely_event_and_one_merely_likely_event_stay_mutually_exclusive():
+    """Reviewer-caught gap: two *simultaneous* events used to be able to set both flags
+    to 1.0 at once, contradicting the "mutually describe the worst event" contract
+    documented in creek-flood-warning-spec.md and this file's own earlier tests."""
+    ev1, poly1 = _flash_event("ev1", union_kml=_rect_kml(*SITE_UNION_BOX),
+                               highly_likely_kml=_rect_kml(*SITE_UNION_BOX))
+    ev2, poly2 = _flash_event("ev2", union_kml=_rect_kml(*SITE_UNION_BOX),
+                               highly_likely_kml=_rect_kml(*FAR_HIGHLY_LIKELY_BOX))
+    src, _, _ = build([], flash_events=[ev1, ev2], polygons={**poly1, **poly2})
+    out = src.poll()
+    assert out["google_flash_flood_highly_likely"] == 1.0
+    assert out["google_flash_flood_likely"] == 0.0
+    assert out["google_flash_flood_events"] == 2.0
+
+
+def test_unparseable_polygon_kml_is_treated_as_outside_not_a_crash():
+    event, _ = _flash_event("ev1")
+    polygons = {"ev1_event": "<Placemark><name>weird</name></Placemark>"}
+    src, calls, _ = build([], flash_events=[event], polygons=polygons)
+    out = src.poll()
+    assert out["google_flash_flood_events"] == 0.0
 
 
 def main():

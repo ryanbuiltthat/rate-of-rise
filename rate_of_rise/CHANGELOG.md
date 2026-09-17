@@ -5,8 +5,9 @@ The version matches `version:` in `config.yaml`; bump it to trigger the GUI Upda
 
 ## 0.22.0
 
-- **Google Flash Flood polygon containment (spec Addendum C 2j, closes open question
-  #2).** `google_floods.py` now also calls `flashFloods:search` and resolves each
+- **Google Flash Flood polygon containment (spec Addendum C 2j, answers open question
+  #2's flash-flood half — see `docs/open-questions.md` #2 for the gauge-thresholds
+  residual that remains).** `google_floods.py` now also calls `flashFloods:search` and resolves each
   event's polygon geometry (`serializedPolygons/{id}`, parsed as KML —
   `app/sources/kml_geometry.py`) against the site's own coordinates, alongside the
   existing gauge-severity read. Unlike the gauge search, this reads the site itself, not
