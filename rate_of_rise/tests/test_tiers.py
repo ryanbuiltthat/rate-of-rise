@@ -139,6 +139,39 @@ def test_google_forecasting_no_flooding_nearby_is_not_a_tier():
     assert compute_tier(row(google_flood_severity=0.0, google_flood_gauge_mi=2.0), 0.0)[0] == 0
 
 
+def test_flash_flood_likely_is_an_advisory():
+    tier, label, reasons = compute_tier(row(google_flash_flood_likely=1.0), 0.0)
+    assert (tier, label) == (1, "Advisory")
+    assert "flash flooding likely" in reasons[0]
+
+
+def test_flash_flood_highly_likely_is_a_watch():
+    tier, label, reasons = compute_tier(row(google_flash_flood_highly_likely=1.0), 0.0)
+    assert (tier, label) == (2, "Watch")
+    assert "highly likely" in reasons[0]
+
+
+def test_flash_flood_highly_likely_never_reaches_warning():
+    """Same reasoning as the gauge severity block: still a Google model forecast about
+    the site, not the creek's own instrument."""
+    tier, _, _ = compute_tier(row(google_flash_flood_highly_likely=1.0), 0.0)
+    assert tier == 2
+
+
+def test_flash_flood_zero_flags_fire_nothing():
+    assert compute_tier(
+        row(google_flash_flood_likely=0.0, google_flash_flood_highly_likely=0.0),
+        0.0)[0] == 0
+
+
+def test_flash_flood_both_flags_set_only_reports_the_watch_reason():
+    """Mirrors compute_tier's existing "only the reached tier's reasons" contract."""
+    tier, label, reasons = compute_tier(
+        row(google_flash_flood_likely=1.0, google_flash_flood_highly_likely=1.0), 0.0)
+    assert (tier, label) == (2, "Watch")
+    assert len(reasons) == 1
+
+
 def test_an_inbound_radar_cell_is_a_watch_before_any_gauge_sees_rain():
     """The 2g slice's whole purpose: on the dominant W/NW approach the upstream gauges
     are geometrically behind the house, so the radar track is the only leading signal."""
