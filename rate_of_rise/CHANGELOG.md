@@ -3,6 +3,35 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.21.2
+
+- **Fix: with `google_floods_api_key` left blank, the Google Flood source started anyway
+  and every entity read `unknown`.** `bashio::config` renders an option the operator never
+  filled in as the literal string `"null"`, not as an empty string — a fact this repo
+  already knew, and already guarded `nwm_reach_id` against at its use site in
+  `sources/__init__.py`. 0.21.0's new option did not get that guard, so an unset key was
+  truthy, the source was built with the API key `"null"`, and every poll was refused by
+  Google. `SourceCoordinator` catches a failing poll by design and keeps serving the last
+  good value — of which there had never been one — so all four features sat at `None`
+  forever, and the add-on log said `Google Flood Forecasting enabled`.
+
+  The guard now lives in `config.py` (`_optional`) and covers every optional option
+  — `google_floods_api_key`, `wu_api_key` and `nwm_reach_id` — rather than only the ones
+  whose author happened to know about the trap. An unset key now correctly logs
+  `Google Flood Forecasting disabled (needs google_floods_api_key)`.
+
+- **A refused key now says what to check.** Unlike every other source here, this API needs
+  a key *and* a one-time "enable the API" click on the Google Cloud project that issued it;
+  a project that never enabled it answers 403 for a key that is otherwise perfectly valid,
+  which reads as a bad key and is not. A 401 or 403 now raises a message naming both
+  possibilities instead of surfacing as a bare `HTTPError` stack trace.
+
+- **Reading the four entities.** `Gauges watched` is the one to look at first: it is
+  `0` when Google models no gauge within 25 mi (a real reading — see open question #2) and
+  a count otherwise, but it is *never* `unknown` once a poll has succeeded. All four
+  showing `unknown` means the source has not completed a single successful poll — it is
+  either not configured or being refused, never "no flooding nearby".
+
 ## 0.21.1
 
 - **Fix: every Google Flood card on the dashboard read "Entity not found."** 0.21.0's four
