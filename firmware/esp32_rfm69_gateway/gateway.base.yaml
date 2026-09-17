@@ -102,7 +102,7 @@ esp32:
   toolchain: platformio
 
 logger:
-  level: INFO
+  level: DEBUG
 
 # The whole data path: the radio readings are published as native entities over this API, and
 # it is also what makes the device discoverable at all — mDNS only advertises the
@@ -114,7 +114,6 @@ api:
 
 ota:
   - platform: esphome
-    password: !secret creek_gateway_ota_password
 
 wifi:
   ssid: !secret wifi_ssid
