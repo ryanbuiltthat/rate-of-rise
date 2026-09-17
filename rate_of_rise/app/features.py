@@ -92,6 +92,15 @@ class FeatureRow:
     google_flood_trend: float | None = None
     google_flood_gauge_mi: float | None = None
     google_flood_gauges: float | None = None
+    # Google Flash Flood polygons (slice 2j) — direct containment of the site itself in
+    # Google's forecast flash-flood area, not a nearby gauge's severity. `likely`/
+    # `highly_likely` are 0/1 flags (1.0 = the site is inside; 0.0 = a real reading that
+    # it is not; None only if nothing could be read); `events` is the count of active
+    # national events the site falls inside (almost always 0, occasionally 1; a count
+    # rather than a flag because overlap across events is possible).
+    google_flash_flood_likely: float | None = None
+    google_flash_flood_highly_likely: float | None = None
+    google_flash_flood_events: float | None = None
     temp_f: float | None = None
     rain_on_snow_flag: bool = False
 
