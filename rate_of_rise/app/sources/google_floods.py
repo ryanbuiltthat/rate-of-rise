@@ -50,9 +50,17 @@ would give a continuous "fraction of the way to warning level" rather than this 
 ladder, which is the better model feature. They are left for a later slice because the
 values are per-gauge units (metres of stage on one, m³/s of discharge on another) that
 mean nothing until they are paired with that gauge's own thresholds — real work, and
-worth doing only once a gauge near enough to matter is known to exist. `flashFloods`
-and `inundationMapSet` are satellite-derived products for ungauged basins outside the
-US and have no bearing here.
+worth doing only once a gauge near enough to matter is known to exist.
+
+FLASH FLOODS. `flashFloods:search` (filtered by country code only — no lat/lon filter
+exists at the API level) plus `serializedPolygons/{id}` (KML geometry per polygon,
+resolved via app/sources/kml_geometry.py's point-in-polygon test) answer a question the
+gauge search cannot: is the site itself — not a neighbouring gauge — inside a forecast
+flash-flood area. `event_polygon_id` is the union of the likely and highly-likely
+polygons, so it is checked first as a cheap reject; only a site inside it pays for a
+second fetch to tell "likely" from "highly likely". `inundationMapSet` (raster
+depth/probability maps) is still not ingested — a heavier product than a scalar
+containment read needs.
 
 KEY HANDLING. The key rides in the `X-Goog-Api-Key` header rather than the documented
 `?key=` query parameter, so it cannot reach a log line or a traceback with the URL.
@@ -66,6 +74,8 @@ from urllib.parse import urlencode
 
 import requests
 
+from .kml_geometry import point_in_kml
+
 log = logging.getLogger("app.sources.google_floods")
 
 FEATURE_KEYS = (
@@ -73,6 +83,9 @@ FEATURE_KEYS = (
     "google_flood_trend",
     "google_flood_gauge_mi",
     "google_flood_gauges",
+    "google_flash_flood_likely",
+    "google_flash_flood_highly_likely",
+    "google_flash_flood_events",
 )
 
 BASE_URL = "https://floodforecasting.googleapis.com/v1"
@@ -85,6 +98,12 @@ SEARCH_RADIUS_MI = 25.0
 MAX_GAUGES = 10                  # nearest N; a status further out is regional noise
 GAUGE_REFRESH_SECONDS = 24 * 3600
 PAGE_SIZE = 1000                 # a box this size holds tens of gauges, not thousands
+
+# Above this many active national events in one flashFloods:search response, log a
+# warning rather than silently resolving geometry for all of them — there is no
+# geographic prefilter at the API level (see the module docstring), so an unbounded
+# severe-weather day is the one scenario where this read could get expensive.
+FLASH_FLOOD_EVENT_WARN_COUNT = 50
 
 # Severity as an ordered ladder, the same shape as the ERO's (sources/ero.py): a real
 # "Google looked and forecasts no flooding" is 0.0, and None means only that nothing
@@ -273,16 +292,83 @@ class GoogleFloods:
                         status.get("severity"), status.get("gaugeId"))
         return None
 
+    # --- flash flood polygons --------------------------------------------------------
+
+    def _flash_flood_events(self) -> list[dict]:
+        payload = self._fetch(
+            f"{BASE_URL}/flashFloods:search", self._headers(), {"countryCodes": ["US"]},
+        )
+        events = payload.get("flashFloodEvents") or []
+        if len(events) > FLASH_FLOOD_EVENT_WARN_COUNT:
+            log.warning(
+                "flashFloods:search returned %d active events nationally — resolving "
+                "geometry for all of them; consider a cap if this recurs", len(events),
+            )
+        return events
+
+    def _polygon_kml(self, polygon_id: str) -> str:
+        payload = self._fetch(f"{BASE_URL}/serializedPolygons/{polygon_id}", self._headers())
+        return payload.get("kml") or ""
+
+    def _flash_floods(self) -> dict:
+        """Site containment across every currently active national event.
+
+        `event_polygon_id` (the union of likely + highly-likely, per Google's docs) is
+        checked first: outside it means outside both, so most events cost one polygon
+        fetch, not two. A polygon fetch failure skips just that one event — logged, not
+        fatal — the same as a gauge with no usable location being skipped rather than
+        failing the whole poll.
+        """
+        likely_any = False
+        highly_likely_any = False
+        count = 0.0
+        for event in self._flash_flood_events():
+            event_polygon_id = event.get("eventPolygonId")
+            if not event_polygon_id:
+                continue
+            try:
+                event_kml = self._polygon_kml(event_polygon_id)
+            except Exception:
+                log.warning("could not resolve flash flood event polygon %s",
+                            event_polygon_id, exc_info=True)
+                continue
+            if not point_in_kml(self._lat, self._lon, event_kml):
+                continue
+
+            count += 1.0
+            is_highly_likely = False
+            highly_likely_id = event.get("highlyLikelyAffectedPolygonId")
+            if highly_likely_id:
+                try:
+                    hl_kml = self._polygon_kml(highly_likely_id)
+                    is_highly_likely = point_in_kml(self._lat, self._lon, hl_kml)
+                except Exception:
+                    log.warning("could not resolve highly-likely polygon %s",
+                                highly_likely_id, exc_info=True)
+            if is_highly_likely:
+                highly_likely_any = True
+            else:
+                likely_any = True
+
+        return {
+            "google_flash_flood_likely": 1.0 if likely_any else 0.0,
+            "google_flash_flood_highly_likely": 1.0 if highly_likely_any else 0.0,
+            "google_flash_flood_events": count,
+        }
+
     def poll(self) -> dict:
         blank: dict[str, float | None] = {k: None for k in FEATURE_KEYS}
+        out = {**blank, **self._flash_floods()}
+
         gauges = self._known_gauges()
         if not gauges:
             # Nothing modelled nearby is a real reading, not a fault: zero gauges is the
             # honest count, and the rest stay unknown because nobody looked.
-            return {**blank, "google_flood_gauges": 0.0}
+            out["google_flood_gauges"] = 0.0
+            return out
 
         statuses = self._statuses(list(gauges))
-        out = {**blank, "google_flood_gauges": float(len(statuses))}
+        out["google_flood_gauges"] = float(len(statuses))
 
         # One gauge governs all three of the remaining features, so they always describe
         # the same place: the worst severity on offer, nearest first among equals. Mixing
