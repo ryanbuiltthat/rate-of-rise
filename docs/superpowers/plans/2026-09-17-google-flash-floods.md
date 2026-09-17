@@ -808,16 +808,18 @@ about the new fields yet); all existing tests still `PASS`.
 
 - [ ] **Step 3: Add the rule block to `tiers.py`**
 
-Add constants after the existing `GOOGLE_TIER_RADIUS_MI` block:
+Add a comment after the existing `GOOGLE_TIER_RADIUS_MI` block (no new constants —
+unlike the severity block, `google_flash_flood_likely`/`_highly_likely` are already 0/1
+flags with no threshold left to name):
 
 ```python
 # --- Google Flash Flood polygons (spec Addendum C 2j) ---
 # A direct containment test of the site itself, not a nearby proxy -- no distance
 # gating needed here the way the gauge severity block needs GOOGLE_TIER_RADIUS_MI.
 # Still a Google model forecast rather than the creek's own instrument, so it tops out
-# at Watch, same ceiling and same reasoning as the gauge severity block above.
-ADVISORY_GOOGLE_FLASH_FLOOD_LIKELY = True
-WATCH_GOOGLE_FLASH_FLOOD_HIGHLY_LIKELY = True
+# at Watch, same ceiling and same reasoning as the gauge severity block above. The two
+# features are already 0/1 flags, so the rule below tests them directly -- no threshold
+# constant to name, unlike the severity ladder above it.
 ```
 
 Add the rule inside `compute_tier`, immediately after the existing Google Flood
