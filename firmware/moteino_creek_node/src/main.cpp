@@ -11,7 +11,8 @@
 //   SEN0676 RX  -> Serial1 TX (pin 1)
 //   SEN0676 VCC -> switched 5 V rail (SENSOR_EN_PIN)
 //   SEN0676 GND -> GND
-//   RFM69HW     -> onboard SPI (Moteino socket: SCK/MOSI/MISO/CS=D8/INT=D3)
+//   RFM69HW     -> onboard SPI; CS/IRQ are RFM69.h's MOTEINO_M0 defaults (SS/D9)
+//   RFM69HW RST -> D7 (soldered; pulsed on every wake, see resetRadioPin)
 //   Battery     -> onboard 50% divider on A5 (no external wiring needed)
 //
 // LIBRARIES (see platformio.ini lib_deps):
@@ -46,9 +47,7 @@
 #define ATC_RSSI      -78
 
 // ─── Pins ────────────────────────────────────────────────────────────────────
-#define RFM69_CS      8
-#define RFM69_INT     3
-#define RFM69_RST     7     // RST line to reset radio on wakeup
+#define RFM69_RST     7
 #define SENSOR_EN_PIN 4     // drives a MOSFET or boost-converter EN to power the SEN0676
 
 // ─── Timing ──────────────────────────────────────────────────────────────────
@@ -70,7 +69,6 @@
 #define FUNC_READ     0x03
 #define REG_DISTANCE  0x0001   // "empty height": sensor face → water surface, mm
 
-//RFM69 radio(RFM69_CS, RFM69_INT, IS_RFM69HW);
 #ifdef ENABLE_ATC
   RFM69_ATC radio;
 #else
@@ -106,35 +104,34 @@ static void sleepSeconds(uint16_t seconds) {
   rtc.disableAlarm();
 }
 
-// ─── RFM69 reset & recovery ──────────────────────────────────────────────────
-// Per the spec warning about RFM69HW potentially staying unresponsive after sleep,
-// pulse RST on wakeup to guarantee a clean state (avoiding partial-awake drain).
+// ─── RFM69 reset & init ──────────────────────────────────────────────────────
+// RFM69::setMode() spins with no timeout while the radio is leaving sleep, so a
+// radio that stops answering MODEREADY after a standby hangs the MCU until the
+// reset button is pressed. Hardware-reset the radio on every wake and rebuild its
+// config from scratch instead: initialize() has a 50 ms SPI handshake timeout, so
+// a bad wake costs one report rather than the node.
 static void resetRadioPin() {
-  digitalWrite(RFM69_RST, LOW);
-  delayMicroseconds(100);
-  digitalWrite(RFM69_RST, HIGH);
+  digitalWrite(RFM69_RST, HIGH);   // SX1231: >=100 us high, then >=5 ms before use
   delayMicroseconds(100);
   digitalWrite(RFM69_RST, LOW);
-  delay(5);  // wait for POR and mode settling
+  delay(5);
 }
 
-// Full radio reinit (expensive; use if recovery from hung state needed)
-static void recoveryReinit() {
-  Serial.println(F("RFM69 recovery: full reinit"));
-  if (!radio.initialize(FREQUENCY, NODEID, NETWORKID)) {
-    Serial.println(F("Recovery reinit failed"));
-    return;
-  }
+static bool radioInit() {
+  if (!radio.initialize(FREQUENCY, NODEID, NETWORKID)) return false;
   #ifdef IS_RFM69HCW
-    radio.setHighPower();
+    radio.setHighPower(); //must include this only for RFM69HW/HCW!
   #endif
   #ifdef ENCRYPT_KEY
     radio.encrypt(ENCRYPT_KEY);
   #endif
+  #ifdef FREQUENCY_EXACT
+    radio.setFrequency(FREQUENCY_EXACT); //set frequency to some custom frequency
+  #endif
   #ifdef ENABLE_ATC
     radio.enableAutoPower(ATC_RSSI);
   #endif
-  radio.sleep();
+  return true;
 }
 
 // ─── Modbus CRC-16 (standard) ────────────────────────────────────────────────
@@ -216,25 +213,8 @@ void setup() {
 
   pinMode(RFM69_RST, OUTPUT);
   digitalWrite(RFM69_RST, LOW);
-
-  if (!radio.initialize(FREQUENCY, NODEID, NETWORKID)) {
-    Serial.println(F("RFM69 init failed"));
-    while (1);
-  }
-  #ifdef IS_RFM69HCW
-    radio.setHighPower(); //must include this only for RFM69HW/HCW!
-  #endif
-  #ifdef ENCRYPT_KEY
-    radio.encrypt(ENCRYPT_KEY);
-  #endif
-
-  #ifdef FREQUENCY_EXACT
-    radio.setFrequency(FREQUENCY_EXACT); //set frequency to some custom frequency
-  #endif
-
-  #ifdef ENABLE_ATC
-    radio.enableAutoPower(ATC_RSSI);
-  #endif
+  resetRadioPin();
+  if (!radioInit()) Serial.println(F("RFM69 init failed; retrying on next wake"));
   char buff[50];
   sprintf(buff, "\nTransmitting at %d Mhz...", FREQUENCY==RF69_433MHZ ? 433 : FREQUENCY==RF69_868MHZ ? 868 : 915);
   Serial.println(buff);
@@ -267,10 +247,9 @@ void setup() {
 }
 
 void loop() {
-  // After waking from standby, pulse RST to ensure the radio is in a known state.
-  // Without this, the RFM69HW can remain partially awake, leaking current despite
-  // the sleep() call. The pulse is brief and low-power vs. a full reinit.
   resetRadioPin();
+  bool radioOk = radioInit();
+  if (!radioOk) Serial.println(F("RFM69 init failed; skipping TX this cycle"));
 
   // Power up the radar
   digitalWrite(SENSOR_EN_PIN, HIGH);
@@ -295,22 +274,24 @@ void loop() {
       NODEID, batt_mv);
   }
 
-  Serial.print(F("TX: "));
-  Serial.println(payload);
+  if (radioOk) {
+    Serial.print(F("TX: "));
+    Serial.println(payload);
 
-  radio.send(GATEWAYID, payload, strlen(payload));
+    radio.send(GATEWAYID, payload, strlen(payload));
 
-  // Brief window to catch a wireless firmware push (see firmware/README.md, OTA section).
-  // The node sleeps the rest of the cycle, so this piggybacks on the wake TX already
-  // paid for above rather than costing a dedicated one. CheckForWirelessHEX() is a
-  // no-op for any packet that isn't its "FLX?" handshake; if it is, it blocks here
-  // for the full transfer and reboots into the bootloader on success. Don't break out
-  // on the first receiveDone() — a stray non-handshake packet would close the window
-  // before the real handshake had a chance to arrive.
-  uint32_t otaListenStart = millis();
-  while (millis() - otaListenStart < OTA_LISTEN_MS) {
-    if (radio.receiveDone()) {
-      CheckForWirelessHEX(radio, flash, true);
+    // Brief window to catch a wireless firmware push (see firmware/README.md, OTA section).
+    // The node sleeps the rest of the cycle, so this piggybacks on the wake TX already
+    // paid for above rather than costing a dedicated one. CheckForWirelessHEX() is a
+    // no-op for any packet that isn't its "FLX?" handshake; if it is, it blocks here
+    // for the full transfer and reboots into the bootloader on success. Don't break out
+    // on the first receiveDone() — a stray non-handshake packet would close the window
+    // before the real handshake had a chance to arrive.
+    uint32_t otaListenStart = millis();
+    while (millis() - otaListenStart < OTA_LISTEN_MS) {
+      if (radio.receiveDone()) {
+        CheckForWirelessHEX(radio, flash, true);
+      }
     }
   }
 
