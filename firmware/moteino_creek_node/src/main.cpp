@@ -48,7 +48,7 @@
 // ─── Pins ────────────────────────────────────────────────────────────────────
 #define RFM69_CS      8
 #define RFM69_INT     3
-#define RFM69_RST     2     // RST line to reset radio on wakeup
+#define RFM69_RST     7     // RST line to reset radio on wakeup
 #define SENSOR_EN_PIN 4     // drives a MOSFET or boost-converter EN to power the SEN0676
 
 // ─── Timing ──────────────────────────────────────────────────────────────────
