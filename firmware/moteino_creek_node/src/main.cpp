@@ -229,10 +229,14 @@ void setup() {
       Serial.print(' ');
     }
     Serial.println();
+    // Deep power-down. Only ever call this on a chip that is awake and present:
+    // SPIFlash::command() spins on busy() first, and a chip in power-down (or no
+    // chip at all) never answers, which hangs the MCU. CheckForWirelessHEX() wakes
+    // the flash itself when an OTA handshake arrives.
+    flash.sleep();
   }
   else
     Serial.println("SPI Flash MEM not found (is chip soldered?)...");
-  flash.sleep();   // deep power-down; CheckForWirelessHEX() wakes it itself when needed
 
   #ifdef ENABLE_ATC
     Serial.println("RFM69_ATC Enabled (Auto Transmission Control)\n");
@@ -296,7 +300,6 @@ void loop() {
     }
   }
 
-  flash.sleep();   // an OTA handshake wakes the flash; put it back down before standby
   radio.sleep();
 
 #ifdef BENCH_TEST
