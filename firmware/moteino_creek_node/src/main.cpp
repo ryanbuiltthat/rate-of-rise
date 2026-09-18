@@ -232,6 +232,7 @@ void setup() {
   }
   else
     Serial.println("SPI Flash MEM not found (is chip soldered?)...");
+  flash.sleep();   // deep power-down; CheckForWirelessHEX() wakes it itself when needed
 
   #ifdef ENABLE_ATC
     Serial.println("RFM69_ATC Enabled (Auto Transmission Control)\n");
@@ -295,6 +296,7 @@ void loop() {
     }
   }
 
+  flash.sleep();   // an OTA handshake wakes the flash; put it back down before standby
   radio.sleep();
 
 #ifdef BENCH_TEST
