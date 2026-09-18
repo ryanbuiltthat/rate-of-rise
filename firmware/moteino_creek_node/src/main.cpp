@@ -48,6 +48,7 @@
 // ─── Pins ────────────────────────────────────────────────────────────────────
 #define RFM69_CS      8
 #define RFM69_INT     3
+#define RFM69_RST     2     // RST line to reset radio on wakeup
 #define SENSOR_EN_PIN 4     // drives a MOSFET or boost-converter EN to power the SEN0676
 
 // ─── Timing ──────────────────────────────────────────────────────────────────
@@ -103,6 +104,37 @@ static void sleepSeconds(uint16_t seconds) {
   LowPower.standby();
 
   rtc.disableAlarm();
+}
+
+// ─── RFM69 reset & recovery ──────────────────────────────────────────────────
+// Per the spec warning about RFM69HW potentially staying unresponsive after sleep,
+// pulse RST on wakeup to guarantee a clean state (avoiding partial-awake drain).
+static void resetRadioPin() {
+  digitalWrite(RFM69_RST, LOW);
+  delayMicroseconds(100);
+  digitalWrite(RFM69_RST, HIGH);
+  delayMicroseconds(100);
+  digitalWrite(RFM69_RST, LOW);
+  delay(5);  // wait for POR and mode settling
+}
+
+// Full radio reinit (expensive; use if recovery from hung state needed)
+static void recoveryReinit() {
+  Serial.println(F("RFM69 recovery: full reinit"));
+  if (!radio.initialize(FREQUENCY, NODEID, NETWORKID)) {
+    Serial.println(F("Recovery reinit failed"));
+    return;
+  }
+  #ifdef IS_RFM69HCW
+    radio.setHighPower();
+  #endif
+  #ifdef ENCRYPT_KEY
+    radio.encrypt(ENCRYPT_KEY);
+  #endif
+  #ifdef ENABLE_ATC
+    radio.enableAutoPower(ATC_RSSI);
+  #endif
+  radio.sleep();
 }
 
 // ─── Modbus CRC-16 (standard) ────────────────────────────────────────────────
@@ -182,6 +214,9 @@ void setup() {
   pinMode(SENSOR_EN_PIN, OUTPUT);
   digitalWrite(SENSOR_EN_PIN, LOW);
 
+  pinMode(RFM69_RST, OUTPUT);
+  digitalWrite(RFM69_RST, LOW);
+
   if (!radio.initialize(FREQUENCY, NODEID, NETWORKID)) {
     Serial.println(F("RFM69 init failed"));
     while (1);
@@ -197,10 +232,6 @@ void setup() {
     radio.setFrequency(FREQUENCY_EXACT); //set frequency to some custom frequency
   #endif
 
-  //Auto Transmission Control - dials down transmit power to save battery (-100 is the noise floor, -90 is still pretty good)
-  //For indoor nodes that are pretty static and at pretty stable temperatures (like a MotionMote) -90dBm is quite safe
-  //For more variable nodes that can expect to move or experience larger temp drifts a lower margin like -70 to -80 would probably be better
-  //Always test your ATC mote in the edge cases in your own environment to ensure ATC will perform as you expect
   #ifdef ENABLE_ATC
     radio.enableAutoPower(ATC_RSSI);
   #endif
@@ -225,6 +256,7 @@ void setup() {
   #ifdef ENABLE_ATC
     Serial.println("RFM69_ATC Enabled (Auto Transmission Control)\n");
   #endif
+
   radio.sleep();
 
   // RTC for timed wakeup from standby. The time value doesn't matter —
@@ -235,6 +267,11 @@ void setup() {
 }
 
 void loop() {
+  // After waking from standby, pulse RST to ensure the radio is in a known state.
+  // Without this, the RFM69HW can remain partially awake, leaking current despite
+  // the sleep() call. The pulse is brief and low-power vs. a full reinit.
+  resetRadioPin();
+
   // Power up the radar
   digitalWrite(SENSOR_EN_PIN, HIGH);
   delay(SENSOR_SETTLE_MS);
