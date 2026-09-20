@@ -10,9 +10,11 @@ What to do when a storm hits. Checklist form — meant to be readable on a phone
 > assume it will not wake you. Thresholds are also still uncalibrated.
 > **NWS/NOAA is still your real alerting path.** This is a data-collection aid.
 
-> **Tier 4 cannot fire yet.** The SEN0676 radar isn't mounted, so tiers 3–4 are dormant
-> and a dangerous storm tops out at Watch (unless a Flash Flood Warning floors it to
-> Warning). A low tier is not reassurance.
+> **The creek node is live (deployed 2026-09-19).** Tiers 3–4 (Warning/Emergency) now fire
+> off real stage and rate-of-rise, not just forecast/upstream signals — but the stage and
+> Warning/Emergency thresholds are still placeholders (open question #8), unlike the
+> surveyed geometry they're set against. A quiet tier is still not reassurance; it may
+> also mean the radio link is down rather than the creek being calm — see *Before*, below.
 
 ---
 
@@ -22,6 +24,12 @@ What to do when a storm hits. Checklist form — meant to be readable on a phone
 - [ ] All watchdogs off? Good. If **Modeling service stale** or **Upstream PWS missing** is
       on, fix it now — a storm recorded with dark sources is a wasted storm, and the ML
       gate wants 10 of them.
+- [ ] Check **Ingestion health → Creek node link**. If it's OFF (or **Creek stage stale** is
+      ON), the radio link is down: the gateway keeps serving the last stage the node sent
+      rather than blanking it, so the number on screen may be stale, not current. Tiers 3–4
+      go dormant for real (not just quiet) until it reconnects. **Stage reading age** says
+      how stale. This is exactly the failure mode the offline-pattern firmware fixes
+      target, so it should be rare — but the storm is the test of that, not the bench.
 - [ ] Don't act on the tier itself. Treat it as *go look*, not an alarm.
 - [ ] **Ignore QPF for thunderstorms.** Gridded forecast, 6-hour blocks — it cannot resolve
       convection and will read near zero during a pop-up storm. That is expected, not a
@@ -30,16 +38,28 @@ What to do when a storm hits. Checklist form — meant to be readable on a phone
 - [ ] If it's raining and **rain rate is also flat**, that's a real fault — Ecowitt
       ingestion, not NWS. Check the Ingestion health card.
 
-## During — you are the gauge
+## During — the sensor is the gauge now; you're the check on it
 
-With no creek sensor, your eyes are the only record of the response side. **Note clock
-times**, roughly is fine:
+The creek node reports depth and rate of rise every 60 s (**Creek Flood Watch → Creek
+Level (24 h)**, and **Operator → Ingestion health**). That's the record now — but it's a
+radar reading a water surface, and it can be wrong in ways your eyes will catch faster
+than a watchdog will: floating debris under the beam, spray or foam in a high flow, a
+reading that stops moving because the *link* dropped rather than the creek holding steady.
+**Note clock times**, roughly is fine:
 
-- [ ] Creek visibly starts rising — **time**
-- [ ] Creek appears to crest — **time**
-- [ ] High-water mark (photo against a fixed reference — rock, post, tree)
+- [ ] Creek visibly starts rising — **time** (compare against when `sensor.creek_gateway_creek_depth`
+      actually moved — a real gap between the two, beyond the node's 60 s cadence, is worth
+      a note)
+- [ ] Creek appears to crest — **time**, and roughly how high (compare to the depth reading
+      and to **Predicted crest** on the Now card)
+- [ ] High-water mark (photo against a fixed reference — rock, post, tree). This is still
+      the best way to catch the sensor reading low or high — cross-check it against the
+      depth reading at the same moment.
 - [ ] Culvert running full? — **time**
 - [ ] Basement: dry / damp / water — **time**
+- [ ] Did a Warning or Emergency tier fire? Note whether it matched what you were seeing at
+      the same clock time — this is now real calibration data for #8 (stage-based
+      thresholds), not just a placeholder to eyeball later.
 
 Time-stamped phone photos count as all of the above.
 
@@ -85,9 +105,15 @@ Same path over Samba if you'd rather use a GUI SQLite browser: `\\<ha-host>\shar
 
 Either way, put the times from *During* in the notes. That's what calibrates the lag.
 
-- [ ] Judge the tiers: did it fire? too early, too late, not at all? Note it — every
+- [ ] Judge the tiers: did it fire? too early, too late, not at all? With the creek node
+      live, this now includes Warning/Emergency (stage-based), not just Advisory/Watch —
+      pull up **Creek Level (24 h)** against the times you logged and check whether the
+      24 in / 30 in thresholds tracked what actually happened at the creek. Note it — every
       threshold in `rate_of_rise/app/tiers.py` and `app/storms.py` is a placeholder, and
       an observed storm is the only thing that can move them off literature defaults.
+- [ ] If **Creek node link** went off at any point during the storm, note the window — a
+      stage-based tier is dormant for that window regardless of what the creek did, and
+      that gap belongs in the notes alongside the crest time.
 - [ ] Check **Storms recorded** on the Operator tab against `min_events_for_ml` (10).
 
 ## Nothing to press during the storm
@@ -129,6 +155,7 @@ creek, press **Rollback** and note it — that observation is worth more than th
 
 | | |
 |---|---|
+| Creek node | reports stage + rate of rise every 60 s over the RFM69 link; a dropout freezes the reading rather than blanking it, so **Creek node link** / **Stage reading age** are what tell you it's stale |
 | Storm detection | opens at 0.10 in/h rain (on-site or upstream), closes after 6 h quiet — all three tunable (`storm_start_rain_1h_in`, `storm_continue_rain_1h_in`, `storm_quiet_hours`) |
 | Event log | peaks + onset conditions written to `/share/rate_of_rise/events.sqlite`, survives restarts |
 | Tier evaluation | every 5 min; active NWS products floor the tier |
@@ -136,6 +163,8 @@ creek, press **Rollback** and note it — that observation is worth more than th
 
 ## Related
 
-- [open-questions.md](./open-questions.md) — #5 (datum), #7 (soil calibration), #8/#9/#10
-  (thresholds) are all things a storm helps answer
+- [open-questions.md](./open-questions.md) — #7 (soil calibration) and #8/#9/#10
+  (thresholds) are all things a storm helps answer. #8's stage-based half was blocked on
+  #5 (the datum); #5 is resolved and the node is deployed, so a storm now calibrates
+  Warning/Emergency directly, not just Advisory/Watch.
 - [creek-flood-warning-spec.md](../creek-flood-warning-spec.md) — §6 alert tiers, §7 phases

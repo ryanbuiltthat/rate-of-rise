@@ -17,8 +17,9 @@ shortcut that, because the numbers that matter are properties of this basin and 
 measured by watching it rain. The alerts are honest about it: every notification carries
 "thresholds are not yet field-calibrated — verify before acting."
 
-So the backlog below is not a list of things that went unfinished. Items #7–10 are the
-remaining calibration phase, and they are gated on weather, not on code.
+So the backlog below is not a list of things that went unfinished. Items #8–10 are the
+remaining calibration phase, and they are gated on weather, not on code (#7 has since
+resolved — see *Closed*, below).
 
 **Everything below is grouped accordingly:** *Closed* is decided and needs no revisiting;
 *Field calibration* needs data that only time and storms produce; *Carried into v1.1* is the
@@ -29,6 +30,29 @@ short list of real engineering work that is known, scoped, and deliberately not 
 ## Closed
 
 - **#1.** ~~HA install type on mini PC (HAOS/Supervised → add-on path; Container → sidecar docker-compose path).~~ **RESOLVED: HA install is HAOS.** Layer 2 modeling service is built as a local add-on (spec Addendum A).
+- **#2.** ~~Google Floods API: does a virtual gauge (hybas) land on the creek, or only on the
+  larger receiving reach? What are its thresholds?~~ **CLOSED 2026-09-20.** `app/sources/google_floods.py` searches `gauges:searchGaugesByArea` for
+  every gauge Google models within 25 mi — non-quality-verified and virtual HydroBASINS
+  gauges included, which are the only plausible candidates on a creek this small — and
+  reads `floodStatus:queryLatestFloodStatusByGaugeIds` for the nearest ten. The `Creek
+  Google Flood Gauges` sensor is the count, and the add-on log names each gauge with its
+  river, distance and verification state on every daily re-discovery. A count of 0
+  answers that no gauge, verified or virtual, lands close enough to be a useful proxy
+  for this creek.
+
+  The second half — does Google's *flash flood* product (a different, ungauged-basin
+  forecast, not a gauge) reach a basin this small — is also answered by the same 0.22.0
+  release: `flashFloods:search` plus `serializedPolygons/{id}` polygon geometry are now
+  checked against the site's own coordinates every 30 min (`google_flash_flood_likely`,
+  `google_flash_flood_highly_likely`, `google_flash_flood_events`; Addendum C 2j). Unlike
+  the gauge search, this is a direct read of the site itself, not a neighbouring proxy.
+
+  **Closed rather than carried as a residual.** #2 also asked "what are its thresholds?"
+  — the gauge severity ladder (2i) still reports Google's 4-step category, not the
+  gauge's own numeric thresholds (`gaugeModels.batchGet` / `gauges.queryGaugeForecasts`).
+  With the gauge count at 0, there is no gauge near enough for that residual to apply to
+  *this* creek — it would only become relevant if a future daily re-discovery ever finds
+  one. If that happens, it's a new open question, not pending work under this one.
 - **#3.** ~~NWM reach ID for the creek's segment at the sensor site.~~ **RESOLVED.**
   Identified and verified against `api.water.noaa.gov/nwps/v1/reaches/<id>` — the reach
   reports its own position ~100 m from the sensor site and returns a short-range streamflow
@@ -72,6 +96,17 @@ short list of real engineering work that is known, scoped, and deliberately not 
 
 - **#6.** ~~WiFi RSSI at the pole via the outdoor AP (bag test before final mount).~~ **RESOLVED 2026-09-20.** With the Moteino + RFM69HW architecture, the relevant test is **RFM69 RSSI** at the pole location. Field deployment 2026-09-19+ shows sustained RSSI around −72 dBm over 24+ hours, well above the −80 dBm target, with effectively 0% packet loss across rainfall events. The link margin is confirmed adequate.
 
+- **#7.** ~~WH51 readings are relative (0–100%) and site-specific. After the next soaking
+  rain and a dry stretch, record the empirical "saturated" and "dry" values at each
+  burial spot; these calibrate the Tier 0 soil-moisture threshold.~~ **RESOLVED
+  2026-09-20.** Both WH51 probes are calibrated at their burial spots — the empirical dry
+  and saturated values have been recorded, so `soil_moisture_mean_pct` (`features.py`)
+  now reads a meaningful 0–100% at each probe rather than an arbitrary scale. This
+  doesn't change anything in code by itself: the app already consumes the WH51 entities'
+  percentage as-is, with no normalization step to update. What it unblocks is #8 —
+  `ADVISORY_SOIL_PCT` (70%, `tiers.py`) can now be sanity-checked against real dry/wet
+  readings instead of an unverified placeholder.
+
 - **#11.** ~~Solar/battery sizing for the creek node.~~ **RESOLVED — as-built and confirmed in field.** Final
   hardware: 6 W solar panel, **Adafruit bq24074 linear charger**, a KSD9700 cold-cutoff
   switch upstream of the charger, and a **1S4P pack of 1500 mAh 18650 cells (6 Ah total)** 
@@ -111,16 +146,38 @@ short list of real engineering work that is known, scoped, and deliberately not 
 These need observations that only time produces. None of them blocks v1; together they *are*
 the calibration phase.
 
-- **#7.** WH51 readings are relative (0–100%) and site-specific. After the next soaking rain and a dry stretch, record the empirical "saturated" and "dry" values at each burial spot; these calibrate the Tier 0 soil-moisture threshold.
-
 - **#8.** Tier thresholds in `rate_of_rise/app/tiers.py` are placeholders. The forecast/rainfall
   ones (Advisory, Watch) can be tuned from the first few storms without the creek gauge;
   the stage-based ones (Warning, Emergency) depend on #5.
+
+  **Reviewed 2026-09-20 — not automatically tuned; these are hand-edited constants.**
+  `tiers.py` has no fitting or auto-tuning path: `ADVISORY_QPF_24H_IN`, `ADVISORY_SOIL_PCT`,
+  `WATCH_UPSTREAM_3H_IN`, `WARNING_STAGE_FT`, `EMERGENCY_STAGE_FT`, etc. are plain
+  module-level constants. The only code that reads them besides `tiers.py` itself is
+  `train.py`, and it *consumes* `WARNING_STAGE_FT` / `WARNING_RATE_OF_RISE_IN_MIN` to
+  label training rows as danger/no-danger — it does not solve for them or write anything
+  back. Tuning any threshold here means reviewing observed storms (dashboard history, or
+  the storm log `storms.py` maintains) and hand-editing the constant, then bumping the
+  add-on version. #5 (datum) and #7 (soil calibration, below) are both now resolved, so
+  the stage-based and soil-moisture-driven constants are unblocked for review whenever
+  storm data supports it; the rainfall/QPF/API-index ones still want a few more real
+  storms logged first (see #9).
 
 - **#9.** The API recession constant `k` (`app/sources/apindex.py`, currently 0.92 ≈ a two-week
   memory) is a literature default, not a fitted value. Fit it once a few storms are
   recorded — the right `k` is the one whose index best separates storms that produced a
   creek response from those that did not.
+
+  **Reviewed 2026-09-20 — still open; the fitting tool doesn't exist yet.**
+  `DEFAULT_K = 0.92` in `apindex.py` is a plain constant with no code path that recomputes
+  it from data. `storms.py` logs completed storm events — used today only to gate ML
+  retraining (`min_events_for_ml`) — but nothing consumes that log to solve for `k`. The
+  data-availability half of this has moved, though: per `docs/project-knowledge.md`, the
+  storm log has already cleared the 10-event `min_events_for_ml` gate, so there is likely
+  enough logged rainfall history to attempt a fit. What's missing is the fitting step
+  itself (grid-search or optimize `k` against which value best separates storms that
+  produced a creek response from ones that didn't) — a small tooling task to build, not a
+  wait on more storms.
 - **#10.** Rain-on-snow thresholds (`app/features.py`: 0.20 in SWE, 34 °F) are placeholders, and
   the flag cannot be validated until a winter rain-on-snow event is actually captured.
 
@@ -217,29 +274,25 @@ the calibration phase.
   correct. This also silently removed the test that used to enforce the node/add-on
   threshold ordering.
 
+  **Reviewed 2026-09-20 — yes, and it's straightforward on this hardware.**
+  `LowPower.standby()` on the SAMD21 (`main.cpp`) executes WFI rather than a reset —
+  `loop()` resumes right after the call on every wake, so SRAM/global state survives
+  across sleep cycles with no RTC-memory or flash tricks needed (unlike an ESP32
+  deep-sleep node, which needs `RTC_DATA_ATTR` to keep anything across a wake). That
+  means the node can hold a static previous-reading + timestamp across cycles, compute
+  its own rate-of-rise in mm per interval on each wake, and call `sleepSeconds()` with a
+  shorter value (5–10 s) once that rate crosses a threshold — mirroring the retired
+  ESPHome node's 0.02 in/min trigger, converted to mm/interval since the Moteino doesn't
+  do unit conversion today (that's the gateway's job). The change is a handful of lines
+  in `loop()` plus one threshold constant; no new libraries, no extra pins, no persistent
+  storage to manage. The tradeoff is battery: 5–10 s sampling burns more airtime than
+  60 s, but only for as long as the rate stays elevated — the same "costs battery only
+  during an actual rise" framing this item already carries above. Worth building for
+  v1.1 as scoped; nothing about the Moteino port makes it harder than the original
+  ESPHome implementation, and RAM retention across standby actually makes it easier than
+  the ESP32 deep-sleep equivalent would have been.
+
 *(#16 is now Closed, above — the pole has been raised.)*
 
-- **#2.** Google Floods API: does a virtual gauge (hybas) land on the creek, or only on the
-  larger receiving reach? What are its thresholds? **Answered as of 0.22.0, with a
-  residual.** `app/sources/google_floods.py` searches `gauges:searchGaugesByArea` for
-  every gauge Google models within 25 mi — non-quality-verified and virtual HydroBASINS
-  gauges included, which are the only plausible candidates on a creek this small — and
-  reads `floodStatus:queryLatestFloodStatusByGaugeIds` for the nearest ten. The `Creek
-  Google Flood Gauges` sensor is the count, and the add-on log names each gauge with its
-  river, distance and verification state on every daily re-discovery. A count of 0
-  answers that no gauge, verified or virtual, lands close enough to be a useful proxy
-  for this creek.
-
-  The second half — does Google's *flash flood* product (a different, ungauged-basin
-  forecast, not a gauge) reach a basin this small — is also answered by the same 0.22.0
-  release: `flashFloods:search` plus `serializedPolygons/{id}` polygon geometry are now
-  checked against the site's own coordinates every 30 min (`google_flash_flood_likely`,
-  `google_flash_flood_highly_likely`, `google_flash_flood_events`; Addendum C 2j). Unlike
-  the gauge search, this is a direct read of the site itself, not a neighbouring proxy.
-
-  **Residual:** #2 also asked "what are its thresholds?" — the gauge severity ladder
-  (2i) is still Google's 4-step category, not the gauge's own numeric thresholds.
-  `gaugeModels.batchGet` thresholds and `gauges.queryGaugeForecasts` values remain not
-  ingested (see `creek-flood-warning-spec.md`'s 2i entry) — worth doing only once a
-  gauge near enough to matter is known to exist, which 2i's own gauge count has now
-  confirmed one way or the other.
+*(#2 is now Closed, above — the residual is deliberately not tracked as pending work,
+since the gauge count it depends on is 0.)*

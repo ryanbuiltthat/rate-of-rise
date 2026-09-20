@@ -102,10 +102,10 @@ class SourceCoordinator:
         else:
             log.info("WU upstream disabled (needs wu_api_key + upstream_pws_ids)")
 
-        # `bashio::config` renders an unset optional as the literal string "null", which
-        # would otherwise enable the source and fail every poll against a bogus reach.
+        # bashio's "null"-for-unset is normalized in config.py (`_optional`), for every
+        # optional rather than only the ones whose author knew about it.
         reach_id = cfg.nwm_reach_id.strip()
-        if reach_id and reach_id != "null":
+        if reach_id:
             self._sources.append(NwmReach(reach_id))
             log.info("NWM reach %s enabled", reach_id)
         else:
