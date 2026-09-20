@@ -135,6 +135,57 @@ short list of real engineering work that is known, scoped, and deliberately not 
   for the wiring rationale (switching the panel line rather than the battery line, so a
   failed-open switch only costs charging rather than the load).
 
+- **#15.** ~~Adaptive crest sampling was lost in the Moteino port — the node reports on a
+  fixed 60 s cycle, so the crest of a flashy rise is sampled at 60 s.~~ **RESOLVED
+  2026-09-20 — implemented, pending deploy.** `main.cpp` now carries its previous reading
+  across sleeps, computes its own rate of rise, and drops from 60 s to 5 s on a confirmed
+  rise, reverting after a longer quiet period. The 0.02 in/min trigger (0.5 mm/min in the
+  radar's own units) is preserved from the retired ESPHome node, and with it the reason
+  for that number: it sits deliberately below the add-on's 0.05 in/min
+  `WARNING_RATE_OF_RISE_IN_MIN`, so the node is already sampling fast before a Warning is
+  plausible.
+
+  Feasible at all because `LowPower.standby()` is a WFI rather than a reset — `loop()`
+  resumes in place and plain SRAM statics survive every sleep, where an ESP32 deep-sleep
+  node would have needed `RTC_DATA_ATTR` or flash for the same state.
+
+  **Two hazards in the existing code had to be cleared first, both of which only bite at a
+  short interval** — which is why neither mattered at a fixed 60 s and both would have
+  been easy to ship on top of:
+
+  - `sleepSeconds()` armed `MATCH_HHMMSS` and then slept, and that match fires once per
+    *day*. An alarm second slipping past between arming and the WFI therefore cost not
+    5 s but **24 hours**, with the node off the air for all of it — including the listen
+    window OTA needs to push a fix. It now re-reads the clock as late as possible and
+    skips the standby unless the target is still ahead, so the worst case is one un-slept
+    cycle. Seconds-of-day arithmetic replaced the hand-rolled h/m/s rollover at the same
+    time.
+  - Each wake already costs ~2 s (sensor settle + Modbus read + the 1.5 s OTA listen
+    window), so a 5 s sleep is really a ~7 s period at ~30 % awake. The OTA window drops
+    to 300 ms in fast mode — shortened rather than skipped, so a push stays possible
+    mid-rise.
+
+  Noise drove one design choice worth recording: the SEN0676 is ±5 mm, so no single pair
+  of samples resolves 0.5 mm/min — the trigger is noise-dominated by construction.
+  Raising the threshold would have broken the ordering above, so entering fast mode
+  instead requires consecutive qualifying samples, mirroring the add-on's own
+  `WARNING_RATE_OF_RISE_CONFIRM_SAMPLES` guard on the same quantity. Leaving takes longer
+  than entering, so a plateau part-way up a real rise doesn't drop the cadence back to
+  60 s just before the crest.
+
+  **Still to do before this is true at the creek.** The code is on `main` and CI has
+  regenerated `firmware.hex`, so it is ready to send: press "Push Node Firmware" on the
+  gateway — **not mid-storm**, since the node blocks for the whole transfer and stage
+  goes dark with it. Then confirm from stage history that a real rise is actually sampled
+  at ~5 s. Until that push happens the node on the pole is still running the fixed 60 s
+  firmware, and note that `done` on the OTA status sensor is not by itself proof the
+  image took (`firmware/README.md`, "`-DMOTEINO_M0` is load-bearing" and the
+  `node never acknowledged EOF` row) — the cadence change in stage history is.
+
+  Two follow-ups are deliberately not in it: surfacing the payload's new `fast` flag as a
+  gateway entity, and restoring the regression test that enforced the node/add-on
+  threshold ordering, which the port also removed.
+
 - **#16.** ~~Optional: raise the pole 24–36 in.~~ **COMPLETED.** Pole raised. Buys overbank
   depth headroom for model training (un-censoring the rare big events) and reduces the
   debris-impact risk to the sensor at the property low spot.
@@ -262,35 +313,7 @@ the calibration phase.
   main reason this is v1.1 rather than v1. The 30-minute `stage_stale` watchdog
   (`health.py`) is the only backstop today.
 
-- **#15.** **Adaptive crest sampling was lost in the Moteino port.** Spec §2 asks for 30–60 s
-  normally and 5–10 s once the creek is rising, and the retired ESPHome node did exactly
-  that — it dropped to 5 s when its own rate-of-rise crossed 0.02 in/min, deliberately below
-  the add-on's 0.05 in/min Warning trigger, so the node was already sampling fast before a
-  warning was plausible. `firmware/moteino_creek_node/src/main.cpp` now reports on a fixed
-  60 s cycle and deep-sleeps between reports, so **the crest of a flashy rise is sampled at
-  60 s**. In a basin where rainfall-to-crest is tens of minutes, that is the difference
-  between measuring the peak and inferring it. Re-implementing it on the node is cheap in
-  code and costs battery only during an actual rise, which is exactly when spending it is
-  correct. This also silently removed the test that used to enforce the node/add-on
-  threshold ordering.
-
-  **Reviewed 2026-09-20 — yes, and it's straightforward on this hardware.**
-  `LowPower.standby()` on the SAMD21 (`main.cpp`) executes WFI rather than a reset —
-  `loop()` resumes right after the call on every wake, so SRAM/global state survives
-  across sleep cycles with no RTC-memory or flash tricks needed (unlike an ESP32
-  deep-sleep node, which needs `RTC_DATA_ATTR` to keep anything across a wake). That
-  means the node can hold a static previous-reading + timestamp across cycles, compute
-  its own rate-of-rise in mm per interval on each wake, and call `sleepSeconds()` with a
-  shorter value (5–10 s) once that rate crosses a threshold — mirroring the retired
-  ESPHome node's 0.02 in/min trigger, converted to mm/interval since the Moteino doesn't
-  do unit conversion today (that's the gateway's job). The change is a handful of lines
-  in `loop()` plus one threshold constant; no new libraries, no extra pins, no persistent
-  storage to manage. The tradeoff is battery: 5–10 s sampling burns more airtime than
-  60 s, but only for as long as the rate stays elevated — the same "costs battery only
-  during an actual rise" framing this item already carries above. Worth building for
-  v1.1 as scoped; nothing about the Moteino port makes it harder than the original
-  ESPHome implementation, and RAM retention across standby actually makes it easier than
-  the ESP32 deep-sleep equivalent would have been.
+*(#15 is now Closed, above — adaptive crest sampling is back on the node.)*
 
 *(#16 is now Closed, above — the pole has been raised.)*
 
