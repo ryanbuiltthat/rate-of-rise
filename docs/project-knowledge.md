@@ -340,13 +340,18 @@ storm log passed it — so retrain produces real candidates. Clearing that gate 
 same as having a trustworthy model: with a record this short the held-out split still
 lands single-class, which is why promote warns rather than reassures.
 
-**Available to build:** adaptive crest sampling on the node (#15 — lost in the Moteino
-port, so a flashy crest is sampled at a fixed 60 s; reviewed 2026-09-20 as feasible —
-SAMD21 standby retains SRAM across sleep, so no persistent-storage trick is needed); a
-tier hold across a stage dropout (#14's residual); more upstream PWS stations (#4 — two
-configured, spec wants 3–5, and with two, one dropout halves the sample). #2 is now
-closed — see `docs/open-questions.md` for why its per-gauge-threshold residual isn't
-tracked as pending work.
+**Available to build:** a tier hold across a stage dropout (#14's residual); more upstream
+PWS stations (#4 — two configured, spec wants 3–5, and with two, one dropout halves the
+sample). #2 is now closed — see `docs/open-questions.md` for why its per-gauge-threshold
+residual isn't tracked as pending work.
+
+**Merged, not yet on the node:** adaptive crest sampling (#15) is on `main` and CI has
+regenerated `firmware.hex`, but the node on the pole still runs the fixed 60 s firmware
+until someone presses "Push Node Firmware" on the gateway. This is the standing shape of
+every node change — code on `main` is not code on the creek — and it is worth checking
+before concluding the node is misbehaving. Two follow-ups are deliberately not in it:
+surfacing the payload's new `fast` flag as a gateway entity, and restoring the regression
+test that enforced node threshold below the add-on's `WARNING_RATE_OF_RISE_IN_MIN`.
 
 **Standing caveat for anything user-facing:** NWS/NOAA remains the real alerting path.
 This system is a data-collection and early-warning aid whose thresholds are not yet
