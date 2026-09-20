@@ -85,11 +85,13 @@ short list of real engineering work that is known, scoped, and deliberately not 
   analysis is retained there for reference, not because it still describes the as-built system.
 
 - **#12.** ~~Charger and regulator selection for the creek node (spun out of #11).~~ **RESOLVED —
-  decision made; see the full reasoning below under "Charger and regulator selection".**
-  Keep Li-ion, replace the linear charger with a CN3791-class 1S MPPT module, pair with a
-  4P–6P 18650 pack and low-voltage protection, and choose the 5 V boost with an enable pin
-  so the same line duty-cycles the radar. Chemistry changes do not solve cold charging and
-  12 V controllers idle away a fifth of the node's budget.
+  deployed with Adafruit bq24074.** Keep Li-ion with the **Adafruit Universal USB / DC / 
+  Solar Lithium Ion/Polymer charger (bq24074)** — a linear charger (67 % efficiency 6 V → 
+  4 V) that is adequate for this node's ~25 mA draw and 23.2 Ah pack capacity over the 
+  flood season. An MPPT alternative would recover ~10% efficiency but is not load-bearing 
+  for winter survival with this hardware. Pair with low-voltage protection. The 5 V boost 
+  with an enable pin duty-cycles the radar via a GPIO. Chemistry changes do not solve cold 
+  charging and 12 V controllers idle away a fifth of the node's budget.
 
 - **#13.** ~~Sub-freezing charge cutoff.~~ **RESOLVED — freezer test passed.** KSD9700 5 °C
   normally-open bimetallic switch in the panel positive line, upstream of the charger.
@@ -156,14 +158,19 @@ the calibration phase.
   currents. Lead-acid genuinely charges to about −20 °C, but a *flat* lead-acid freezes at
   −8 °C and splits its case, it stores less usable energy at 0 °C than the 18650s already
   on hand, and it weighs ~2.5 kg on a guy-wired pole.
-  **The controller is the trap.** 12 V MPPT controllers idle at 10–18 mA — 12–37 % of this
-  node's budget — so going lead-acid would spend a fifth of the power the exercise is
-  meant to save. PWM controllers throw away ~28 % clamping an 18 V Vmp panel to 13 V.
-  **Decision: keep Li-ion, replace the charger.** A CN3791-class 1S MPPT module (~0.5 mA
-  idle) recovers the third the linear bq24074 burns going 6 V → 4 V and closes the
-  December gap. Pair with 4P–6P 18650 and low-voltage protection. Choose the 5 V boost
-  with an enable pin — that EN line is the radar load switch, so duty-cycling costs a GPIO
-  and a 100 ms settle rather than a separate MOSFET.
+  **The controller is the trap (for larger systems).** 12 V MPPT controllers idle at 
+  10–18 mA — 12–37 % of a typical 80 mA budget — so going lead-acid would spend a fifth 
+  of the power the exercise is meant to save. PWM controllers throw away ~28 % clamping an 
+  18 V Vmp panel to 13 V.
+  **Deployed decision: Adafruit bq24074 linear charger.** With the Moteino M0's ~25 mA 
+  average draw and 23.2 Ah pack, the linear charger's ~67 % efficiency (vs. MPPT's ~90 %) 
+  is not load-bearing — the margin to winter is large enough that losing ~10% efficiency 
+  does not threaten December operation. An MPPT would recover that efficiency and be worth 
+  a future upgrade for pure optimization, but is not necessary for the deployed system to 
+  survive the season. The bq24074 is simpler and has proven reliable in field operation.
+  Pair with low-voltage protection on the pack. Choose the 5 V boost with an enable pin — 
+  that EN line is the radar load switch, so duty-cycling costs a GPIO and a 100 ms settle 
+  rather than a separate MOSFET.
   **OTA over winter:** bring the node indoors with the pack; on USB it stays on WiFi and
   takes updates normally. Winter is when firmware iteration happens anyway.
 

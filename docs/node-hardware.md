@@ -160,11 +160,11 @@ Settled after working the budget; see open questions #11–12 for the reasoning.
 | Role | Part | Why |
 |---|---|---|
 | Panel | 6 V, 7 W | Covers Mar–Nov; only early Dec is marginal |
-| Charger | CN3791-class 1S MPPT, **or** Waveshare Solar Power Manager **only if the `<2 mA` variant** | MPPT beats the linear bq24074's 67 %. Waveshare adds over-discharge protection but is spec'd at 78 % and some variants idle at 30–80 mA, which exceeds this node's whole budget |
+| Charger | **[Adafruit Universal USB / DC / Solar Lithium Ion/Polymer charger](https://www.adafruit.com/product/4755) (bq24074)** — **deployed** | Linear charger (~67 % efficiency going 6 V → 4 V); adequate for the season given the Moteino's ~25 mA draw and the 23.2 Ah pack capacity. MPPT alternative would recover ~10% efficiency but is not load-bearing for this hardware. |
 | Pack | 1S4P 18650, 5800 mAh/cell (23.2 Ah total, as-built) | More usable energy at 0 °C than an SLA twice the weight, and far past what the load actually needs — see "Pack sizing" below |
 | Pack protection | 1S protection board (over-discharge / over-current) | Separates "node down" from "pack scrap". **Cell to B+/B− only; charger *and* loads both to P+/P−** — the MOSFETs sit between B− and P−, so a charger on B+/B− bypasses over-charge and over-current entirely |
 | Radar rail | **Pololu U1V11F5** (5 V step-up, product 2562) | **True shutdown**: SHDN low disconnects the load rather than leaking input through, so it *is* the duty-cycle switch. <100 µA off, <1 mA running |
-| C6 rail | **Pololu U1V11F3** (3.3 V step-up, product 2561) | Boosts below 3.3 V and linearly down-regulates above, so it holds 3.3 V across the whole 1S range |
+| MCU rail | **Pololu U1V11F3** (3.3 V step-up, product 2561) | Boosts below 3.3 V and linearly down-regulates above, so it holds 3.3 V across the whole 1S range |
 
 **Two independent rails off the pack**, not one 5 V rail feeding both — the C6 must stay
 awake to turn the radar back on, so it cannot sit downstream of the radar's switch.
@@ -255,29 +255,30 @@ A good 12 V controller would eat a fifth of the power the whole exercise is tryi
 **Also avoid PWM controllers**: with a nominal-12 V panel (Vmp ~18 V) clamped to a 13 V
 battery they throw away ~28 %, which is the same mistake as the linear charger.
 
-### Recommendation: keep Li-ion, change the charger
+### Selected charger and deployment notes
 
-The chemistry is not the problem. The charger is.
+**Deployed charger:** [Adafruit bq24074](https://www.adafruit.com/product/4755), a linear 
+charger (~67 % efficiency 6 V → 4 V). This works well with the Moteino M0's ~25 mA 
+average draw and the 23.2 Ah pack capacity — the margin is large enough that the 
+efficiency loss (vs. MPPT's ~90 %) is not load-bearing for the flood season, though an 
+MPPT variant would recover ~10% and be worth considering for a future revision. The 
+bq24074 is simple, robust, and field-proven on this system.
 
-1. **Replace the linear bq24074 with a CN3791-class 1S MPPT** (6 V panel input). Recovers
-   the third burned going 6 V → 4 V, closes the December gap, and draws ~0.5 mA idle.
-   **Check the connectors before wiring.** On most CN3791 boards the two JSTs are
-   solar-in and battery-out, not two panel inputs — a panel into the battery connector
-   destroys the module. Confirm with the silkscreen, or meter them: the battery JST reads
-   pack voltage with the panel unplugged.
-   **One panel is enough.** 7 W with MPPT already covers the season, so a second adds area
-   the budget does not need. The one case that justifies two is *shading diversity* — a
-   creekside pole under tree cover is a partial-shade site, and shade moves across the
-   day rather than scaling with area, so two panels aimed differently (SE/SW) beat one
-   larger panel aimed one way. Side by side facing the same direction is strictly worse
-   than a single panel of the same total area. If paralleling: identical panels (one MPPT
-   input finds one operating point, wrong for both if mismatched), a Schottky blocking
-   diode per panel (otherwise a shaded panel loads the lit one), and check the board's
-   sense-resistor charge limit against the combined current.
+**Other considerations:**
+
+1. **One panel is enough.** 7 W is adequate for the season given the low load. The one 
+   case that justifies two is *shading diversity* — a creekside pole under tree cover is 
+   a partial-shade site, and shade moves across the day rather than scaling with area, so 
+   two panels aimed differently (SE/SW) beat one larger panel aimed one way. Side by side 
+   facing the same direction is strictly worse than a single panel of the same total area. 
+   If paralleling: identical panels (one MPPT input finds one operating point, wrong for 
+   both if mismatched), a Schottky blocking diode per panel (otherwise a shaded panel 
+   loads the lit one), and check the board's sense-resistor charge limit against the 
+   combined current.
    Decide this from data, not up front: the node reports battery voltage and level, so a
    couple of weeks of logs will show whether the site is shade-limited or area-limited.
 2. **1S4P of 18650, 5800 mAh/cell (23.2 Ah) — as-built.** More usable energy than an SLA
-   twice its weight on a guy-wired pole, and well past what the duty-cycled load needs.
+   twice its weight on a guy-wired pole, and well past what the Moteino's load needs.
 3. **Low-voltage protection.** Required for either chemistry.
 4. **Pick the 5 V boost with an enable pin.** That EN line *is* the radar load switch —
    duty-cycling then costs a GPIO and a 100 ms settle, with no separate MOSFET. Choose a
