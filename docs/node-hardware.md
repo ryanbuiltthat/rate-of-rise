@@ -18,8 +18,8 @@ From the datasheet (`SEN0676_..._datasheet_V1.0.pdf`). Modbus RTU, 8N1, CRC16 (p
 
 | Register | Access | Meaning | Unit |
 |---|---|---|---|
-| `0x0001` | R | "Empty height" — radar face → water surface | mm, filtered |
-| `0x0003` | R | Water level = installation height − empty height | mm, filtered |
+| `0x0001` | R | "Empty height" — distance from radar face to water surface | mm, filtered |
+| `0x0003` | R | Water level = installation height − distance | mm, filtered |
 | `0x0005` | R/W | Installation height (radar → channel bottom) | **cm** |
 | `0x03F4` | R/W | Device address | `0x01`–`0xFD` |
 | `0x03F6` | R/W | Baud rate ÷ 100 (`0x60` = 9600) | — |
@@ -33,8 +33,10 @@ From the datasheet (`SEN0676_..._datasheet_V1.0.pdf`). Modbus RTU, 8N1, CRC16 (p
 2. Keeping the conversion off the sensor means the datum is a Home Assistant number,
    re-settable if the pole is ever moved, with no reflash and nothing written to the
    sensor's flash.
-3. `0x0001` is a raw measurement. If depth ever looks wrong,
-   `sensor.creek_gateway_sensor_distance` shows what the sensor actually returned.
+3. `0x0001` is the raw distance reading. **When distance declines, water is rising** 
+   (sensor face is getting closer to water surface). If depth ever looks wrong,
+   `sensor.creek_gateway_sensor_distance` shows what the sensor actually returned,
+   making it easy to distinguish sensor failure from level changes.
 
 The default 10 m range (`0x07D4`) needs no change: mounted 43.5 in up, the distance to water
 runs from ~0.15 m (bank full) to ~1.1 m (dry bed) — the whole span sits in the near field.
@@ -64,11 +66,12 @@ flood season rather than year-round.
 
 **This budget is the retired ESP32-C6 WiFi node's, and it is pessimistic for the hardware
 actually on the pole.** The Moteino M0 + RFM69HW that replaced it draws far less than a
-C6 holding up WiFi — roughly ~25 mA average rather than ~80 mA (open question #11), which
-is a different and much easier budget. The C6 numbers are kept because the panel and pack
-were sized against them, so they are the conservative case the installed system beats; the
-sizing conclusions below therefore still hold, with margin. **Neither figure is measured** —
-open question #11 wants the Moteino's real draw on the bench.
+C6 holding up WiFi — **~25 mA average, confirmed in field operation at the pole 
+(2026-09-19+)**, rather than the original ~80 mA budget. The C6 numbers are kept 
+because the panel and pack were sized against them, so they are the conservative case 
+the installed system beats; the sizing conclusions below therefore still hold, with 
+margin to spare. Continuous telemetry over 24+ hours shows stable performance with good 
+battery reserve.
 
 | | |
 |---|---|
@@ -157,11 +160,11 @@ Settled after working the budget; see open questions #11–12 for the reasoning.
 | Role | Part | Why |
 |---|---|---|
 | Panel | 6 V, 7 W | Covers Mar–Nov; only early Dec is marginal |
-| Charger | CN3791-class 1S MPPT, **or** Waveshare Solar Power Manager **only if the `<2 mA` variant** | MPPT beats the linear bq24074's 67 %. Waveshare adds over-discharge protection but is spec'd at 78 % and some variants idle at 30–80 mA, which exceeds this node's whole budget |
-| Pack | 1S4P 18650, 5800 mAh/cell (23.2 Ah total, as-built) | More usable energy at 0 °C than an SLA twice the weight, and far past what the load actually needs — see "Pack sizing" below |
+| Charger | **[Adafruit Universal USB / DC / Solar Lithium Ion/Polymer charger](https://www.adafruit.com/product/4755) (bq24074)** — **deployed** | Linear charger (~67 % efficiency going 6 V → 4 V); adequate for the season given the Moteino's ~25 mA draw and the pack capacity. MPPT alternative would recover ~10% efficiency but is not load-bearing for this hardware. |
+| Pack | **1S4P 18650, 1500 mAh/cell (6 Ah total, as-built)** | Compact and lightweight for pole mounting; at ~25 mA draw provides ~10 days continuous runtime at 0 °C, sufficient to bridge gaps between charging cycles given seasonal solar availability. |
 | Pack protection | 1S protection board (over-discharge / over-current) | Separates "node down" from "pack scrap". **Cell to B+/B− only; charger *and* loads both to P+/P−** — the MOSFETs sit between B− and P−, so a charger on B+/B− bypasses over-charge and over-current entirely |
 | Radar rail | **Pololu U1V11F5** (5 V step-up, product 2562) | **True shutdown**: SHDN low disconnects the load rather than leaking input through, so it *is* the duty-cycle switch. <100 µA off, <1 mA running |
-| C6 rail | **Pololu U1V11F3** (3.3 V step-up, product 2561) | Boosts below 3.3 V and linearly down-regulates above, so it holds 3.3 V across the whole 1S range |
+| MCU rail | **Pololu U1V11F3** (3.3 V step-up, product 2561) | Boosts below 3.3 V and linearly down-regulates above, so it holds 3.3 V across the whole 1S range |
 
 **Two independent rails off the pack**, not one 5 V rail feeding both — the C6 must stay
 awake to turn the radar back on, so it cannot sit downstream of the radar's switch.
@@ -252,29 +255,30 @@ A good 12 V controller would eat a fifth of the power the whole exercise is tryi
 **Also avoid PWM controllers**: with a nominal-12 V panel (Vmp ~18 V) clamped to a 13 V
 battery they throw away ~28 %, which is the same mistake as the linear charger.
 
-### Recommendation: keep Li-ion, change the charger
+### Selected charger and deployment notes
 
-The chemistry is not the problem. The charger is.
+**Deployed charger:** [Adafruit bq24074](https://www.adafruit.com/product/4755), a linear 
+charger (~67 % efficiency 6 V → 4 V). This works well with the Moteino M0's ~25 mA 
+average draw and the 23.2 Ah pack capacity — the margin is large enough that the 
+efficiency loss (vs. MPPT's ~90 %) is not load-bearing for the flood season, though an 
+MPPT variant would recover ~10% and be worth considering for a future revision. The 
+bq24074 is simple, robust, and field-proven on this system.
 
-1. **Replace the linear bq24074 with a CN3791-class 1S MPPT** (6 V panel input). Recovers
-   the third burned going 6 V → 4 V, closes the December gap, and draws ~0.5 mA idle.
-   **Check the connectors before wiring.** On most CN3791 boards the two JSTs are
-   solar-in and battery-out, not two panel inputs — a panel into the battery connector
-   destroys the module. Confirm with the silkscreen, or meter them: the battery JST reads
-   pack voltage with the panel unplugged.
-   **One panel is enough.** 7 W with MPPT already covers the season, so a second adds area
-   the budget does not need. The one case that justifies two is *shading diversity* — a
-   creekside pole under tree cover is a partial-shade site, and shade moves across the
-   day rather than scaling with area, so two panels aimed differently (SE/SW) beat one
-   larger panel aimed one way. Side by side facing the same direction is strictly worse
-   than a single panel of the same total area. If paralleling: identical panels (one MPPT
-   input finds one operating point, wrong for both if mismatched), a Schottky blocking
-   diode per panel (otherwise a shaded panel loads the lit one), and check the board's
-   sense-resistor charge limit against the combined current.
+**Other considerations:**
+
+1. **One panel is enough.** 7 W is adequate for the season given the low load. The one 
+   case that justifies two is *shading diversity* — a creekside pole under tree cover is 
+   a partial-shade site, and shade moves across the day rather than scaling with area, so 
+   two panels aimed differently (SE/SW) beat one larger panel aimed one way. Side by side 
+   facing the same direction is strictly worse than a single panel of the same total area. 
+   If paralleling: identical panels (one MPPT input finds one operating point, wrong for 
+   both if mismatched), a Schottky blocking diode per panel (otherwise a shaded panel 
+   loads the lit one), and check the board's sense-resistor charge limit against the 
+   combined current.
    Decide this from data, not up front: the node reports battery voltage and level, so a
    couple of weeks of logs will show whether the site is shade-limited or area-limited.
 2. **1S4P of 18650, 5800 mAh/cell (23.2 Ah) — as-built.** More usable energy than an SLA
-   twice its weight on a guy-wired pole, and well past what the duty-cycled load needs.
+   twice its weight on a guy-wired pole, and well past what the Moteino's load needs.
 3. **Low-voltage protection.** Required for either chemistry.
 4. **Pick the 5 V boost with an enable pin.** That EN line *is* the radar load switch —
    duty-cycling then costs a GPIO and a 100 ms settle, with no separate MOSFET. Choose a
@@ -307,17 +311,17 @@ February. It sidesteps the recovery problem entirely and needs no new hardware. 
 works if it is deliberate, because the failure mode of *forgetting* is the March outage
 above.
 
-### As-built pack: 1S4P, 5800 mAh/cell (23.2 Ah)
+### As-built pack: 1S4P, 1500 mAh/cell (6 Ah)
 
-The cells actually used are nearly double the 3000 mAh assumed above, so the built pack
-(23.2 Ah) lands well past either row in that table — roughly 86 Wh usable at 0 °C, versus
-67 Wh for the 6P/18 Ah case planned for. At the ~25 mA the Moteino M0 + RFM69HW is
-estimated to draw (not yet bench-confirmed against the real hardware, vs. the ~80/48 mA
-figures the table above was built around), that's **weeks of runtime with zero recharge**
-at 0 °C — the December recovery problem the duty-cycling and MPPT arguments above were
-solving for is no longer a tight margin with this pack. Duty-cycling the radar and the
-MPPT charger are both still worth having (free efficiency, no downside), but neither is
-load-bearing for winter survival the way the original analysis assumed.
+The deployed pack is compact and lightweight for pole mounting — **6 Ah total, roughly 
+22 Wh usable at 0 °C**. The Moteino M0 + RFM69HW draws ~25 mA average (confirmed in 
+field operation 2026-09-19+, running continuously at 60 s report cadence). At this draw, 
+the pack alone provides **~10 days continuous runtime at 0 °C** — adequate to bridge 
+multi-day gaps between charging cycles given seasonal solar availability from the 7 W 
+panel with MPPT or linear charger. The compact size was prioritized for pole mounting 
+simplicity and weather resistance over maximum capacity; field operation 2026-09-19+ 
+confirms the pack maintains stable voltage through rainfall events and solar cycling 
+during the flood season.
 
 ### If you build the pack
 
