@@ -22,6 +22,7 @@ from esphome.const import (
     DEVICE_CLASS_VOLTAGE,
     ENTITY_CATEGORY_DIAGNOSTIC,
     STATE_CLASS_MEASUREMENT,
+    STATE_CLASS_TOTAL_INCREASING,
     UNIT_DECIBEL_MILLIWATT,
     UNIT_MILLIMETER,
     UNIT_MILLIVOLT,
@@ -50,6 +51,8 @@ CONF_NETWORK_ID = "network_id"
 CONF_IS_RFM69HW = "is_rfm69hw"
 CONF_ENCRYPTION_KEY = "encryption_key"
 CONF_RSSI = "rssi"
+CONF_PACKET_COUNT = "packet_count"
+CONF_FAST_MODE = "fast_mode"
 CONF_NODE_STATUS = "node_status"
 CONF_OTA_STATUS = "ota_status"
 CONF_OTA_HEX_URL = "ota_hex_url"
@@ -108,6 +111,23 @@ CONFIG_SCHEMA = cv.Schema(
             state_class=STATE_CLASS_MEASUREMENT,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         ),
+        # Wakes received, as a monotonic counter. No device_class: HA has none for "things
+        # that happened", and picking a wrong one (energy, water) would put this in the
+        # energy dashboard. state_class matters though -- TOTAL_INCREASING is what lets a
+        # statistics or derivative helper turn it into wakes-per-hour across gateway reboots.
+        cv.Optional(CONF_PACKET_COUNT): sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_TOTAL_INCREASING,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:radio-tower",
+        ),
+        # No device_class again: this is the node's sampling cadence, and CONNECTIVITY (the
+        # nearest fit) would render it as Connected/Disconnected, which reads as a link
+        # problem rather than as the node working harder.
+        cv.Optional(CONF_FAST_MODE): binary_sensor.binary_sensor_schema(
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:speedometer",
+        ),
         cv.Optional(CONF_NODE_STATUS): binary_sensor.binary_sensor_schema(
             device_class=DEVICE_CLASS_CONNECTIVITY,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
@@ -145,6 +165,10 @@ async def to_code(config):
         cg.add(var.set_battery_sensor(await sensor.new_sensor(conf)))
     if conf := config.get(CONF_RSSI):
         cg.add(var.set_rssi_sensor(await sensor.new_sensor(conf)))
+    if conf := config.get(CONF_PACKET_COUNT):
+        cg.add(var.set_packet_count_sensor(await sensor.new_sensor(conf)))
+    if conf := config.get(CONF_FAST_MODE):
+        cg.add(var.set_fast_mode_sensor(await binary_sensor.new_binary_sensor(conf)))
     if conf := config.get(CONF_NODE_STATUS):
         cg.add(var.set_node_status_sensor(await binary_sensor.new_binary_sensor(conf)))
     if conf := config.get(CONF_OTA_STATUS):

@@ -107,25 +107,32 @@ short list of real engineering work that is known, scoped, and deliberately not 
   `ADVISORY_SOIL_PCT` (70%, `tiers.py`) can now be sanity-checked against real dry/wet
   readings instead of an unverified placeholder.
 
-- **#11.** ~~Solar/battery sizing for the creek node.~~ **RESOLVED — as-built and confirmed in field.** Final
-  hardware: 6 W solar panel, **Adafruit bq24074 linear charger**, a KSD9700 cold-cutoff
-  switch upstream of the charger, and a **1S4P pack of 1500 mAh 18650 cells (6 Ah total)** 
-  optimized for compact pole mounting. The Moteino M0 + RFM69HW draw is **~25 mA average, 
-  confirmed in field operation 2026-09-19+** (node reporting every 60 s continuously with 
-  stable battery voltage and good RSSI). At this draw, the 6 Ah pack provides ~10 days 
-  continuous runtime at 0 °C — adequate to bridge multi-day gaps between charging cycles. 
-  Field operation confirms stable voltage through rainfall and solar cycling. The original 
-  ESP32-C6-era analysis (larger pack, different draw) is retained in `docs/node-hardware.md` 
-  for reference, but does not describe the deployed system.
+- **#11.** ~~Solar/battery sizing for the creek node.~~ **PARTLY REOPENED — see #17.** The
+  hardware is settled: **Adafruit bq24074 linear charger**, a KSD9700 cold-cutoff switch
+  upstream of the charger, and a **1S4P pack of 1500 mAh 18650 cells (6 Ah total)** optimized
+  for compact pole mounting. Panel wattage is recorded as 6 W here and 7 W throughout
+  `docs/node-hardware.md`; **nobody has checked the label** — do that before trusting either
+  sizing table.
+
+  The load figure that made this "resolved" was wrong. It read "~25 mA average, confirmed in
+  field operation 2026-09-19+", but the node has no shunt and nothing in the system could
+  confirm a current. The first real measurement — from the pack's own overnight discharge,
+  2026-09-19/20 — is **~60 mA**, which cuts runtime from the ~10 days claimed here to ~4 days.
+  What field operation does confirm is stable voltage through rainfall and full daily recovery
+  in September. Sizing conclusions now rest on 60 mA; see `docs/node-hardware.md`,
+  "Measuring average draw without a shunt".
 
 - **#12.** ~~Charger and regulator selection for the creek node (spun out of #11).~~ **RESOLVED —
   deployed with Adafruit bq24074.** Keep Li-ion with the **Adafruit Universal USB / DC / 
   Solar Lithium Ion/Polymer charger (bq24074)** — a linear charger (67 % efficiency 6 V → 
-  4 V) that is adequate for this node's ~25 mA draw and 23.2 Ah pack capacity over the 
-  flood season. An MPPT alternative would recover ~10% efficiency but is not load-bearing 
-  for winter survival with this hardware. Pair with low-voltage protection. The 5 V boost 
-  with an enable pin duty-cycles the radar via a GPIO. Chemistry changes do not solve cold 
-  charging and 12 V controllers idle away a fifth of the node's budget.
+  4 V). It was judged adequate against an assumed ~25 mA draw; the pack is **6 Ah**, not the
+  23.2 Ah this entry claimed. At the measured ~60 mA (#17) the MPPT upgrade is no longer
+  purely an optimization — the ~10 % it recovers matters once daily draw is ~1.4 Ah against a
+  6 Ah pack. Hold the decision until #17 says whether 60 mA is real or a wiring fault. Pair
+  with low-voltage protection. The 5 V boost with an enable pin duty-cycles the radar via a
+  GPIO — **firmware drives it; the wiring is unverified, which is #17's leading suspect.**
+  Chemistry changes do not solve cold charging and 12 V controllers idle away a fifth of the
+  node's budget.
 
 - **#13.** ~~Sub-freezing charge cutoff.~~ **RESOLVED — freezer test passed.** KSD9700 5 °C
   normally-open bimetallic switch in the panel positive line, upstream of the charger.
@@ -232,9 +239,11 @@ the calibration phase.
 - **#10.** Rain-on-snow thresholds (`app/features.py`: 0.20 in SWE, 34 °F) are placeholders, and
   the flag cannot be validated until a winter rain-on-snow event is actually captured.
 
-- *#11 is now Closed, above.* What follows is the original ESP32-C6-era sizing analysis
-  that led to that decision — retained as background reasoning, not as a description of
-  the as-built node (which uses a 6 W panel, MPPT, a KSD9700 cutoff, and a 23.2 Ah pack).
+- *#11 is largely Closed, above; its load figure is reopened as #17.* What follows is the
+  original ESP32-C6-era sizing analysis that led to that decision — retained as background
+  reasoning, not as a description of the as-built node, which uses a **bq24074 linear
+  charger** (not MPPT), a KSD9700 cutoff, and a **6 Ah pack** (not 23.2 Ah). Panel wattage
+  is unconfirmed; this file says 6 W and `docs/node-hardware.md` says 7 W.
 
   Load ~80 mA (1.92 Ah/day) *— original ESP32-C6 estimate.* Scoped to the
   stated flood season (early spring → mid-December), a **7 W panel** covers March–November
@@ -269,12 +278,12 @@ the calibration phase.
   10–18 mA — 12–37 % of a typical 80 mA budget — so going lead-acid would spend a fifth 
   of the power the exercise is meant to save. PWM controllers throw away ~28 % clamping an 
   18 V Vmp panel to 13 V.
-  **Deployed decision: Adafruit bq24074 linear charger.** With the Moteino M0's ~25 mA 
-  average draw and 23.2 Ah pack, the linear charger's ~67 % efficiency (vs. MPPT's ~90 %) 
-  is not load-bearing — the margin to winter is large enough that losing ~10% efficiency 
-  does not threaten December operation. An MPPT would recover that efficiency and be worth 
-  a future upgrade for pure optimization, but is not necessary for the deployed system to 
-  survive the season. The bq24074 is simpler and has proven reliable in field operation.
+  **Deployed decision: Adafruit bq24074 linear charger.** This was decided against an assumed
+  ~25 mA draw and a misrecorded 23.2 Ah pack, where the linear charger's ~67 % efficiency
+  (vs. MPPT's ~90 %) was not load-bearing. The real figures are **~60 mA and 6 Ah** — about a
+  quarter of the margin the decision assumed — so "an MPPT is pure optimization" no longer
+  follows. The bq24074 is simpler and has proven reliable in field operation, and it stays
+  unless #17 confirms the load is genuinely 60 mA.
   Pair with low-voltage protection on the pack. Choose the 5 V boost with an enable pin — 
   that EN line is the radar load switch, so duty-cycling costs a GPIO and a 100 ms settle 
   rather than a separate MOSFET.
@@ -286,6 +295,29 @@ the calibration phase.
 ---
 
 ## Carried into v1.1 — known, scoped, deliberately not in v1
+
+- **#17.** **The node draws ~60 mA, and the firmware says it should draw 1–2 mA.** Opened
+  2026-09-20, spun out of #11. The first measurement of average draw — least-squares fit to
+  the pack's overnight discharge, 2026-09-19/20, −10.87 ± 0.08 mV/h over 265 reports — puts
+  the node at **~60 mA** (40–80 mA, the band set by the unknown OCV curve). Summing what the
+  firmware actually does gives 1–2 mA. A ~30× gap is a fault, not a modelling error.
+
+  Leading suspects, in order: (1) **the radar's 5 V rail never actually switches** — the
+  firmware drives `SENSOR_EN_PIN` correctly every cycle, but it cannot tell whether the
+  U1V11F5's SHDN pin is wired to it, and an always-on SEN0676 is ~35 mA on its own;
+  (2) `LowPower.standby()` not being entered, leaving the SAMD21 at ~12 mA; (3) unbudgeted
+  quiescent draw across the two boosts, the charger and the protection board.
+
+  **Cheapest discriminator is a meter at the pole** — measure pack current with the node
+  idle between reports. Failing that, the two-night calibration in `docs/node-hardware.md`
+  ("Measuring average draw without a shunt") separates the constant drain from the
+  per-wake cost without opening the enclosure, using
+  `sensor.creek_gateway_creek_node_packets` and `binary_sensor.creek_gateway_creek_node_fast_sampling`
+  (both added 2026-09-20 for this purpose).
+
+  **Consequences if it is real:** runtime falls from ~10 days to ~4, #12's charger decision
+  loses most of its margin, and the "duty-cycle the radar" fix that the whole winter-survival
+  analysis rests on turns out never to have been in effect.
 
 - **#14.** ~~Sensor goes blind exactly at the alarm condition, and the tier silently
   de-escalates.~~ **RESOLVED 2026-09-12 (the dangerous half).** Usable range tops out at

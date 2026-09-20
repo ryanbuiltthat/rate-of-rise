@@ -39,7 +39,9 @@ the answer is still to move things rather than to bail them out.
 1. **Instrument** — An 80 GHz FMCW radar (DFRobot SEN0676) on a creekside pole measures the
    water surface to ±5 mm over Modbus RTU into a Moteino M0, which transmits on an
    encrypted 915 MHz point-to-point link to an ESP32 gateway at the house — no WiFi at the
-   creek, no cellular, no subscription. Solar-powered, ~25 mA average draw. The gateway
+   creek, no cellular, no subscription. Solar-powered, ~60 mA average draw (measured from
+   the pack's overnight discharge — see [open question #17](docs/open-questions.md), which
+   is about why that is ~30× what the firmware's duty cycle predicts). The gateway
    converts raw distance into depth above the creekbed and publishes it to Home Assistant.
 2. **Ingest** — The `rate_of_rise` add-on polls twelve sources every fast loop — upstream
    rain gauges, NWS/NOAA forecasts, WPC excessive-rainfall outlooks, NEXRAD storm-cell

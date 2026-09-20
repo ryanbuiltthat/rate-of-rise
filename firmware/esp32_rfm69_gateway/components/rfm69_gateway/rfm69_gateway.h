@@ -138,6 +138,8 @@ class Rfm69Gateway : public Component {
   void set_distance_sensor(sensor::Sensor *s) { this->distance_sensor_ = s; }
   void set_battery_sensor(sensor::Sensor *s) { this->battery_sensor_ = s; }
   void set_rssi_sensor(sensor::Sensor *s) { this->rssi_sensor_ = s; }
+  void set_packet_count_sensor(sensor::Sensor *s) { this->packet_count_sensor_ = s; }
+  void set_fast_mode_sensor(binary_sensor::BinarySensor *s) { this->fast_mode_sensor_ = s; }
   void set_node_status_sensor(binary_sensor::BinarySensor *s) { this->node_status_sensor_ = s; }
   void set_ota_status_sensor(text_sensor::TextSensor *s) { this->ota_status_sensor_ = s; }
   void set_ota_hex_url(const std::string &url) { this->ota_hex_url_ = url; }
@@ -423,6 +425,26 @@ class Rfm69Gateway : public Component {
       this->rssi_sensor_->publish_state(rssi);
     }
 
+    // Counts packets, because the node's own telemetry cannot be counted downstream. Every
+    // wake costs the same energy whatever it reports, so "how many wakes in this window" is
+    // half the average-current calculation (docs/node-hardware.md, "Measuring average draw
+    // without a shunt") -- but HA's recorder only writes a row when a state CHANGES, and the
+    // node's 10-bit battery ADC quantises to 6.45 mV, so consecutive reports routinely carry
+    // an identical voltage and collapse into one row. Counting battery rows undercounts wakes
+    // by ~60 %, and the undercount tracks how fast the pack happens to be moving, which is
+    // correlated with the very thing being measured. A monotonic counter cannot dedup: it
+    // changes on every packet by construction.
+    //
+    // This counts packets RECEIVED, not transmitted -- an RF loss is a wake the node paid for
+    // and this never sees, so it is a lower bound on wakes. Compare it against the elapsed
+    // time and the cadence implied by Node Fast Sampling below to get the loss rate. Making
+    // it exact needs a cycle counter in the payload, which is a node change; see the packet
+    // budget note in moteino_creek_node/src/main.cpp before adding a key.
+    this->packet_count_++;
+    if (this->packet_count_sensor_ != nullptr) {
+      this->packet_count_sensor_->publish_state(this->packet_count_);
+    }
+
     const bool parsed = json::parse_json(std::string(payload), [this](JsonObject root) -> bool {
       // The node sends "distance_mm": null when its Modbus read fails. Publish NAN for that
       // so the reading shows as unknown in HA instead of a plausible-looking zero.
@@ -433,6 +455,21 @@ class Rfm69Gateway : public Component {
       if (this->battery_sensor_ != nullptr) {
         auto battery = root["battery_mv"];
         this->battery_sensor_->publish_state(battery.isNull() ? NAN : battery.as<float>());
+      }
+      // The node has put `fast` on the wire since adaptive crest sampling landed, and the
+      // gateway has ignored it until now -- main.cpp said surfacing it later would be a
+      // gateway-only change, and this is that change. It matters for power because the two
+      // cadences are not the same wake: fast mode shortens the post-TX OTA listen window
+      // (OTA_LISTEN_FAST_MS 300 ms vs OTA_LISTEN_MS 1500 ms), so a fast wake costs less than
+      // a normal one while arriving 12x more often. Without this flag a raised packet rate is
+      // ambiguous -- it could be a rise, or it could be the gateway having been offline.
+      if (this->fast_mode_sensor_ != nullptr) {
+        auto fast = root["fast"];
+        // Absent (an older node build) is not the same as false, but a binary_sensor has no
+        // unknown to publish into, and "not fast" is the safe reading: it attributes the
+        // cheaper wake cost to a node that may be doing the more expensive one, so a power
+        // figure derived from it errs low rather than flattering the budget.
+        this->fast_mode_sensor_->publish_state(!fast.isNull() && fast.as<int>() != 0);
       }
       return true;
     });
@@ -869,8 +906,15 @@ class Rfm69Gateway : public Component {
   sensor::Sensor *distance_sensor_{nullptr};
   sensor::Sensor *battery_sensor_{nullptr};
   sensor::Sensor *rssi_sensor_{nullptr};
+  sensor::Sensor *packet_count_sensor_{nullptr};
+  binary_sensor::BinarySensor *fast_mode_sensor_{nullptr};
   binary_sensor::BinarySensor *node_status_sensor_{nullptr};
   text_sensor::TextSensor *ota_status_sensor_{nullptr};
+
+  // Resets to 0 on a gateway reboot, which is why the entity is TOTAL_INCREASING rather than
+  // TOTAL: HA treats a drop as a counter reset and keeps the derived statistics continuous
+  // across it instead of booking a huge negative step.
+  uint32_t packet_count_{0};
 
   int16_t rssi_peak_{-127};
   uint32_t rssi_peak_ms_{0};

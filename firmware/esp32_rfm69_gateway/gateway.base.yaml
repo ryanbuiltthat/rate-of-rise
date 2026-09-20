@@ -112,9 +112,19 @@ api:
   encryption:
     key: !secret creek_gateway_api_key
 
+# No password, deliberately: it was removed in 646b10f to save flash on the ESP32. Note that
+# this leaves OTA unauthenticated on the LAN -- the `api:` encryption key above secures the
+# Home Assistant API connection (port 6053), not the OTA port, which is a separate protocol
+# and separate listener. That is a considered trade, not an oversight.
+#
+# Do NOT add `encryption:` here to close that gap. It is not an option ota.esphome has (the
+# platform takes password/port/version/reboot_timeout/num_attempts/safe_mode and the on_*
+# triggers, nothing else), and adding it in c6bea26 made the whole config fail validation
+# with "[encryption] is an invalid option for [ota.esphome]" -- which means this file could
+# not be built at all between 2026-09-17 and 2026-09-20. If OTA needs authenticating, the
+# option is `password:`, and the flash cost is what has to be weighed again.
 ota:
   - platform: esphome
-    encryption:
 
 wifi:
   ssid: !secret wifi_ssid
@@ -188,6 +198,10 @@ rfm69_gateway:
     name: Creek Node Battery
   rssi:
     name: Creek Node RSSI
+  packet_count:
+    name: Creek Node Packets
+  fast_mode:
+    name: Creek Node Fast Sampling
   node_status:
     name: Creek Node Status
   ota_status:
