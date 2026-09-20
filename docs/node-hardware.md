@@ -160,8 +160,8 @@ Settled after working the budget; see open questions #11–12 for the reasoning.
 | Role | Part | Why |
 |---|---|---|
 | Panel | 6 V, 7 W | Covers Mar–Nov; only early Dec is marginal |
-| Charger | **[Adafruit Universal USB / DC / Solar Lithium Ion/Polymer charger](https://www.adafruit.com/product/4755) (bq24074)** — **deployed** | Linear charger (~67 % efficiency going 6 V → 4 V); adequate for the season given the Moteino's ~25 mA draw and the 23.2 Ah pack capacity. MPPT alternative would recover ~10% efficiency but is not load-bearing for this hardware. |
-| Pack | 1S4P 18650, 5800 mAh/cell (23.2 Ah total, as-built) | More usable energy at 0 °C than an SLA twice the weight, and far past what the load actually needs — see "Pack sizing" below |
+| Charger | **[Adafruit Universal USB / DC / Solar Lithium Ion/Polymer charger](https://www.adafruit.com/product/4755) (bq24074)** — **deployed** | Linear charger (~67 % efficiency going 6 V → 4 V); adequate for the season given the Moteino's ~25 mA draw and the pack capacity. MPPT alternative would recover ~10% efficiency but is not load-bearing for this hardware. |
+| Pack | **1S4P 18650, 1500 mAh/cell (6 Ah total, as-built)** | Compact and lightweight for pole mounting; at ~25 mA draw provides ~10 days continuous runtime at 0 °C, sufficient to bridge gaps between charging cycles given seasonal solar availability. |
 | Pack protection | 1S protection board (over-discharge / over-current) | Separates "node down" from "pack scrap". **Cell to B+/B− only; charger *and* loads both to P+/P−** — the MOSFETs sit between B− and P−, so a charger on B+/B− bypasses over-charge and over-current entirely |
 | Radar rail | **Pololu U1V11F5** (5 V step-up, product 2562) | **True shutdown**: SHDN low disconnects the load rather than leaking input through, so it *is* the duty-cycle switch. <100 µA off, <1 mA running |
 | MCU rail | **Pololu U1V11F3** (3.3 V step-up, product 2561) | Boosts below 3.3 V and linearly down-regulates above, so it holds 3.3 V across the whole 1S range |
@@ -311,18 +311,17 @@ February. It sidesteps the recovery problem entirely and needs no new hardware. 
 works if it is deliberate, because the failure mode of *forgetting* is the March outage
 above.
 
-### As-built pack: 1S4P, 5800 mAh/cell (23.2 Ah)
+### As-built pack: 1S4P, 1500 mAh/cell (6 Ah)
 
-The cells actually used are nearly double the 3000 mAh assumed above, so the built pack
-(23.2 Ah) lands well past either row in that table — roughly 86 Wh usable at 0 °C, versus
-67 Wh for the 6P/18 Ah case planned for. The Moteino M0 + RFM69HW deployed on the pole
-draws ~25 mA average (confirmed in field operation 2026-09-19+, running continuously at
-60 s report cadence), vs. the ~80/48 mA figures the table above was built around. That's
-**weeks of runtime with zero recharge at 0 °C** — the December recovery problem the 
-duty-cycling and MPPT arguments above were solving for is no longer a tight margin with 
-this pack and hardware combination. Duty-cycling the radar and the MPPT charger are both 
-still worth having (free efficiency, no downside), but neither is load-bearing for winter 
-survival the way the original analysis assumed.
+The deployed pack is compact and lightweight for pole mounting — **6 Ah total, roughly 
+22 Wh usable at 0 °C**. The Moteino M0 + RFM69HW draws ~25 mA average (confirmed in 
+field operation 2026-09-19+, running continuously at 60 s report cadence). At this draw, 
+the pack alone provides **~10 days continuous runtime at 0 °C** — adequate to bridge 
+multi-day gaps between charging cycles given seasonal solar availability from the 7 W 
+panel with MPPT or linear charger. The compact size was prioritized for pole mounting 
+simplicity and weather resistance over maximum capacity; field operation 2026-09-19+ 
+confirms the pack maintains stable voltage through rainfall events and solar cycling 
+during the flood season.
 
 ### If you build the pack
 

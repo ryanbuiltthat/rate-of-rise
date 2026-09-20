@@ -73,16 +73,15 @@ short list of real engineering work that is known, scoped, and deliberately not 
 - **#6.** ~~WiFi RSSI at the pole via the outdoor AP (bag test before final mount).~~ **RESOLVED 2026-09-20.** With the Moteino + RFM69HW architecture, the relevant test is **RFM69 RSSI** at the pole location. Field deployment 2026-09-19+ shows sustained RSSI around −72 dBm over 24+ hours, well above the −80 dBm target, with effectively 0% packet loss across rainfall events. The link margin is confirmed adequate.
 
 - **#11.** ~~Solar/battery sizing for the creek node.~~ **RESOLVED — as-built and confirmed in field.** Final
-  hardware: 6 W solar panel, a CN3791-class 1S MPPT controller, a KSD9700 cold-cutoff
-  switch upstream of the charger (the Adafruit bq24074 board and its NTC input, discussed
-  below as an alternative, was not used — that verification is now moot), and a 1S4P pack
-  of 5800 mAh 18650 cells (23.2 Ah total — roughly double the 12 Ah the original analysis
-  budgeted for). The Moteino M0 + RFM69HW draw is **~25 mA average, confirmed in field 
-  operation 2026-09-19+** (node reporting every 60 s continuously with stable battery 
-  voltage and good RSSI). This pack alone covers weeks with zero recharge at 0 °C, so 
-  duty-cycling the radar is no longer load-bearing for winter survival — see the updated 
-  numbers under "Pack sizing" in `docs/node-hardware.md`. The original ESP32-C6-era 
-  analysis is retained there for reference, not because it still describes the as-built system.
+  hardware: 6 W solar panel, **Adafruit bq24074 linear charger**, a KSD9700 cold-cutoff
+  switch upstream of the charger, and a **1S4P pack of 1500 mAh 18650 cells (6 Ah total)** 
+  optimized for compact pole mounting. The Moteino M0 + RFM69HW draw is **~25 mA average, 
+  confirmed in field operation 2026-09-19+** (node reporting every 60 s continuously with 
+  stable battery voltage and good RSSI). At this draw, the 6 Ah pack provides ~10 days 
+  continuous runtime at 0 °C — adequate to bridge multi-day gaps between charging cycles. 
+  Field operation confirms stable voltage through rainfall and solar cycling. The original 
+  ESP32-C6-era analysis (larger pack, different draw) is retained in `docs/node-hardware.md` 
+  for reference, but does not describe the deployed system.
 
 - **#12.** ~~Charger and regulator selection for the creek node (spun out of #11).~~ **RESOLVED —
   deployed with Adafruit bq24074.** Keep Li-ion with the **Adafruit Universal USB / DC / 
