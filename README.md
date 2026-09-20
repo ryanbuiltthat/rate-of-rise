@@ -4,7 +4,7 @@
 
 **Warning arrives before the water does.**
 
-A solar-powered radar gauge on a creek with no official stream gauge, fused with eleven
+A solar-powered radar gauge on a creek with no official stream gauge, fused with twelve
 live data sources into a flood-probability model — a DIY flood early-warning system for a
 small, flashy creek basin in Lackawanna County, northeastern Pennsylvania. Built on Home
 Assistant, a Moteino M0 radio-linked stream gauge, and predictive flood-probability
@@ -17,8 +17,8 @@ modeling. The modeling/alerting half ships as the **Rate of Rise** Home Assistan
 
 | | |
 |---|---|
-| **11** | Live data sources |
-| **45** | Features per inference |
+| **12** | Live data sources |
+| **49** | Features per inference |
 | **±5 mm** | Gauge precision |
 | **60 s** | Telemetry cadence |
 | **250+** | Automated tests, CI on every push |
@@ -41,10 +41,11 @@ the answer is still to move things rather than to bail them out.
    encrypted 915 MHz point-to-point link to an ESP32 gateway at the house — no WiFi at the
    creek, no cellular, no subscription. Solar-powered, ~25 mA average draw. The gateway
    converts raw distance into depth above the creekbed and publishes it to Home Assistant.
-2. **Ingest** — The `rate_of_rise` add-on polls eleven sources every fast loop — upstream
+2. **Ingest** — The `rate_of_rise` add-on polls twelve sources every fast loop — upstream
    rain gauges, NWS/NOAA forecasts, WPC excessive-rainfall outlooks, NEXRAD storm-cell
    tracks, SNODAS snowpack, National Water Model reach forecasts, USGS reference gauges,
-   and on-site rain, temperature and soil-moisture probes — into 45 features per inference.
+   Google Flood Forecasting, and on-site rain, temperature and soil-moisture probes — into
+   49 features per inference.
 3. **Correlate & predict** — The add-on builds a nightly dataset of storm events and fits
    the rainfall→response relationship for this specific basin, starting with threshold
    rules and graduating to a trained model that outputs flood probability with lead time,
@@ -76,7 +77,7 @@ changing until it's in.
 
 ## What it watches
 
-11 sources · 6 external APIs · dozens of Home Assistant entities, all auto-provisioned by
+12 sources · 7 external APIs · dozens of Home Assistant entities, all auto-provisioned by
 the add-on via MQTT discovery:
 
 | Source | Gives |
@@ -92,6 +93,7 @@ the add-on via MQTT discovery:
 | SNODAS snowpack | Rain-on-snow melt contribution |
 | USGS reference gauges | Off-basin lag validation |
 | Upstream PWS (Weather Underground) | Neighbor rain gauges, drains toward site |
+| Google Flood Forecasting | Forecast severity/trend at the nearest gauges Google models, plus flash-flood risk polygons at this location |
 
 ## Five tiers, and one that wakes you
 
