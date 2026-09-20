@@ -146,7 +146,14 @@ creek-flood-warning-spec.md   Source-of-truth project specification
 
 ## Status
 
-Actively being built in phases: instrument → ingest → collect & correlate → predict →
+**Instrument phase: DEPLOYED & OPERATIONAL.** The Moteino M0 + RFM69HW creek node was 
+deployed to the pole on 2026-09-19 and is running continuously, reporting every 60 s 
+with stable battery voltage and good RSSI (−72 dBm). Hardware defensive handling for 
+RFM69HW sleep state (explicit RST pulses + re-initialization on wake) and SPIFlash 
+busy-wait fixes ensure unattended operation. 24+ hours of field data show the sensor 
+responding appropriately to rainfall-driven water level changes.
+
+Actively being built in phases: ~~instrument~~ → ingest → collect & correlate → predict →
 harden. See [creek-flood-warning-spec.md](./creek-flood-warning-spec.md) for the full spec,
 [docs/project-knowledge.md](./docs/project-knowledge.md) for an orientation to the
 codebase, and [docs/open-questions.md](./docs/open-questions.md) for items still being

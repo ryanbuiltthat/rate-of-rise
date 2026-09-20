@@ -9,6 +9,16 @@ lower-power radio link — see the [project spec](../creek-flood-warning-spec.md
 The original ESPHome config is retained in [`../esphome/`](../esphome/) for
 reference; it is no longer the active creek-node firmware path.
 
+**Status:** The Moteino M0 + RFM69HW node was successfully deployed to the creek
+pole on 2026-09-19 and is operating normally. After initial diagnosis revealing
+MCU hangs due to undefended RFM69::setMode() blocking on unresponsive radio state
+after sleep, the node firmware was hardened with explicit RFM69 RST pin pulses and
+re-initialization on every wake, plus a fix for SPIFlash::command()'s indefinite
+busy-wait on sleeping chips. Both issues are resolved; the node reports every 60 s
+with stable battery voltage and good RSSI (−72 dBm), and 24+ hours of field data
+show sensor distance readings responding appropriately to rainfall-driven water
+level changes.
+
 ## Architecture
 
 ```
@@ -513,8 +523,9 @@ buffer the transfer task was still reading from. `ota_active_` covers exactly th
    gateway's ESPHome logs (`esphome logs gateway.yaml`, or the builder's Logs button).
    The creek node should TX every 60 s and the gateway should log the decoded payload + RSSI.
    Confirm packets arrive and RSSI is reasonable (better than −90 dBm at bench distance).
-   **Done 2026-09-07 — node and gateway hold a stable link on `BENCH_TEST`'s 5 s cadence,
-   including with the gateway two floors away from the node.**
+   **Done 2026-09-07 (bench) and 2026-09-19 (pole field test) — node and gateway hold a 
+   stable 60 s cadence at the pole with RSSI −72 dBm, including overnight and through 
+   rainfall events. 24+ hour continuous operation confirmed.**
 
    **RSSI needs care on this radio.** The stock library's value is not a link-quality
    measure. `RFM69::interruptHandler()` samples RSSI at `PAYLOADREADY` — after reception has
@@ -616,7 +627,7 @@ hand-written HA YAML is needed.
 |---|---|---|---|
 | `sensor.creek_gateway_stage` | derived: installation height − distance | ft | primary |
 | `sensor.creek_gateway_creek_depth` | same measurement, readable units | in | primary |
-| `sensor.creek_gateway_sensor_distance` | `distance_mm` (`NAN` on sensor failure) | mm | diagnostic |
+| `sensor.creek_gateway_sensor_distance` | `distance_mm`: radar face to water surface (`NAN` on sensor failure). **Distance declining = water rising** | mm | diagnostic |
 | `sensor.creek_gateway_creek_node_battery` | `battery_mv` | mV | diagnostic |
 | `sensor.creek_gateway_creek_node_rssi` | gateway-measured, per packet | dBm | diagnostic |
 | `binary_sensor.creek_gateway_creek_node_status` | packet liveness, 5 min timeout | connectivity | diagnostic |

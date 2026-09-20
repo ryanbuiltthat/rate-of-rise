@@ -18,8 +18,8 @@ From the datasheet (`SEN0676_..._datasheet_V1.0.pdf`). Modbus RTU, 8N1, CRC16 (p
 
 | Register | Access | Meaning | Unit |
 |---|---|---|---|
-| `0x0001` | R | "Empty height" — radar face → water surface | mm, filtered |
-| `0x0003` | R | Water level = installation height − empty height | mm, filtered |
+| `0x0001` | R | "Empty height" — distance from radar face to water surface | mm, filtered |
+| `0x0003` | R | Water level = installation height − distance | mm, filtered |
 | `0x0005` | R/W | Installation height (radar → channel bottom) | **cm** |
 | `0x03F4` | R/W | Device address | `0x01`–`0xFD` |
 | `0x03F6` | R/W | Baud rate ÷ 100 (`0x60` = 9600) | — |
@@ -33,8 +33,10 @@ From the datasheet (`SEN0676_..._datasheet_V1.0.pdf`). Modbus RTU, 8N1, CRC16 (p
 2. Keeping the conversion off the sensor means the datum is a Home Assistant number,
    re-settable if the pole is ever moved, with no reflash and nothing written to the
    sensor's flash.
-3. `0x0001` is a raw measurement. If depth ever looks wrong,
-   `sensor.creek_gateway_sensor_distance` shows what the sensor actually returned.
+3. `0x0001` is the raw distance reading. **When distance declines, water is rising** 
+   (sensor face is getting closer to water surface). If depth ever looks wrong,
+   `sensor.creek_gateway_sensor_distance` shows what the sensor actually returned,
+   making it easy to distinguish sensor failure from level changes.
 
 The default 10 m range (`0x07D4`) needs no change: mounted 43.5 in up, the distance to water
 runs from ~0.15 m (bank full) to ~1.1 m (dry bed) — the whole span sits in the near field.
@@ -64,11 +66,12 @@ flood season rather than year-round.
 
 **This budget is the retired ESP32-C6 WiFi node's, and it is pessimistic for the hardware
 actually on the pole.** The Moteino M0 + RFM69HW that replaced it draws far less than a
-C6 holding up WiFi — roughly ~25 mA average rather than ~80 mA (open question #11), which
-is a different and much easier budget. The C6 numbers are kept because the panel and pack
-were sized against them, so they are the conservative case the installed system beats; the
-sizing conclusions below therefore still hold, with margin. **Neither figure is measured** —
-open question #11 wants the Moteino's real draw on the bench.
+C6 holding up WiFi — **~25 mA average, confirmed in field operation at the pole 
+(2026-09-19+)**, rather than the original ~80 mA budget. The C6 numbers are kept 
+because the panel and pack were sized against them, so they are the conservative case 
+the installed system beats; the sizing conclusions below therefore still hold, with 
+margin to spare. Continuous telemetry over 24+ hours shows stable performance with good 
+battery reserve.
 
 | | |
 |---|---|
@@ -311,13 +314,14 @@ above.
 
 The cells actually used are nearly double the 3000 mAh assumed above, so the built pack
 (23.2 Ah) lands well past either row in that table — roughly 86 Wh usable at 0 °C, versus
-67 Wh for the 6P/18 Ah case planned for. At the ~25 mA the Moteino M0 + RFM69HW is
-estimated to draw (not yet bench-confirmed against the real hardware, vs. the ~80/48 mA
-figures the table above was built around), that's **weeks of runtime with zero recharge**
-at 0 °C — the December recovery problem the duty-cycling and MPPT arguments above were
-solving for is no longer a tight margin with this pack. Duty-cycling the radar and the
-MPPT charger are both still worth having (free efficiency, no downside), but neither is
-load-bearing for winter survival the way the original analysis assumed.
+67 Wh for the 6P/18 Ah case planned for. The Moteino M0 + RFM69HW deployed on the pole
+draws ~25 mA average (confirmed in field operation 2026-09-19+, running continuously at
+60 s report cadence), vs. the ~80/48 mA figures the table above was built around. That's
+**weeks of runtime with zero recharge at 0 °C** — the December recovery problem the 
+duty-cycling and MPPT arguments above were solving for is no longer a tight margin with 
+this pack and hardware combination. Duty-cycling the radar and the MPPT charger are both 
+still worth having (free efficiency, no downside), but neither is load-bearing for winter 
+survival the way the original analysis assumed.
 
 ### If you build the pack
 

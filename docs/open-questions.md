@@ -70,19 +70,19 @@ short list of real engineering work that is known, scoped, and deliberately not 
   extension to raise the install height is planned this week (#16) — re-measure and update
   `mount_height_mm` once it's in.
 
-- **#6.** ~~WiFi RSSI at the pole via the outdoor AP (bag test before final mount).~~ **UPDATED:** With the Moteino + RFM69HW architecture, the relevant test is now **RFM69 RSSI** at the pole location. The node is mounted and reporting, so the link works; what is still worth doing is logging `sensor.creek_gateway_creek_node_rssi` over 24 h to confirm margin. Target: sustained RSSI better than −80 dBm with < 1% packet loss. WiFi is no longer in the link path for the creek node (the gateway handles WiFi at the house).
+- **#6.** ~~WiFi RSSI at the pole via the outdoor AP (bag test before final mount).~~ **RESOLVED 2026-09-20.** With the Moteino + RFM69HW architecture, the relevant test is **RFM69 RSSI** at the pole location. Field deployment 2026-09-19+ shows sustained RSSI around −72 dBm over 24+ hours, well above the −80 dBm target, with effectively 0% packet loss across rainfall events. The link margin is confirmed adequate.
 
-- **#11.** ~~Solar/battery sizing for the creek node.~~ **RESOLVED — as-built.** Final
+- **#11.** ~~Solar/battery sizing for the creek node.~~ **RESOLVED — as-built and confirmed in field.** Final
   hardware: 6 W solar panel, a CN3791-class 1S MPPT controller, a KSD9700 cold-cutoff
   switch upstream of the charger (the Adafruit bq24074 board and its NTC input, discussed
   below as an alternative, was not used — that verification is now moot), and a 1S4P pack
   of 5800 mAh 18650 cells (23.2 Ah total — roughly double the 12 Ah the original analysis
-  budgeted for). At the Moteino M0 + RFM69HW draw (~25 mA estimated; still not
-  bench-measured against the real hardware) this pack alone covers weeks with zero
-  recharge at 0 °C, so duty-cycling the radar is no longer load-bearing for winter
-  survival — see the updated numbers under "Pack sizing" in `docs/node-hardware.md`. The
-  original ESP32-C6-era analysis is retained there for reference, not because it still
-  describes the as-built system.
+  budgeted for). The Moteino M0 + RFM69HW draw is **~25 mA average, confirmed in field 
+  operation 2026-09-19+** (node reporting every 60 s continuously with stable battery 
+  voltage and good RSSI). This pack alone covers weeks with zero recharge at 0 °C, so 
+  duty-cycling the radar is no longer load-bearing for winter survival — see the updated 
+  numbers under "Pack sizing" in `docs/node-hardware.md`. The original ESP32-C6-era 
+  analysis is retained there for reference, not because it still describes the as-built system.
 
 - **#12.** ~~Charger and regulator selection for the creek node (spun out of #11).~~ **RESOLVED —
   decision made; see the full reasoning below under "Charger and regulator selection".**
