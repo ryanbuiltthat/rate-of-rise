@@ -23,7 +23,8 @@ that is what kept the system useful during the wait for hardware, and it is stil
 keeps it useful when the radio link to the node drops.
 
 What the gauge does *not* yet give us is calibration: every threshold in `tiers.py` is
-still a placeholder, and only observed storms can move it (open questions #7–#10).
+still a placeholder, and only observed storms can move it (open questions #8–#10; #7's
+WH51 field calibration is done, see `docs/open-questions.md`).
 
 **Storms here typically arrive from the W/NW, but the upstream PWS corridor lies to the
 SE.** That geometry is the reason radar cell tracking exists (§2g below): for the
@@ -326,10 +327,11 @@ Rules that follow:
 
 ## 9. Open items
 
-**Blocked on hardware/field work:** WH51 dry/saturated calibration (#7), stage-based tier
-thresholds (#8), rain-on-snow validation (#10, needs a winter event), and the freezer test
-on the KSD9700 cold-charge cutoff (#13). The surveyed datum (#5) is **resolved** —
-creekbed to sensor face is 1105 mm, and #8 is no longer waiting on it.
+**Blocked on hardware/field work:** rain-on-snow validation (#10, needs a winter event).
+The surveyed datum (#5) and WH51 dry/saturated calibration (#7) are both **resolved** —
+creekbed to sensor face is 1105 mm, both probes are calibrated at their burial spots, and
+stage-based/soil-moisture tier thresholds (#8) are no longer waiting on either; #8 still
+wants a hand-edit against real storm data once there's enough to review.
 
 **Blocked on data:** API recession constant `k` (#9) and all forecast/rainfall tier
 thresholds want fitting against real storms — which is what the storm event log and
@@ -339,13 +341,12 @@ same as having a trustworthy model: with a record this short the held-out split 
 lands single-class, which is why promote warns rather than reassures.
 
 **Available to build:** adaptive crest sampling on the node (#15 — lost in the Moteino
-port, so a flashy crest is sampled at a fixed 60 s); a tier hold across a stage dropout
-(#14's residual); more upstream PWS stations (#4 — two configured, spec wants 3–5, and
-with two, one dropout halves the sample); the per-gauge thresholds and forecast values
-behind Google's severity ladder (#2's residual — `gaugeModels.batchGet` plus
-`gauges.queryGaugeForecasts` would turn 4 steps into a continuous "fraction of the way to
-warning level", and is worth the per-gauge unit handling only once a gauge near enough to
-matter is known to exist).
+port, so a flashy crest is sampled at a fixed 60 s; reviewed 2026-09-20 as feasible —
+SAMD21 standby retains SRAM across sleep, so no persistent-storage trick is needed); a
+tier hold across a stage dropout (#14's residual); more upstream PWS stations (#4 — two
+configured, spec wants 3–5, and with two, one dropout halves the sample). #2 is now
+closed — see `docs/open-questions.md` for why its per-gauge-threshold residual isn't
+tracked as pending work.
 
 **Standing caveat for anything user-facing:** NWS/NOAA remains the real alerting path.
 This system is a data-collection and early-warning aid whose thresholds are not yet
