@@ -55,7 +55,7 @@ automation:
   # NOT, because §8 requires every one of those to be dry-run testable first and the
   # thresholds remain uncalibrated (open questions #5/#7).
   - id: creek_tier_change
-    alias: "Creek alert tier changed"
+    alias: "Creek Alert"
     description: >-
       Posts a persistent notification and a companion-app push whenever the add-on's alert
       tier changes, including the reason that drove it. Tiers 1-2 are forecast/rainfall

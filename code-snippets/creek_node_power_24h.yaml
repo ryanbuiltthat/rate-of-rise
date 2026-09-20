@@ -1,0 +1,253 @@
+# Creek node — power consumption over the last 24 hours
+# =====================================================================================
+# Produces sensor.creek_node_energy_24h: watt-hours drawn by the pole node over a
+# rolling 24-hour window, updated continuously (not a midnight-reset daily total).
+#
+# WHAT THIS MEASURES, AND WHAT IT DOES NOT
+# The node has no shunt and no current sensor. Its payload carries distance_mm and
+# battery_mv, nothing else (firmware/moteino_creek_node/src/main.cpp), so 24-hour
+# consumption cannot be measured here — it has to be modelled:
+#
+#     power (W) = measured pack voltage  x  assumed average current
+#
+# The voltage half is real, live, and from the node. The current half is a constant you
+# set once (input_number below, default 25 mA per docs/node-hardware.md "Power budget"),
+# so what comes out is a *budget tracker*, not a measurement. It is still worth having:
+# the voltage term makes it follow the pack through charge and discharge, and gating on
+# node-online (below) makes it fall when the node goes quiet. A 24-hour figure that
+# drops well under the nominal ~2.4 Wh means downtime, not thrift.
+#
+# To make it a true measurement you need current sensing on the pack rail (an INA219 or
+# INA226 on the node's I2C, its mA added to the RFM69 payload) — at which point delete
+# the input_number and the template sensor below and point the integration straight at
+# the real current sensor. The rest of the chain is unchanged.
+#
+# OFFLINE = ZERO. When binary_sensor.creek_gateway_creek_node_status is off, this
+# publishes 0 W. The node may in fact be alive and merely out of radio range, so this
+# undercounts in that case. It is the honest default anyway: the point of the number is
+# to show power spent on telemetry that actually arrived.
+#
+# HOW TO INSTALL — pick one
+#
+#   A. YAML (recommended here, since this repo already uses packages). Save this file as
+#      ha-packages/creek_node_power.yaml next to creek_warning.yaml, with
+#          homeassistant:
+#            packages: !include_dir_named ha-packages
+#      already in configuration.yaml. Restart HA.
+#
+#   B. Straight into configuration.yaml. Paste the blocks below, but MERGE them into any
+#      template:/sensor:/input_number: keys you already have — YAML allows each top-level
+#      key only once per file. Restart HA.
+#
+#   C. Through the UI, no file editing. Settings > Devices & Services > Helpers >
+#      Create helper, four times, in this order:
+#        1. Number ............ name "Creek Node Average Current", min 1, max 250,
+#                               step 0.5, unit mA, display mode Box. Set it to 25.
+#        2. Template > sensor . name "Creek Node Power", paste the state template from
+#                               the template: block below, unit W, device class Power,
+#                               state class Measurement.
+#        3. Integral - Riemann sum integral sensor
+#                               input sensor.creek_node_power, method Left Riemann sum,
+#                               precision 3, max sub-interval 1 minute (REQUIRED — see
+#                               the note on the integration block), name
+#                               "Creek Node Energy".
+#        4. Statistics ........ input sensor.creek_node_energy, characteristic "change",
+#                               max age 24:00:00, sampling size 4000, name
+#                               "Creek Node Energy 24h".
+#      The UI creates the same four entities under the same entity IDs.
+#
+# Written against Home Assistant 2026.9.3 and the entity IDs the creek gateway currently
+# publishes (sensor.creek_gateway_creek_node_battery,
+# binary_sensor.creek_gateway_creek_node_status).
+# =====================================================================================
+
+# --- The one tunable -----------------------------------------------------------------
+# Average pack-side current, everything included: Moteino M0, RFM69HW, and the SEN0676
+# on its switched 5 V boost, averaged across sleep, wake, Modbus read, TX and the
+# post-TX OTA listen window. docs/node-hardware.md puts this at ~25 mA for the installed
+# hardware; the retired ESP32-C6 node's budget was ~80 mA, which is what the panel and
+# pack were sized against.
+#
+# It is an input_number rather than a constant on purpose: it is the one number in here
+# that is a guess, and a guess worth revising from a clamp-meter reading or from watching
+# the pack discharge on a cloudy week. Adaptive crest sampling (5 s cadence during a
+# rise, FAST_REPORT_INTERVAL_S in main.cpp) pushes the true average above this for as
+# long as the creek is rising; the node does not report which mode it is in, so this
+# model cannot follow it. Storm-day figures therefore read low.
+input_number:
+  creek_node_avg_current_ma:
+    name: Creek Node Average Current
+    icon: mdi:current-dc
+    min: 1
+    max: 250
+    step: 0.5
+    unit_of_measurement: mA
+    mode: box
+
+# --- Instantaneous modelled draw -----------------------------------------------------
+template:
+  - sensor:
+      - name: "Creek Node Power"
+        unique_id: creek_node_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        icon: mdi:flash
+        # Never returns unavailable or unknown. A Riemann sum stops accumulating across a
+        # non-numeric source state, so a template that went unavailable whenever the
+        # gateway restarted would quietly punch holes in the 24-hour total. Falling back
+        # to 0 W (node down) or to a nominal 3.9 V (node up, voltage not yet in) keeps
+        # the integral continuous and keeps the error where it can be reasoned about.
+        state: >
+          {% set node = 'binary_sensor.creek_gateway_creek_node_status' %}
+          {% set batt = 'sensor.creek_gateway_creek_node_battery' %}
+          {% set ma = states('input_number.creek_node_avg_current_ma') | float(25) %}
+          {% if states(node) != 'on' %}
+            0
+          {% else %}
+            {{ (states(batt) | float(3.9) * ma / 1000) | round(4) }}
+          {% endif %}
+        attributes:
+          modelled: true
+          assumed_current_ma: >
+            {{ states('input_number.creek_node_avg_current_ma') | float(25) }}
+          node_online: >
+            {{ states('binary_sensor.creek_gateway_creek_node_status') }}
+
+sensor:
+  # --- Cumulative energy -------------------------------------------------------------
+  # Riemann sum of the power sensor: W integrated over hours, so the unit comes out Wh.
+  #
+  # max_sub_interval is load-bearing, not tuning. The integration only adds area when its
+  # source *changes state*, and this source is near-constant — a node sitting at a steady
+  # voltage and a fixed assumed current can hold the same rounded watt figure for hours,
+  # during which the integral would not move at all and the 24-hour window below would
+  # read far too low. max_sub_interval forces a step every minute regardless.
+  #
+  # method: left because the source is a step function that holds its value until the
+  # next report, which is exactly what a left sum assumes. Trapezoidal would interpolate
+  # a ramp between reports that the node never actually traversed.
+  - platform: integration
+    name: "Creek Node Energy"
+    unique_id: creek_node_energy
+    source: sensor.creek_node_power
+    method: left
+    round: 3
+    max_sub_interval:
+      minutes: 1
+
+  # --- The answer: rolling 24-hour consumption ---------------------------------------
+  # state_characteristic: change over a 24-hour window is (newest - oldest), and because
+  # the integration above only ever climbs, that difference is precisely the energy drawn
+  # since this time yesterday. It moves continuously rather than resetting at midnight.
+  #
+  # sampling_size must exceed the number of samples in the window or the oldest fall out
+  # early and the window silently shortens. At one forced step per minute that is 1440,
+  # plus whatever the node's own 60 s reports add on top; 4000 covers both with room for
+  # a storm running at the 5 s fast cadence.
+  - platform: statistics
+    name: "Creek Node Energy 24h"
+    unique_id: creek_node_energy_24h
+    entity_id: sensor.creek_node_energy
+    state_characteristic: change
+    max_age:
+      hours: 24
+    sampling_size: 4000
+    precision: 2
+
+# =====================================================================================
+# OPTIONAL — the same thing in battery terms
+# =====================================================================================
+# Watt-hours are the conventional answer to "power consumption", but every sizing figure
+# in docs/node-hardware.md is in amp-hours: the as-built pack is 1S4P of 1500 mAh cells,
+# 6000 mAh total, and the node should be spending ~600 mAh/day of it. These three give
+# that directly. Merge them into the blocks above (they are shown under their own keys
+# only so the section can be dropped in or left out as a unit).
+#
+# sensor.creek_node_pack_used_24h is the one to put on a dashboard: percent of the whole
+# pack consumed per day. Around 10 % is nominal. If it climbs while the assumed current
+# has not been touched, the pack voltage is what climbed — which means the panel is
+# working, not that the node is drawing more.
+#
+# template:
+#   - sensor:
+#       - name: "Creek Node Current"
+#         unique_id: creek_node_current
+#         unit_of_measurement: mA
+#         device_class: current
+#         state_class: measurement
+#         state: >
+#           {% if states('binary_sensor.creek_gateway_creek_node_status') != 'on' %}
+#             0
+#           {% else %}
+#             {{ states('input_number.creek_node_avg_current_ma') | float(25) }}
+#           {% endif %}
+#
+#       # Percent of the 6000 mAh as-built pack consumed in the last 24 h.
+#       - name: "Creek Node Pack Used 24h"
+#         unique_id: creek_node_pack_used_24h
+#         unit_of_measurement: "%"
+#         state_class: measurement
+#         icon: mdi:battery-clock
+#         state: >
+#           {{ (states('sensor.creek_node_charge_24h') | float(0) / 6000 * 100)
+#              | round(1) }}
+#
+# sensor:
+#   - platform: integration
+#     name: "Creek Node Charge"
+#     unique_id: creek_node_charge
+#     source: sensor.creek_node_current
+#     method: left
+#     round: 1
+#     max_sub_interval:
+#       minutes: 1
+#
+#   - platform: statistics
+#     name: "Creek Node Charge 24h"
+#     unique_id: creek_node_charge_24h
+#     entity_id: sensor.creek_node_charge
+#     state_characteristic: change
+#     max_age:
+#       hours: 24
+#     sampling_size: 4000
+#     precision: 1
+
+# =====================================================================================
+# OPTIONAL — calendar-day totals instead of a rolling window
+# =====================================================================================
+# If "last 24 hours" was meant loosely and midnight-to-midnight is fine, a utility meter
+# over the same integration sensor is cheaper than the statistics sensor and carries
+# yesterday's total in its last_period attribute. It resets at midnight, so it is not a
+# rolling window and reads near zero at 00:05 — keep the statistics sensor above if that
+# matters. The two can coexist on one integration source.
+#
+utility_meter:
+  creek_node_energy_daily:
+    name: Creek Node Energy Daily
+    source: sensor.creek_node_energy
+    cycle: daily
+
+# =====================================================================================
+# Dashboard — NOT package YAML. Paste into a Lovelace dashboard, not this file.
+# =====================================================================================
+# A package file may only contain top-level integration domains (template:, sensor:,
+# input_number:, utility_meter:, ...). A card's type:/title:/entities: keys are not
+# domains, so leaving them uncommented here fails the whole package with
+# "expected dict or list or None at 'type'". Copy the block below into the dashboard
+# raw editor (three-dot menu > Edit dashboard > Raw configuration editor) or use
+# "Add card > Manual".
+#
+# type: entities
+# title: Creek Node Power
+# entities:
+#   - entity: sensor.creek_node_energy_24h
+#     name: Energy, last 24 h
+#   - entity: sensor.creek_gateway_creek_node_battery
+#     name: Pack voltage
+#   - entity: sensor.creek_node_power
+#     name: Modelled draw
+#   - entity: input_number.creek_node_avg_current_ma
+#     name: Assumed average current
+#   - entity: binary_sensor.creek_gateway_creek_node_status
+#     name: Node link
