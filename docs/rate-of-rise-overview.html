@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rate of Rise — project overview</title>
+<meta name="description" content="Rate of Rise: a solar-powered radar stream gauge and flood-probability model for an ungauged creek, built as a Home Assistant add-on.">
+<style>
+  :root {
+    --ink:        #0D3B54;
+    --ink-soft:   #3C5C6C;
+    --muted:      #64808F;
+    --ground:     #F4F7FA;
+    --surface:    #FFFFFF;
+    --surface-2:  #EDF3F7;
+    --rule:       #D3E0E8;
+    --rule-soft:  #E3ECF1;
+    --accent:     #C97C00;
+    --accent-bg:  #F2A900;
+    --accent-ink: #8E5900;
+    --water:      #2B7CB0;
+    --water-light:#6CC4E8;
+
+    --t0: #2E8B57;
+    --t1: #C97C00;
+    --t2: #D9720C;
+    --t3: #C6431C;
+    --t4: #9C2B1C;
+
+    --display: -apple-system, "Segoe UI", "Helvetica Neue", Arial, system-ui, sans-serif;
+    --body: Georgia, "Iowan Old Style", "Palatino Linotype", "Book Antiqua", "Times New Roman", serif;
+    --mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+
+    --maxw: 1080px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink:        #EAF2F7;
+      --ink-soft:   #B7CCD8;
+      --muted:      #85A2B2;
+      --ground:     #081C29;
+      --surface:    #0F2C3D;
+      --surface-2:  #123448;
+      --rule:       #1F4356;
+      --rule-soft:  #173A4C;
+      --accent:     #F2B93B;
+      --accent-bg:  #F2B93B;
+      --accent-ink: #16222A;
+      --water:      #57B6E0;
+      --water-light:#8FD4EE;
+
+      --t0: #4FAE82;
+      --t1: #F2B93B;
+      --t2: #E3922E;
+      --t3: #E06A46;
+      --t4: #D14A38;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink:        #EAF2F7;
+    --ink-soft:   #B7CCD8;
+    --muted:      #85A2B2;
+    --ground:     #081C29;
+    --surface:    #0F2C3D;
+    --surface-2:  #123448;
+    --rule:       #1F4356;
+    --rule-soft:  #173A4C;
+    --accent:     #F2B93B;
+    --accent-bg:  #F2B93B;
+    --accent-ink: #16222A;
+    --water:      #57B6E0;
+    --water-light:#8FD4EE;
+
+    --t0: #4FAE82;
+    --t1: #F2B93B;
+    --t2: #E3922E;
+    --t3: #E06A46;
+    --t4: #D14A38;
+  }
+
+  * { box-sizing: border-box; }
+  html { background: var(--ground); }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  img, svg { max-width: 100%; }
+
+  .page { max-width: var(--maxw); margin: 0 auto; padding-inline: 20px; padding-block: 0 64px; }
+
+  .spine-layout { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 28px; }
+  .spine { position: relative; border-right: 1px solid var(--rule); }
+  .spine::before {
+    content: ""; position: absolute; inset-block: 0; right: -1px; width: 3px;
+    background: linear-gradient(to bottom, transparent, var(--water) 12%, var(--water) 88%, transparent);
+    opacity: .28;
+  }
+  .spine-label {
+    position: sticky; top: 24px; font-family: var(--mono); font-size: 10px;
+    letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
+    writing-mode: vertical-rl; transform: rotate(180deg); padding-block: 8px; white-space: nowrap;
+  }
+
+  section { scroll-margin-top: 24px; padding-block: 46px; border-top: 1px solid var(--rule-soft); margin-top: 46px; }
+  section:first-of-type { border-top: 0; margin-top: 0; }
+
+  /* ---- Masthead ---- */
+  .masthead { padding-block: 52px 20px; }
+  .brand-row { display: flex; align-items: center; gap: 18px; margin-bottom: 26px; }
+  .mark { flex: none; width: 68px; height: 68px; border-radius: 15px; }
+  .brand-text { min-width: 0; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--water); display: flex; flex-wrap: wrap;
+    gap: 8px 14px; align-items: center; margin: 0 0 8px;
+  }
+  .eyebrow .dot { color: var(--rule); }
+  .eyebrow .live { color: var(--t0); }
+  h1 {
+    font-family: var(--display); font-weight: 900; font-size: clamp(38px, 7vw, 66px);
+    line-height: .98; letter-spacing: -.02em; margin: 0;
+  }
+  .tagline {
+    font-family: var(--display); font-weight: 700; font-size: clamp(19px, 2.6vw, 25px);
+    line-height: 1.3; color: var(--ink-soft); margin: 6px 0 0;
+  }
+  .tagline .em { color: var(--accent); }
+  .deck {
+    font-family: var(--body); font-size: clamp(17px, 2vw, 19px); line-height: 1.55;
+    color: var(--ink-soft); max-width: 62ch; margin: 22px 0 0;
+  }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1px;
+    background: var(--rule-soft); border: 1px solid var(--rule-soft); margin-block: 40px 0;
+  }
+  .stat { background: var(--surface); padding: 18px 16px 16px; display: flex; flex-direction: column; gap: 4px; }
+  .stat b { font-family: var(--display); font-weight: 900; font-size: 32px; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .stat b small { font-family: var(--mono); font-size: 14px; font-weight: 500; margin-left: 1px; }
+  .stat span { font-family: var(--mono); font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); line-height: 1.4; }
+
+  /* ---- Status banner ---- */
+  .status-banner {
+    background: var(--surface); border: 1px solid var(--rule); border-left: 4px solid var(--t0);
+    padding: 20px 22px; display: flex; gap: 16px; align-items: flex-start;
+  }
+  .status-dot {
+    flex: none; width: 11px; height: 11px; border-radius: 50%; background: var(--t0);
+    margin-top: 7px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--t0) 22%, transparent);
+  }
+  .status-banner h2 { margin: 0 0 6px; font-size: 17px; }
+  .status-banner p { margin: 0 0 8px; font-size: 15.5px; color: var(--ink-soft); max-width: 68ch; }
+  .status-banner p:last-child { margin-bottom: 0; }
+  .status-banner .kv { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+
+  h2 {
+    font-family: var(--display); font-weight: 800; font-size: clamp(23px, 3.2vw, 32px);
+    line-height: 1.12; letter-spacing: -.015em; margin: 0 0 6px;
+  }
+  .sec-note { font-family: var(--mono); font-size: 10.5px; letter-spacing: .11em; text-transform: uppercase; color: var(--muted); margin: 0 0 20px; }
+  p { margin: 0 0 16px; max-width: 66ch; }
+  p:last-child { margin-bottom: 0; }
+  strong { font-weight: 700; color: var(--ink); }
+
+  /* ---- Figure / diagram ---- */
+  .figure { background: var(--surface); border: 1px solid var(--rule); padding: 22px 20px 16px; margin-top: 8px; }
+  .figure svg { width: 100%; height: auto; display: block; }
+  figcaption { font-family: var(--mono); font-size: 11px; line-height: 1.65; color: var(--muted); margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--rule-soft); }
+  .fig-table { width: 100%; border-collapse: collapse; margin: 18px 0 0; font-size: 14.5px; }
+  .fig-table th, .fig-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule-soft); }
+  .fig-table th { font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .fig-table td:last-child, .fig-table th:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* ---- Chain (how it works) ---- */
+  .chain { display: grid; gap: 1px; background: var(--rule-soft); border: 1px solid var(--rule-soft); }
+  .link { background: var(--surface); display: grid; grid-template-columns: 108px minmax(0, 1fr); gap: 20px; padding: 20px 18px; align-items: start; }
+  .link-key { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--water); padding-top: 4px; }
+  .link h3 { font-family: var(--display); font-weight: 700; font-size: 18px; margin: 0 0 6px; letter-spacing: -.01em; }
+  .link p { font-size: 15.5px; line-height: 1.55; margin: 0; color: var(--ink-soft); }
+  .link .new-tag { display: inline-block; font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent-ink); background: var(--accent-bg); border-radius: 3px; padding: 2px 6px; margin-left: 8px; vertical-align: 2px; }
+
+  /* ---- Sources ---- */
+  .sources { display: grid; grid-template-columns: repeat(auto-fill, minmax(236px, 1fr)); gap: 1px; background: var(--rule-soft); border: 1px solid var(--rule-soft); }
+  .source { background: var(--surface); padding: 15px 16px; display: flex; flex-direction: column; gap: 3px; position: relative; }
+  .source b { font-family: var(--display); font-weight: 700; font-size: 15px; letter-spacing: -.005em; }
+  .source span { font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .source em { font-style: normal; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--water); }
+  .source .new-tag { position: absolute; top: 13px; right: 14px; font-family: var(--mono); font-size: 9px; letter-spacing: .07em; text-transform: uppercase; color: var(--accent-ink); background: var(--accent-bg); border-radius: 3px; padding: 2px 6px; }
+
+  /* ---- Operator console ---- */
+  .commands { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1px; background: var(--rule-soft); border: 1px solid var(--rule-soft); margin-top: 4px; }
+  .command { background: var(--surface); padding: 14px 15px; }
+  .command code { font-family: var(--mono); font-size: 12.5px; font-weight: 600; color: var(--water); }
+  .command p { margin: 6px 0 0; font-size: 13.5px; color: var(--ink-soft); }
+
+  /* ---- Tier ladder ---- */
+  .ladder { display: flex; flex-direction: column; gap: 1px; background: var(--rule-soft); border: 1px solid var(--rule-soft); }
+  .rung { background: var(--surface); display: grid; grid-template-columns: 6px 40px minmax(0, 1.05fr) minmax(0, 1.7fr); gap: 16px; align-items: baseline; padding: 14px 16px 14px 0; }
+  .rung .bar { align-self: stretch; background: var(--tier); }
+  .rung .n { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--tier); font-variant-numeric: tabular-nums; }
+  .rung .name { font-family: var(--display); font-weight: 700; font-size: 16px; letter-spacing: -.005em; }
+  .rung .cond { font-family: var(--mono); font-size: 12px; color: var(--muted); line-height: 1.55; }
+
+  /* ---- Honesty panel ---- */
+  .caveat { background: var(--surface-2); border: 1px solid var(--rule); border-left: 3px solid var(--accent-bg); padding: 22px 22px; }
+  .caveat h2 { font-size: clamp(20px, 2.8vw, 26px); }
+  .caveat p { font-size: 16px; color: var(--ink-soft); }
+  .kv { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+  .kv b { color: var(--ink); font-weight: 600; }
+
+  footer {
+    margin-top: 52px; padding-top: 20px; border-top: 1px solid var(--rule);
+    font-family: var(--mono); font-size: 11px; letter-spacing: .05em; color: var(--muted);
+    display: flex; flex-wrap: wrap; gap: 6px 18px;
+  }
+  footer a { color: var(--water); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  @media (max-width: 720px) {
+    .spine-layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .spine { display: none; }
+    .link { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .rung { grid-template-columns: 5px 32px minmax(0, 1fr); row-gap: 6px; }
+    .rung .cond { grid-column: 3 / -1; }
+    .masthead { padding-block: 34px 12px; }
+    .brand-row { gap: 14px; }
+    .mark { width: 54px; height: 54px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="spine-layout">
+    <div class="spine" aria-hidden="true">
+      <div class="spine-label">Stage — inches above creekbed</div>
+    </div>
+
+    <main>
+      <header class="masthead">
+        <div class="brand-row">
+          <svg class="mark" viewBox="0 0 96 96" role="img" aria-label="Rate of Rise mark">
+            <rect width="96" height="96" rx="18" fill="#0D3B54"/>
+            <path d="M48 13 L75 55 L21 55 Z" fill="#F2A900"/>
+            <rect x="45.3" y="27" width="5.4" height="17" rx="2.7" fill="#0D3B54"/>
+            <circle cx="48" cy="49.5" r="2.9" fill="#0D3B54"/>
+            <path d="M16 66 q8 -10 16 0 t16 0 t16 0 t16 0" fill="none" stroke="#2B7CB0" stroke-width="4.2" stroke-linecap="round"/>
+            <path d="M16 77 q8 -10 16 0 t16 0 t16 0 t16 0" fill="none" stroke="#6CC4E8" stroke-width="4.2" stroke-linecap="round"/>
+          </svg>
+          <div class="brand-text">
+            <p class="eyebrow">
+              <span>Home Assistant add-on</span><span class="dot">&mdash;</span>
+              <span>v0.22.1</span><span class="dot">&mdash;</span>
+              <span class="live">&#9679; deployed &amp; operational</span>
+            </p>
+            <h1>Rate of Rise</h1>
+            <p class="tagline">Warning arrives before the <span class="em">water</span> does.</p>
+          </div>
+        </div>
+        <p class="deck">
+          A solar-powered radar stream gauge on a creek with no official USGS gauge, fused
+          with twelve live data sources into a flood-probability model &mdash; a DIY flood
+          early-warning system for a small, flashy basin in northeastern Pennsylvania, built
+          on Home Assistant. It exists to buy back the tens of minutes between rain falling
+          upstream and water reaching the door.
+        </p>
+
+        <div class="stats">
+          <div class="stat"><b>12</b><span>Live data sources</span></div>
+          <div class="stat"><b>49</b><span>Features per inference</span></div>
+          <div class="stat"><b>7</b><span>External APIs</span></div>
+          <div class="stat"><b>&plusmn;5<small>mm</small></b><span>Gauge precision</span></div>
+          <div class="stat"><b>60<small>&rarr;5s</small></b><span>Telemetry cadence*</span></div>
+          <div class="stat"><b>337</b><span>Automated tests</span></div>
+        </div>
+      </header>
+
+      <section id="status">
+        <div class="status-banner">
+          <div class="status-dot" aria-hidden="true"></div>
+          <div>
+            <h2>Instrument phase: deployed &amp; operational</h2>
+            <p>
+              The Moteino M0 + RFM69HW creek node went onto the pole on <strong>2026&#8209;09&#8209;19</strong>
+              and has run continuously since, reporting every 60 seconds with stable battery
+              voltage and a sustained <strong>&minus;72 dBm</strong> RSSI &mdash; well inside the
+              &minus;80 dBm link-margin target, with effectively zero packet loss across real
+              rainfall events. Defensive firmware handling (explicit radio reset pulses,
+              re-initialization on wake, flash busy-wait fixes) keeps it running unattended.
+            </p>
+            <p>
+              24+ hours of field data already show the sensor tracking rainfall-driven water-level
+              changes. The pole was subsequently raised to buy overbank headroom for model
+              training and reduce debris-strike risk; the sensor geometry below reflects the
+              last full survey and is due for a re-measurement at the new height.
+            </p>
+            <p class="kv">Build order: <b>instrument</b> &rarr; ingest &rarr; collect &amp; correlate &rarr; predict &rarr; harden. Ingest through predict are code-complete; what's left is real storms, not code.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="gap">
+        <h2>The gap this fills</h2>
+        <p class="sec-note">Why an off-the-shelf alert does not exist</p>
+        <p>
+          There is no USGS gauge on this creek. The nearest instruments that publish
+          continuous readings are off-basin or downstream &mdash; useful for validating a lag
+          estimate, useless as a stand-in for how high the water is right now.
+        </p>
+        <p>
+          It is also a <strong>flashy basin</strong>: roughly 18&nbsp;mi&sup2;, and
+          rainfall-to-crest is measured in tens of minutes, not hours. That short fuse is the
+          entire design constraint. A system that reports a flood is a logger. This one is
+          built to say <em>a flood is becoming likely</em>, early enough that the answer is
+          still to move things rather than to bail them out. A prior 100-year storm put roughly
+          40 inches of water into the basement this system now watches for.
+        </p>
+      </section>
+
+      <section id="geometry">
+        <h2>Measured against the bed, not a guess</h2>
+        <p class="sec-note">As-built geometry &mdash; last full survey 2026-09-14</p>
+        <div class="figure">
+          <svg viewBox="0 0 780 306" role="img" aria-label="Cross-section of the creek gauge install: bank top at 44.25 inches, sensor face just below it at 43.5 inches, the radar's range ceiling at 37.6 inches, Emergency threshold at 30 inches, Warning threshold at 24 inches, all measured above the creekbed.">
+            <defs>
+              <linearGradient id="wfill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="var(--water)" stop-opacity="0.30"/>
+                <stop offset="100%" stop-color="var(--water)" stop-opacity="0.07"/>
+              </linearGradient>
+            </defs>
+
+            <path d="M200 224 L520 224 L520 262 L200 262 Z" fill="url(#wfill)"/>
+            <path d="M200 224 L520 224" stroke="var(--water)" stroke-width="2" fill="none"/>
+
+            <path d="M186 262 L560 262" stroke="var(--ink)" stroke-width="2.5" fill="none"/>
+            <text x="186" y="282" fill="var(--muted)" font-family="ui-monospace, monospace" font-size="11">creekbed &mdash; datum, 0.0 in</text>
+
+            <rect x="544" y="18" width="9" height="244" fill="var(--rule)"/>
+            <rect x="544" y="18" width="9" height="244" fill="none" stroke="var(--ink)" stroke-width="1" opacity="0.35"/>
+
+            <rect x="482" y="18" width="71" height="18" rx="2" fill="var(--ink)"/>
+            <text x="474" y="31" text-anchor="end" fill="var(--ink)" font-family="ui-monospace, monospace" font-size="11" font-weight="600">80 GHz radar</text>
+
+            <path d="M517 36 L488 224 L546 224 Z" fill="var(--water)" fill-opacity="0.10"/>
+            <path d="M517 36 L488 224 M517 36 L546 224" stroke="var(--water)" stroke-width="1" stroke-dasharray="3 4" fill="none" opacity="0.75"/>
+
+            <g font-family="ui-monospace, monospace" font-size="11">
+              <path d="M186 23 L544 23" stroke="var(--accent)" stroke-width="1.75" fill="none"/>
+              <text x="172" y="19" text-anchor="end" fill="var(--accent)" font-weight="600">44.25 in &mdash; bank top</text>
+
+              <path d="M186 27 L482 27" stroke="var(--ink)" stroke-width="1" stroke-dasharray="2 5" fill="none" opacity="0.55"/>
+              <text x="172" y="40" text-anchor="end" fill="var(--ink)" font-weight="600">43.5 in &mdash; sensor face</text>
+
+              <path d="M186 59 L544 59" stroke="var(--water)" stroke-width="1.5" stroke-dasharray="7 4" fill="none"/>
+              <text x="172" y="63" text-anchor="end" fill="var(--water)" font-weight="600">37.6 in &mdash; range ceiling</text>
+
+              <path d="M186 100 L544 100" stroke="var(--t4)" stroke-width="1.5" stroke-dasharray="7 4" fill="none"/>
+              <text x="172" y="104" text-anchor="end" fill="var(--t4)" font-weight="600">30 in &mdash; Emergency</text>
+
+              <path d="M186 132 L544 132" stroke="var(--t3)" stroke-width="1.5" stroke-dasharray="7 4" fill="none"/>
+              <text x="172" y="136" text-anchor="end" fill="var(--t3)" font-weight="600">24 in &mdash; Warning</text>
+            </g>
+
+            <g stroke="var(--rule)" stroke-width="1">
+              <path d="M562 262 L570 262"/><path d="M562 208 L570 208"/><path d="M562 154 L570 154"/>
+              <path d="M562 100 L570 100"/><path d="M562 46 L570 46"/>
+            </g>
+            <g fill="var(--muted)" font-family="ui-monospace, monospace" font-size="10">
+              <text x="576" y="266">0</text><text x="576" y="212">10</text><text x="576" y="158">20</text>
+              <text x="576" y="104">30</text><text x="576" y="50">40</text>
+              <text x="576" y="286">inches</text>
+            </g>
+          </svg>
+          <table class="fig-table">
+            <tr><th>Reference</th><th>Height above creekbed</th></tr>
+            <tr><td>Bank top (re-surveyed 2026-09-14)</td><td>44.25 in</td></tr>
+            <tr><td>Sensor face</td><td>43.5 in (1105 mm)</td></tr>
+            <tr><td>Radar range ceiling (blanking zone)</td><td>37.6 in</td></tr>
+            <tr><td>Emergency threshold</td><td>30 in</td></tr>
+            <tr><td>Warning threshold</td><td>24 in</td></tr>
+          </table>
+          <figcaption>
+            Depth = installation height &minus; measured distance. Because the datum is the
+            creekbed itself, stage reads as true water depth and falls to zero on a dry bed
+            rather than going negative. The 2026-09-14 re-survey found bank top 6.75 in
+            higher than an earlier eyeball estimate: the sensor face actually sits
+            <strong>~0.75 in below</strong> bank top, not above it, so the radar's blanking
+            zone begins about 6.65 in of depth <em>before</em> the creek tops the bank.
+            Readings inside the blanking zone are clamped to the range ceiling, never left
+            blank, so the alarm cannot quietly stand down at the worst possible moment. The
+            pole has since been raised to add headroom; the numbers above are the last full
+            survey and will be updated once the new height is re-measured.
+          </figcaption>
+        </div>
+      </section>
+
+      <section id="how">
+        <h2>Four layers, one signal path</h2>
+        <p class="sec-note">Sensor to phone, entirely self-hosted</p>
+        <div class="chain">
+          <div class="link">
+            <div class="link-key">Instrument</div>
+            <div>
+              <h3>A gauge where none existed</h3>
+              <p>
+                An 80&nbsp;GHz FMCW radar (DFRobot SEN0676) on a creekside pole reads the water
+                surface to &plusmn;5&nbsp;mm over Modbus RTU into a Moteino M0, which transmits
+                on an encrypted 915&nbsp;MHz point-to-point link to an ESP32 gateway at the
+                house &mdash; no WiFi at the creek, no cellular, no subscription. Solar-powered,
+                ~25&nbsp;mA average. Deployed and reporting continuously since 2026-09-19.
+                Adaptive crest sampling &mdash; dropping from 60&nbsp;s to 5&nbsp;s on a
+                confirmed rise &mdash; is code-complete and waiting on a firmware push to the node.
+              </p>
+            </div>
+          </div>
+          <div class="link">
+            <div class="link-key">Ingest</div>
+            <div>
+              <h3>Twelve sources, one feature row <span class="new-tag">+1 source</span></h3>
+              <p>
+                The <code>rate_of_rise</code> Home Assistant add-on polls twelve sources every
+                fast loop &mdash; on-site rain, temperature and soil probes; upstream rain
+                gauges; NWS forecasts and alerts; the National Water Model; the WPC Excessive
+                Rainfall Outlook; NEXRAD storm-cell tracks; SNODAS snowpack; USGS reference
+                gauges; and, newest, Google's Flood Forecasting API &mdash; assembling 49
+                features every cycle, all auto-provisioned as Home Assistant entities over
+                MQTT discovery.
+              </p>
+            </div>
+          </div>
+          <div class="link">
+            <div class="link-key">Correlate &amp; predict</div>
+            <div>
+              <h3>Learns this basin specifically</h3>
+              <p>
+                Storm events are logged automatically and the rainfall&rarr;response
+                relationship is fit to this catchment rather than borrowed from a regional
+                average. The storm log has already cleared the minimum event count for
+                machine-learning training; the xgboost pipeline is code-complete and
+                unit-tested against synthetic storms, but has not yet trained on a real creek
+                response. It runs on transparent threshold rules until that happens, and says
+                which of the two produced the number on screen.
+              </p>
+            </div>
+          </div>
+          <div class="link">
+            <div class="link-key">Alert</div>
+            <div>
+              <h3>Five tiers and an operator console <span class="new-tag">new</span></h3>
+              <p>
+                A five-level tier ladder drives phone pushes over MQTT, escalating at Watch and
+                above to a critical Android alarm-stream notification that sounds through
+                silent and Do Not Disturb. Any official NWS flood product floors the tier
+                independently of the model. An operator dashboard can trigger inference,
+                retrain, promote or roll back the model, and annotate storms by hand &mdash;
+                all sent as MQTT commands the add-on picks up and reports back on.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="sources">
+        <h2>What it watches</h2>
+        <p class="sec-note">12 sources &middot; 7 external APIs &middot; dozens of Home Assistant entities, all via MQTT discovery</p>
+        <div class="sources">
+          <div class="source"><em>On-site</em><b>Creek radar gauge</b><span>Stage &amp; rate of rise, 60&nbsp;s (adaptive to 5&nbsp;s on a rise)</span></div>
+          <div class="source"><em>On-site</em><b>Soil moisture &times;2</b><span>Antecedent wetness, ponding flag &mdash; field-calibrated</span></div>
+          <div class="source"><em>On-site</em><b>Weather station</b><span>Rain intensity, temperature</span></div>
+          <div class="source"><em>api.weather.gov</em><b>NWS forecast (QPF)</b><span>6&nbsp;h and 24&nbsp;h expected rainfall</span></div>
+          <div class="source"><em>api.weather.gov</em><b>NWS active alerts</b><span>Flood &amp; flash-flood products &mdash; floors the tier</span></div>
+          <div class="source"><em>NOAA NWPS</em><b>National Water Model</b><span>Short-range reach streamflow forecast</span></div>
+          <div class="source"><em>IEM</em><b>WPC Excessive Rainfall Outlook</b><span>Rain graded against flash-flood guidance, not raw inches</span></div>
+          <div class="source"><em>IEM / NEXRAD</em><b>Storm-cell tracks</b><span>Bearing, speed, dBZ, ETA to site</span></div>
+          <div class="source"><em>NOHRSC</em><b>SNODAS snowpack</b><span>Rain-on-snow melt contribution</span></div>
+          <div class="source"><em>USGS NWIS</em><b>Reference gauges</b><span>Off-basin lag validation, never a stage stand-in</span></div>
+          <div class="source"><em>Weather Underground</em><b>Upstream PWS</b><span>Neighbor rain gauges, drains toward site</span></div>
+          <div class="source"><em>Google</em><b>Flood Forecasting API</b><span>Neighboring-gauge severity/trend + flash-flood polygon containment at the site</span><span class="new-tag">new</span></div>
+        </div>
+      </section>
+
+      <section id="operator">
+        <h2>Operator console</h2>
+        <p class="sec-note">MQTT commands, driven from the Home Assistant dashboard</p>
+        <p>
+          The modeling service is headless by design &mdash; no ports, no ingress &mdash; but
+          it isn't hands-off. Five commands, issued as MQTT messages from dashboard buttons,
+          reach the add-on's command queue and publish a result back to a "Last command"
+          sensor:
+        </p>
+        <div class="commands">
+          <div class="command"><code>run_inference</code><p>Force an immediate scoring pass instead of waiting for the next fast loop.</p></div>
+          <div class="command"><code>retrain</code><p>Refit the xgboost candidate against the current dataset on demand.</p></div>
+          <div class="command"><code>promote</code><p>Activate a candidate model, with a warning if it was never scored.</p></div>
+          <div class="command"><code>rollback</code><p>Undo a promotion &mdash; including the very first one, which never used to be undoable.</p></div>
+          <div class="command"><code>annotate</code><p>Write a free-text note onto the most recently closed storm event.</p></div>
+        </div>
+      </section>
+
+      <section id="tiers">
+        <h2>Five tiers, and one that wakes you</h2>
+        <p class="sec-note">Escalation ladder &mdash; each rung is the lowest condition that reaches it</p>
+        <div class="ladder">
+          <div class="rung" style="--tier: var(--t0)">
+            <div class="bar"></div><div class="n">0</div>
+            <div class="name">All-clear</div>
+            <div class="cond">No elevated risk. Nothing fires.</div>
+          </div>
+          <div class="rung" style="--tier: var(--t1)">
+            <div class="bar"></div><div class="n">1</div>
+            <div class="name">Advisory</div>
+            <div class="cond">Forecast rain onto already-wet ground, a WPC excessive-rain risk, or an above-normal status on a Google-modeled neighboring gauge.</div>
+          </div>
+          <div class="rung" style="--tier: var(--t2)">
+            <div class="bar"></div><div class="n">2</div>
+            <div class="name">Watch</div>
+            <div class="cond">Rain measured upstream, radar cells inbound, or a severe/extreme Google gauge status or flash-flood polygon over the site. <strong>Critical push from here up.</strong></div>
+          </div>
+          <div class="rung" style="--tier: var(--t3)">
+            <div class="bar"></div><div class="n">3</div>
+            <div class="name">Warning</div>
+            <div class="cond">The creek is answering &mdash; 24&nbsp;in stage, or rising 0.05&nbsp;in/min, confirmed against radio dropouts.</div>
+          </div>
+          <div class="rung" style="--tier: var(--t4)">
+            <div class="bar"></div><div class="n">4</div>
+            <div class="name">Emergency</div>
+            <div class="cond">30&nbsp;in and climbing &mdash; overbank imminent.</div>
+          </div>
+        </div>
+        <p style="margin-top:20px">
+          At Watch and above the notification routes through Android's alarm stream, so it
+          sounds at alarm volume through silent, vibrate and Do Not Disturb. Any official NWS
+          flood product raises the floor independently &mdash; a forecaster knows things two
+          buried probes do not. A dropped radio link to the creek node can no longer manufacture
+          a false Warning: rate of rise is only computed from samples that can be honestly
+          differenced, with the link checked first and the first readings after a reconnect
+          requiring confirmation.
+        </p>
+      </section>
+
+      <section id="status-honest">
+        <div class="caveat">
+          <h2>What this does not claim</h2>
+          <p class="sec-note" style="margin-bottom:14px">The honest part</p>
+          <p>
+            Every threshold in the tier ladder is a placeholder until real storms say
+            otherwise. As of 2026-09-20, most of the project's open engineering questions are
+            closed &mdash; the instrument is deployed, the radio link margin is confirmed, solar
+            and charging are settled, the soil probes are field-calibrated, and Google Flood
+            Forecasting is built and verified. What's left is three field-calibration items
+            &mdash; the tier thresholds themselves, the antecedent-precipitation recession
+            constant, and the rain-on-snow flag &mdash; and no amount of code shortens that
+            wait: they get measured by watching it rain. Every alert this system sends still
+            carries its own disclaimer: <span class="kv"><b>thresholds are not yet
+            field-calibrated &mdash; verify before acting</b></span>.
+          </p>
+          <p style="margin-bottom:0">
+            The signal path is complete and tested end to end, and it is now running on real
+            hardware at the creek. This is a personal, best-effort early-warning aid, never a
+            substitute for official NWS/NOAA flood warnings. Do not rely on it as a sole source
+            of flood safety information.
+          </p>
+        </div>
+      </section>
+
+      <footer>
+        <span>Home Assistant add-on &middot; Python + ESPHome + Arduino/Moteino</span>
+        <span>v0.22.1 &middot; 337 tests, CI on every push</span>
+        <span><a href="https://github.com/ryanbuiltthat/rate-of-rise">github.com/ryanbuiltthat/rate-of-rise</a></span>
+        <span>Site details generalized</span>
+      </footer>
+    </main>
+  </div>
+</div>
+</body>
+</html>
