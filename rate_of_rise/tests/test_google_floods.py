@@ -317,6 +317,33 @@ def test_the_search_is_a_post_and_the_status_query_is_a_get():
     assert len(calls["status"]) == 1     # GET -- fetch was called with body=None
 
 
+def test_a_refused_key_says_what_to_check_rather_than_raising_a_bare_http_error():
+    """This API needs a key *and* the API enabled on the issuing Cloud project. A project
+    that never enabled it answers 403 for a valid key, which reads as a bad key and is
+    not -- so the message has to name both."""
+    import app.sources.google_floods as gf
+
+    class Resp:
+        status_code = 403
+
+        def raise_for_status(self):
+            raise AssertionError("should have been intercepted before raise_for_status")
+
+    original = gf.requests
+    gf.requests = type("R", (), {"get": staticmethod(lambda *a, **k: Resp()),
+                                 "post": staticmethod(lambda *a, **k: Resp())})()
+    try:
+        gf._default_fetch("https://example.invalid", {"X-Goog-Api-Key": "bad"})
+    except RuntimeError as exc:
+        assert "403" in str(exc)
+        assert "google_floods_api_key" in str(exc)
+        assert "enabled" in str(exc)
+    else:
+        raise AssertionError("a refused key must not pass silently")
+    finally:
+        gf.requests = original
+
+
 def test_a_gauge_with_no_usable_location_is_skipped_not_fatal():
     gauge, status = at(2.0, "g1", "SEVERE")
     broken = ({"gaugeId": "broken", "hasModel": True, "location": {}}, {"gaugeId": "broken"})

@@ -32,6 +32,24 @@ _LEVELS = {
 }
 
 
+def _optional(value: str | None) -> str:
+    """Normalize an optional add-on option that arrived via `bashio::config`.
+
+    bashio renders an option the operator never filled in (`str?`, `password?`) as the
+    literal string "null" rather than as an empty string. Left alone that is a truthy
+    value, so an unset option reads as configured, enables its source, and then fails
+    every poll against a bogus key or ID — with nothing in the log saying the option is
+    the problem.
+
+    `nwm_reach_id` has always been guarded against this at its use site in
+    `sources/__init__.py`. Normalizing here instead means a newly added optional cannot
+    miss the guard by not knowing about it, which is exactly how 0.21.0 shipped the
+    Google Floods source enabled with the API key "null".
+    """
+    text = (value or "").strip()
+    return "" if text == "null" else text
+
+
 def _options() -> dict:
     try:
         return json.loads(_OPTIONS_JSON.read_text(encoding="utf-8"))
@@ -117,9 +135,9 @@ class Config:
             rate_of_rise_max_gap_minutes=float(
                 env.get("RATE_OF_RISE_MAX_GAP_MINUTES", 10.0)),
             rate_of_rise_confirm_samples=int(env.get("RATE_OF_RISE_CONFIRM_SAMPLES", 2)),
-            google_floods_api_key=env.get("GOOGLE_FLOODS_API_KEY", ""),
-            wu_api_key=env.get("WU_API_KEY", ""),
-            nwm_reach_id=env.get("NWM_REACH_ID", ""),
+            google_floods_api_key=_optional(env.get("GOOGLE_FLOODS_API_KEY")),
+            wu_api_key=_optional(env.get("WU_API_KEY")),
+            nwm_reach_id=_optional(env.get("NWM_REACH_ID")),
             stage_entity=opts.get("stage_entity", "sensor.creek_gateway_stage"),
             creek_node_status_entity=opts.get(
                 "creek_node_status_entity",

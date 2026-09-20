@@ -294,6 +294,15 @@ API key, and it only has an answer if Google models a gauge within 25 mi. `Creek
 Flood Gauges` reading 0 means it does not — that is a real reading, not a fault, and it is
 the answer to open question #2.
 
+Read that entity first when the Google cards look wrong, because it separates the two
+cases. A count (including `0`) means the source polled successfully. All four entities
+reading `unknown` means it has never polled successfully at all — check the add-on log for
+`Google Flood Forecasting enabled` vs `disabled (needs google_floods_api_key)`, and note
+that this API needs the key *and* the Flood Forecasting API enabled on the Google Cloud
+project that issued it; a project that never enabled it answers 403 for a valid key. The
+`Google Flood Status Missing` watchdog has a two-hour grace from start-up, so it stays OFF
+through the first failures and is not a health check for the first two hours.
+
 **Correlate (Phase 3)** — the rainfall→response lag estimate runs nightly (`app/lag.py`).
 
 **Predict (Phase 4)** — built and now running against real data: gradient-boosting

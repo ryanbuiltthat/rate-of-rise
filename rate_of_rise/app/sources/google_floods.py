@@ -144,6 +144,17 @@ def _default_fetch(url: str, headers: dict, body: dict | None = None,
         r = requests.get(url, headers=headers, timeout=timeout)
     else:
         r = requests.post(url, headers=headers, json=body, timeout=timeout)
+    if r.status_code in (401, 403):
+        # The two failures an operator can actually fix, and the two that are
+        # indistinguishable in a bare stack trace. Unlike every other source here, this
+        # API needs a key *and* a one-time "enable the API" click on the Cloud project
+        # that issued it — a project that has never enabled it answers 403 for a key that
+        # is otherwise perfectly valid, which reads as "my key is wrong" and is not.
+        raise RuntimeError(
+            f"Google Flood Forecasting refused the request ({r.status_code}). Check that "
+            "google_floods_api_key is correct and not restricted away from this API, and "
+            "that the Flood Forecasting API is enabled on its Google Cloud project."
+        )
     r.raise_for_status()
     return r.json()
 
