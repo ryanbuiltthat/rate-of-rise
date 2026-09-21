@@ -2,7 +2,11 @@
 //
 // Reads water level via Modbus RTU from the SEN0676 80 GHz radar, packs a
 // JSON payload, and transmits over RFM69HW (915 MHz) to the ESP32 gateway.
-// Sleeps between cycles to keep average draw ~25 mA on solar/LiPo, reporting
+// Sleeps between cycles and duty-cycles the radar rail, which should hold average
+// draw to a few mA. It does not: the pack says ~60 mA, and ~5.7x more than it drew
+// before 2026-09-14. See open question #17 and the radar-rail diagnostic below —
+// the leading suspect is that SHDN on the 5 V boost is not connected to
+// SENSOR_EN_PIN, so the radar never actually powers down. Reporting is
 // every 60 s normally and every 5 s once it detects the creek rising (see
 // "Adaptive crest sampling" below). Listens briefly after each TX for a
 // wireless firmware push (see firmware/README.md, OTA section) so future
@@ -99,6 +103,52 @@
 
 #define SECONDS_PER_DAY          86400L
 
+// ─── Radar-rail diagnostic window (open question #17) ────────────────────────
+// TEMPORARY DIAGNOSTIC. Ships disabled; set to 1, flash, collect one night, revert.
+//
+// WHAT IT ANSWERS. The pack discharges ~5.7x faster than it did before 2026-09-14 (the
+// measurement is in docs/node-hardware.md, "Measuring average draw without a shunt").
+// The prime suspect is that SHDN on the radar's U1V11F5 5 V boost is not actually
+// connected to SENSOR_EN_PIN. That pin is pulled high on the board, so a loose or broken
+// wire leaves the regulator permanently ENABLED -- the SEN0676 runs 24/7 at ~35 mA, every
+// reading stays perfect, and the only symptom is the battery. Nothing in the telemetry
+// distinguishes that from a correctly duty-cycled rail, because in both cases the
+// firmware drives the pin exactly the same way.
+//
+// The only way to tell is to hold the rail off long enough for the pack to answer. If the
+// overnight slope drops (~11 mV/h -> ~4-5 mV/h) the wiring is good and the load is
+// elsewhere. If it does not move, SHDN is disconnected -- diagnosed without a site visit.
+//
+// Two hours is enough: ~120 samples gives a slope standard error near 0.7 mV/h against a
+// ~6 mV/h effect. It doubles as the calibration anchor, since a known ~35 mA step against
+// a measured slope change converts mV/h to mA for every future night.
+//
+// THE WINDOW IS RELATIVE TO BOOT, NOT TO THE CLOCK. setup() calls rtc.begin() and never
+// rtc.setTime(), so the RTC starts at 00:00:00 on every power-up and secondsOfDay() is
+// really seconds-since-boot. The window therefore opens DIAG_WINDOW_START_S after the
+// node boots and repeats every 24 h at that same offset. **Flash at a time that puts it
+// in the small hours** -- flashing at 20:00 local puts a 2 h window at 22:00. Any reboot
+// (brownout, OTA, watchdog) restarts the clock and shifts the window with it.
+#define DIAG_RADAR_WINDOW_ENABLE 0        // 1 to arm. Keep 0 on anything left on the pole.
+#define DIAG_WINDOW_START_S      7200L    // opens this long after boot
+#define DIAG_WINDOW_LENGTH_S     7200L    // and stays open this long (start+length < 24 h)
+
+// Going blind is the cost of this test, and in a basin where rainfall-to-crest is tens of
+// minutes, two unbroken hours of it is not acceptable. So the window is not actually
+// unbroken: every DIAG_PEEK_EVERY cycles the rail comes up for one ordinary reading, which
+// caps the blind gap at DIAG_PEEK_EVERY * REPORT_INTERVAL_S (20 min at the values here).
+// The peeks cost ~2 s of radar per 20 min -- about 0.06 mA averaged, which is nothing
+// against the ~35 mA the test is trying to see.
+#define DIAG_PEEK_EVERY          20
+
+// A peek that finds the creek high or rising abandons the window until the next day. The
+// node only has RAW DISTANCE -- the datum lives in Home Assistant, not here -- so this is
+// a distance, and distance SHRINKS as water rises. At the surveyed 1105 mm mount this is
+// 1105 - 850 = 255 mm ≈ 10 in of depth, well under the 24 in Warning threshold in
+// app/tiers.py. **Re-derive it if the pole is ever raised** (open question #16): the
+// install height changes and this constant does not follow it.
+#define DIAG_MIN_SAFE_DISTANCE_MM 850
+
 // ─── Bench testing ───────────────────────────────────────────────────────────
 // On USB/bench power: skip LowPower.standby() entirely so the board stays
 // reachable over serial instead of the port dropping for 30-55 s per wake,
@@ -132,6 +182,15 @@ static int32_t lastSampleSod  = -1;
 static uint8_t risingSamples  = 0;
 static uint8_t quietSamples   = 0;
 static bool    fastMode       = false;
+
+#if DIAG_RADAR_WINDOW_ENABLE
+// Cycles counted since the current diagnostic window opened, and a latch that keeps an
+// abandoned window abandoned. Both live in plain SRAM across standby, same as the crest
+// sampling state above. diagAborted clears when the window closes, so a creek that was
+// high tonight does not disable the test for good.
+static uint16_t diagCycles  = 0;
+static bool     diagAborted = false;
+#endif
 
 // RTC seconds-of-day. This is the only usable time base across a sleep: the RTC is what
 // wakes the MCU, while millis()' clock is gated off during standby and so under-counts
@@ -296,6 +355,21 @@ static void updateRateOfRise(int32_t distance_mm) {
   lastSampleSod  = nowSod;
 }
 
+#if DIAG_RADAR_WINDOW_ENABLE
+// True while the diagnostic window is open. No midnight wrap handling, because
+// DIAG_WINDOW_START_S + DIAG_WINDOW_LENGTH_S is asserted below to stay inside one day --
+// a window that straddled the RTC's rollover would need the same (now - then + 86400)
+// dance updateRateOfRise() does, and there is no reason to buy that complexity for a
+// diagnostic that is meant to be reverted.
+static_assert(DIAG_WINDOW_START_S + DIAG_WINDOW_LENGTH_S < SECONDS_PER_DAY,
+              "diagnostic window must not cross the RTC's 24 h rollover");
+
+static bool inDiagWindow() {
+  const int32_t sod = secondsOfDay();
+  return sod >= DIAG_WINDOW_START_S && sod < (DIAG_WINDOW_START_S + DIAG_WINDOW_LENGTH_S);
+}
+#endif
+
 // ─── Battery voltage via Moteino M0 onboard VIN divider ─────────────────────
 // The Moteino M0 has a built-in 50% voltage divider on A5 connected to VIN.
 // Formula from LowPowerLab: vin = analogRead(A5) * 2 * (3.3 / 1023)
@@ -366,14 +440,56 @@ void loop() {
   bool radioOk = radioInit();
   if (!radioOk) Serial.println(F("RFM69 init failed; skipping TX this cycle"));
 
-  // Power up the radar
-  digitalWrite(SENSOR_EN_PIN, HIGH);
-  delay(SENSOR_SETTLE_MS);
+  // Decide whether this cycle is one of the diagnostic hold cycles before touching the
+  // rail. Compiles away entirely when the diagnostic is disabled, which is how it ships.
+  bool diagHold = false;
+#if DIAG_RADAR_WINDOW_ENABLE
+  const bool diagWindow = inDiagWindow();
+  if (!diagWindow) {
+    // Outside the window everything resets, so tomorrow's window starts clean even if
+    // tonight's was abandoned.
+    diagCycles = 0;
+    diagAborted = false;
+  } else if (!diagAborted && !fastMode) {
+    // fastMode means the creek is already rising: never start going blind into that.
+    // Peek on the window's first cycle and every DIAG_PEEK_EVERY thereafter.
+    const bool peek = (diagCycles % DIAG_PEEK_EVERY) == 0;
+    diagCycles++;
+    diagHold = !peek;
+  }
+#endif
 
-  int32_t distance_mm = modbusReadHolding(SENSOR_ADDR, REG_DISTANCE);
+  int32_t distance_mm = -1;
+  if (diagHold) {
+    // Leave the rail low for the whole cycle -- that is the entire experiment. The null
+    // distance this produces travels the existing failed-read path, so the gateway
+    // publishes NAN and Home Assistant shows unknown, exactly as it does for a Modbus
+    // timeout. Nothing downstream needs to know the difference, and the packet budget
+    // (see below) has no room to tell it anyway.
+    digitalWrite(SENSOR_EN_PIN, LOW);
+    Serial.println(F("diag: radar rail held off this cycle"));
+  } else {
+    // Power up the radar
+    digitalWrite(SENSOR_EN_PIN, HIGH);
+    delay(SENSOR_SETTLE_MS);
 
-  // Power down the radar
-  digitalWrite(SENSOR_EN_PIN, LOW);
+    distance_mm = modbusReadHolding(SENSOR_ADDR, REG_DISTANCE);
+
+    // Power down the radar
+    digitalWrite(SENSOR_EN_PIN, LOW);
+  }
+
+#if DIAG_RADAR_WINDOW_ENABLE
+  // A peek that finds the water up abandons the rest of tonight's window. Deliberately
+  // only acts on a GOOD reading: a failed read (-1) is not evidence the creek is low, but
+  // it is not evidence it is high either, and treating every Modbus timeout as an abort
+  // would make the test impossible to complete on a node with a flaky sensor.
+  if (diagWindow && !diagHold && distance_mm >= 0 &&
+      distance_mm < DIAG_MIN_SAFE_DISTANCE_MM) {
+    diagAborted = true;
+    Serial.println(F("diag: creek too high, abandoning window until tomorrow"));
+  }
+#endif
 
   uint16_t batt_mv = readBatteryMv();
 

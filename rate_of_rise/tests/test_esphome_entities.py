@@ -176,6 +176,49 @@ def test_fast_sampling_flag_is_actually_sent_by_the_node():
         "node firmware no longer sends the `fast` flag the gateway publishes")
 
 
+def test_radar_diagnostic_window_ships_disabled():
+    """The #17 diagnostic deliberately blinds the radar, so it must never ship armed.
+
+    Flashed with DIAG_RADAR_WINDOW_ENABLE at 1, the node stops reading the creek for up to
+    20 minutes at a stretch, two hours a day, forever — and it does so silently, because a
+    held-off rail produces the same null distance as a Modbus timeout. On a flashy basin
+    where rainfall-to-crest is tens of minutes, a forgotten 1 here is a blind window during
+    exactly the event the system exists to catch. Flip it to 1 to run the test, flip it back
+    before the build that stays on the pole.
+    """
+    node_src = (ROOT / "firmware" / "moteino_creek_node" / "src" / "main.cpp").read_text(
+        encoding="utf-8")
+    match = re.search(r"#define\s+DIAG_RADAR_WINDOW_ENABLE\s+(\d+)", node_src)
+    assert match, "could not find DIAG_RADAR_WINDOW_ENABLE in the node firmware"
+    assert match.group(1) == "0", (
+        "the radar-rail diagnostic is armed; it blinds the creek sensor and must be "
+        "reverted to 0 before this firmware goes on the pole")
+
+
+def test_diagnostic_peek_gap_stays_under_the_rate_of_rise_window():
+    """The blind gap between peeks must stay shorter than the add-on's own rate window.
+
+    DIAG_PEEK_EVERY cycles at REPORT_INTERVAL_S is how long the node can go without looking
+    at the creek during the diagnostic. MAX_RATE_GAP_S (300 s) is the longest gap the node
+    will still compute a rate of rise across, so a peek interval below it would let the node
+    manufacture a rate from two readings straddling a blind stretch. Above it the node
+    correctly declines to compute a rate at all, which is the honest behaviour — but the gap
+    still has to be bounded, or the safety peek stops being a safety peek.
+    """
+    node_src = (ROOT / "firmware" / "moteino_creek_node" / "src" / "main.cpp").read_text(
+        encoding="utf-8")
+
+    def define(name):
+        m = re.search(rf"#define\s+{name}\s+(\d+)", node_src)
+        assert m, f"could not find {name} in the node firmware"
+        return int(m.group(1))
+
+    gap_s = define("DIAG_PEEK_EVERY") * define("REPORT_INTERVAL_S")
+    assert gap_s <= 1800, (
+        f"diagnostic blind gap is {gap_s} s; rainfall-to-crest here is tens of minutes, "
+        "so anything beyond ~30 min stops being a peek and becomes an outage")
+
+
 def test_blanking_zone_matches_the_sensor_datasheet():
     """SEN0676 minimum range is 0.15 m; anything closer is not a measurement. The stage
     lambda uses this to reject a lost target, so a too-small value publishes noise as depth."""
