@@ -145,6 +145,37 @@ def test_stage_and_depth_are_both_published():
         assert required in names, f"gateway no longer publishes {required!r}: {sorted(names)}"
 
 
+def test_wake_accounting_entities_are_published():
+    """Average current is derived from these two plus battery voltage, with no shunt on the
+    pack (docs/node-hardware.md, "Measuring average draw without a shunt").
+
+    Dropping either one breaks the measurement silently rather than loudly: the overnight
+    voltage slope still computes and still looks entirely reasonable, it is just no longer
+    divisible by a known number of wakes, so the mV/h -> mA step quietly reverts to being an
+    assumption. Nothing errors, and the resulting current is wrong by whatever the duty cycle
+    drifted. Counting battery rows instead is not a fallback -- HA's recorder dedups identical
+    states and the node's 6.45 mV ADC quantum makes those common, which undercounts wakes by
+    roughly 60 % and does it in a way that correlates with pack activity.
+    """
+    names = set(gateway_entity_ids())
+    for required in ("Creek Node Packets", "Creek Node Fast Sampling"):
+        assert required in names, f"gateway no longer publishes {required!r}: {sorted(names)}"
+
+
+def test_fast_sampling_flag_is_actually_sent_by_the_node():
+    """The gateway can only publish the cadence flag if the node still puts it on the wire.
+
+    These are two separate codebases flashed over two different paths -- the node over RFM69
+    OTA, the gateway over WiFi -- so they can and do drift apart. If `fast` were dropped from
+    the payload the gateway would publish "not fast" forever, which is indistinguishable from
+    a node that simply never sees a rise.
+    """
+    node_src = (ROOT / "firmware" / "moteino_creek_node" / "src" / "main.cpp").read_text(
+        encoding="utf-8")
+    assert '\\"fast\\":%d' in node_src, (
+        "node firmware no longer sends the `fast` flag the gateway publishes")
+
+
 def test_blanking_zone_matches_the_sensor_datasheet():
     """SEN0676 minimum range is 0.15 m; anything closer is not a measurement. The stage
     lambda uses this to reject a lost target, so a too-small value publishes noise as depth."""
