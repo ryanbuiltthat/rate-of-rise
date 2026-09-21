@@ -302,6 +302,37 @@ def test_diagnostic_window_is_one_shot():
         "the latch no longer requires a usable sample, so a cut-short window burns the shot")
 
 
+def test_rolling_firmware_release_is_published_as_a_prerelease():
+    """The add-on's `v<version>` releases must stay the repository's "Latest".
+
+    GitHub gives "Latest" to whichever release is newest, so the rolling firmware release
+    takes it by default -- and did, until this was fixed: the front page of a public
+    repository advertised node firmware as the project's latest release, above the add-on it
+    exists to ship. Home Assistant itself is unaffected (Supervisor reads `version:` from
+    rate_of_rise/config.yaml on the default branch and never looks at releases), but the label
+    misrepresents the project and is a trap for any future code reaching for /releases/latest.
+
+    It must be `--prerelease` specifically. `--latest=false` and the API's `make_latest=false`
+    are only honoured at creation and do not move the label off a release already holding it;
+    that was verified against the live release. Both publish paths need it, for the same
+    reason the asset list does: create runs when the tag is new, upload-then-edit when it
+    already exists.
+    """
+    workflow = (ROOT / ".github" / "workflows" / "firmware-hex.yml").read_text(
+        encoding="utf-8")
+    body = [l for l in workflow.splitlines() if not l.strip().startswith("#")]
+
+    create = next((n for n, l in enumerate(body) if 'gh release create "$TAG"' in l), None)
+    assert create is not None, "the create path is gone from the workflow"
+    assert any("--prerelease" in l for l in body[create:create + 8]), (
+        'the create path does not pass --prerelease; a new rolling release would take the '
+        '"Latest" label from the add-on')
+
+    edit = next((l for l in body if 'gh release edit "$TAG"' in l), None)
+    assert edit is not None, "the release-edit call is gone from the workflow"
+    assert "--prerelease" in edit, "the upload path does not re-assert --prerelease"
+
+
 def test_ota_url_does_not_use_the_floating_latest_release():
     """`/releases/latest/` resolves repo-wide, and release.yml publishes `v*` add-on releases.
 
