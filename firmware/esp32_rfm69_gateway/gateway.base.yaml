@@ -124,7 +124,7 @@ esp32:
   toolchain: platformio
 
 logger:
-  level: DEBUG
+  level: INFO
 
 # The whole data path: the radio readings are published as native entities over this API, and
 # it is also what makes the device discoverable at all — mDNS only advertises the
