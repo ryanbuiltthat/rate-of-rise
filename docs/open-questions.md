@@ -308,7 +308,26 @@ the calibration phase.
   (2) `LowPower.standby()` not being entered, leaving the SAMD21 at ~12 mA; (3) unbudgeted
   quiescent draw across the two boosts, the charger and the protection board.
 
-  **Cheapest discriminator is a meter at the pole** — measure pack current with the node
+  **Confirmable without a site visit.** `DIAG_RADAR_WINDOW_ENABLE` in `main.cpp` (ships at
+  `0`) holds the radar rail off for a 2 h window once a day. If the overnight slope drops
+  from ~11 mV/h to ~4–5 mV/h the wiring is good and the load is somewhere else; if it does
+  not move at all, SHDN is not connected, because nothing the firmware does to the pin
+  reaches the regulator. Two hours is enough — ~120 samples puts the slope standard error
+  near 0.7 mV/h against a ~6 mV/h effect. It is also the calibration anchor #17's parent
+  problem needs: a known ~35 mA step against a measured slope change converts mV/h to mA
+  for every future night.
+
+  To run it: set the define to `1`, **flash at a time that lands the window in the small
+  hours** (it is measured from boot, not from the wall clock — `rtc.setTime()` is never
+  called, so flashing at 20:00 puts a 2 h window at 22:00), leave it one night, then revert
+  to `0` and reflash. A test asserts it ships disabled, because a forgotten `1` blinds the
+  creek sensor two hours a day and looks exactly like a Modbus timeout while doing it. The
+  window self-protects: it never starts while the node is in fast-sampling mode, it
+  abandons the night if a reading shows the creek up (distance < 850 mm ≈ 10 in of depth at
+  the current mount), and it surfaces for one ordinary reading every 20 minutes so the
+  longest blind gap is 20 min rather than the full two hours.
+
+  **Cheapest discriminator is still a meter at the pole** — measure pack current with the node
   idle between reports. Failing that, the two-night calibration in `docs/node-hardware.md`
   ("Measuring average draw without a shunt") separates the constant drain from the
   per-wake cost without opening the enclosure, using
