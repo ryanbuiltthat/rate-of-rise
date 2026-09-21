@@ -1,27 +1,60 @@
 name: firmware-hex
 
-# The atmelsam PlatformIO platform only emits an .elf, but the gateway's OTA push
-# fetches firmware.hex from raw.githubusercontent.com at a URL hardcoded to main
-# (see firmware/README.md "OTA Firmware Updates"). This workflow replaces the
-# manual "pio run, then objcopy, then commit" steps documented there: it builds
-# the node firmware whenever its source changes and keeps firmware.hex on main
-# in sync automatically. Pull requests only get the build-and-verify half — the
-# commit-back step is skipped so a PR branch is never pushed to on the author's
-# behalf.
+# The atmelsam PlatformIO platform only emits an .elf, so the node's OTA image has to be
+# converted to Intel HEX somewhere. This workflow is that somewhere: it builds the node
+# firmware whenever its source changes, publishes the .hex as a GitHub Release asset (which
+# is what the gateway actually downloads), and opens a PR to keep the committed copy in
+# sync. Pull requests get the build-and-verify half only.
+#
+# WHY A RELEASE INSTEAD OF A COMMIT ON main. This workflow used to `git push` firmware.hex
+# straight to main. The branch ruleset on main now requires a pull request, and the GitHub
+# Actions app cannot be added as a bypass actor on this repository, so that push would fail
+# — and it would fail *quietly*, leaving a stale firmware.hex that the gateway would happily
+# flash onto the node as if it were current. Publishing to a release removes the whole
+# failure mode: the artifact the gateway fetches is written by a mechanism that does not
+# touch a protected branch at all.
+#
+# WHY A FIXED TAG AND NOT /releases/latest/. `releases/latest` resolves to the most recent
+# non-draft, non-prerelease release *of the whole repository* — and release.yml publishes a
+# `v<version>` release every time the add-on's version changes. Those releases carry no
+# firmware.hex, so the moment the add-on is released, `releases/latest/download/firmware.hex`
+# starts returning 404 and OTA breaks with no code change and no obvious cause. A dedicated
+# moving tag is immune to that: it only ever moves when the node firmware moves.
+#
+# THE SYNC PR WILL NOT HAVE CHECKS ON IT. A PR opened with GITHUB_TOKEN deliberately does not
+# trigger other workflows, so `test` never runs on it and the required status check stays
+# pending forever. That is survivable *because the release is already published by then* —
+# the PR is bookkeeping, not the delivery path, and it can sit until someone closes and
+# reopens it (which re-triggers checks under a human actor) or merges it alongside other
+# work. If that becomes annoying, the better fix is to stop committing firmware.hex at all
+# and let the release be the only copy.
 on:
   push:
     branches: ["main"]
     paths:
       - "firmware/moteino_creek_node/src/**"
       - "firmware/moteino_creek_node/platformio.ini"
+      # This file too, so a change to the publishing logic republishes. Without it, the
+      # commit that first points node_hex_url at the release would not create that release
+      # -- the gateway's OTA URL would 404 until some unrelated firmware change happened to
+      # trigger a build, and the only symptom would be a failed OTA with a 404 nobody could
+      # trace back to a CI path filter.
+      - ".github/workflows/firmware-hex.yml"
   pull_request:
     paths:
       - "firmware/moteino_creek_node/src/**"
       - "firmware/moteino_creek_node/platformio.ini"
+      - ".github/workflows/firmware-hex.yml"
   workflow_dispatch:
 
 permissions:
   contents: write
+  pull-requests: write
+
+# The moving tag the gateway's node_hex_url points at. Changing this is a breaking change
+# for every deployed gateway: gateway.base.yaml's node_hex_url has to move with it.
+env:
+  FIRMWARE_TAG: node-firmware-latest
 
 jobs:
   build-hex:
@@ -52,16 +85,126 @@ jobs:
           objcopy=$(find ~/.platformio/packages/toolchain-gccarmnoneeabi/bin -name 'arm-none-eabi-objcopy')
           "$objcopy" -O ihex .pio/build/moteino_creek_node/firmware.elf firmware.hex
 
-      - name: Commit and push firmware.hex
-        if: github.event_name != 'pull_request'
+      # The armed radar-rail diagnostic build (open question #17), from the same commit.
+      #
+      # Built by flipping the define at build time rather than by committing a `1`. The source
+      # therefore always ships disabled -- which test_esphome_entities.py asserts, because a
+      # forgotten `1` in the repository would blind the creek sensor -- while the armed image
+      # still exists as an artifact anyone can install with one button press. Nobody has to
+      # arm, build and convert anything by hand to run the diagnostic.
+      #
+      # `git checkout` afterwards, so the sync-PR step below never sees the flipped define as
+      # a local modification and try to commit it.
+      - name: Build the armed diagnostic image
         working-directory: firmware/moteino_creek_node
         run: |
+          grep -q '#define DIAG_RADAR_WINDOW_ENABLE 0' src/main.cpp || {
+            echo "::error::DIAG_RADAR_WINDOW_ENABLE is not 0 in source; refusing to build"
+            exit 1
+          }
+          sed -i 's/#define DIAG_RADAR_WINDOW_ENABLE 0/#define DIAG_RADAR_WINDOW_ENABLE 1/' src/main.cpp
+          pio run -e moteino_creek_node
+          objcopy=$(find ~/.platformio/packages/toolchain-gccarmnoneeabi/bin -name 'arm-none-eabi-objcopy')
+          "$objcopy" -O ihex .pio/build/moteino_creek_node/firmware.elf firmware-diag.hex
+          git checkout -- src/main.cpp
+          # A diagnostic image identical to the normal one means the define did not reach the
+          # build, and the button would silently install ordinary firmware while the log said
+          # "diagnostic". Fail here instead.
+          if cmp -s firmware.hex firmware-diag.hex; then
+            echo "::error::diagnostic image is identical to the normal one"
+            exit 1
+          fi
+
+      # Guard the one number that silently breaks OTA. The gateway decodes the hex into a
+      # fixed RAM buffer (OTA_IMAGE_MAX_BYTES, 96 KB) and sizes it at content-length/2, so a
+      # firmware that outgrows that limit fails at flash time on the pole rather than here.
+      # Intel HEX carries roughly two ASCII characters per payload byte plus per-record
+      # overhead, so the decoded image is well under half the file size — checking the file
+      # against 2x the limit is the conservative form of the same test.
+      - name: Check the image still fits the gateway's OTA buffer
+        working-directory: firmware/moteino_creek_node
+        run: |
+          limit=196608  # 2 x OTA_IMAGE_MAX_BYTES
+          for f in firmware.hex firmware-diag.hex; do
+            bytes=$(wc -c < "$f")
+            echo "$f is $bytes bytes (ceiling $limit)"
+            if [ "$bytes" -gt "$limit" ]; then
+              echo "::error::$f is too large for the gateway's OTA buffer"
+              exit 1
+            fi
+          done
+
+      # This is the delivery path. It runs before the sync PR on purpose: OTA must never be
+      # blocked on a housekeeping PR being merged.
+      #
+      # `gh release upload --clobber` replaces the asset in place rather than deleting and
+      # recreating the release, so there is no window where the download URL 404s for a
+      # gateway that happens to be fetching right then.
+      - name: Publish firmware.hex to the moving release
+        if: github.event_name != 'pull_request'
+        working-directory: firmware/moteino_creek_node
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ env.FIRMWARE_TAG }}
+          SHA: ${{ github.sha }}
+        run: |
+          notes="Rolling build of the Moteino creek node firmware.
+
+          Source commit: \`$SHA\`
+          Built by \`.github/workflows/firmware-hex.yml\`.
+
+          The gateway fetches \`firmware.hex\` from this release (\`node_hex_url\` in
+          \`firmware/esp32_rfm69_gateway/gateway.base.yaml\`). This tag moves; it is not a
+          version marker. Add-on releases are the \`v*\` tags and are unrelated."
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" firmware.hex firmware-diag.hex --clobber
+            # Move the tag so the release points at the commit that produced the asset.
+            # The branch ruleset targets branches, not tags, so this needs no bypass.
+            git tag -f "$TAG" "$SHA"
+            git push -f origin "refs/tags/$TAG"
+            gh release edit "$TAG" --notes "$notes"
+          else
+            gh release create "$TAG" firmware.hex \
+              --target "$SHA" \
+              --title "Creek node firmware (rolling)" \
+              --notes "$notes"
+          fi
+
+      # Bookkeeping only — see the header note about checks not running on this PR.
+      # A fixed branch name keeps at most one sync PR open instead of accumulating one per
+      # firmware change.
+      - name: Open a PR to sync the committed firmware.hex
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ci/firmware-hex-sync
+        run: |
+          cd firmware/moteino_creek_node
           if git diff --quiet -- firmware.hex; then
-            echo "firmware.hex unchanged, nothing to commit"
+            echo "committed firmware.hex already matches the build, nothing to sync"
             exit 0
           fi
+          cd "$GITHUB_WORKSPACE"
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add firmware.hex
-          git commit -m "firmware: regenerate firmware.hex from source [skip ci]"
-          git push
+          git checkout -B "$BRANCH"
+          git add firmware/moteino_creek_node/firmware.hex
+          git commit -m "firmware: regenerate firmware.hex from source"
+          git push -f origin "$BRANCH"
+
+          if [ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+            gh pr create --base main --head "$BRANCH" \
+              --title "firmware: regenerate firmware.hex from source" \
+              --body "Regenerated by \`.github/workflows/firmware-hex.yml\` from \`${{ github.sha }}\`.
+
+          **The node is already updated** — the gateway fetches from the \`${{ env.FIRMWARE_TAG }}\`
+          release, which this run refreshed before opening this PR. Merging keeps the committed
+          copy in step with the build; it is not what delivers the firmware.
+
+          Checks will not run here on their own: GITHUB_TOKEN deliberately does not trigger
+          workflows. Close and reopen this PR to run them under your own account."
+          else
+            echo "sync PR already open for $BRANCH; force-pushed the branch instead"
+          fi

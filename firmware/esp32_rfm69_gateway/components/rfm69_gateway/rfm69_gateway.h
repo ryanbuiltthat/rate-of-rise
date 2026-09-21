@@ -143,6 +143,10 @@ class Rfm69Gateway : public Component {
   void set_node_status_sensor(binary_sensor::BinarySensor *s) { this->node_status_sensor_ = s; }
   void set_ota_status_sensor(text_sensor::TextSensor *s) { this->ota_status_sensor_ = s; }
   void set_ota_hex_url(const std::string &url) { this->ota_hex_url_ = url; }
+  // The armed radar-rail diagnostic build (open question #17). CI builds it from the same
+  // commit as the normal image and publishes both to the same release, so pressing the
+  // diagnostic button never requires anyone to build anything by hand.
+  void set_ota_diag_hex_url(const std::string &url) { this->ota_diag_hex_url_ = url; }
 
   void setup() override {
     this->radio_mutex_ = xSemaphoreCreateMutex();
@@ -289,7 +293,10 @@ class Rfm69Gateway : public Component {
   float get_setup_priority() const override { return setup_priority::LATE; }
 
   // Public: called from a button.template on_press lambda in gateway.base.yaml.
-  void start_ota_push() {
+  // `diagnostic` picks the armed radar-rail build instead of the normal one. Both are built
+  // by CI from the same commit and attached to the same release, so this is a choice between
+  // two images that already exist, not a request to produce one.
+  void start_ota_push(bool diagnostic = false) {
     // All three flags, not just ota_armed_/ota_active_. try_start_transfer_() clears ota_armed_
     // *before* it spawns the transfer task, so for the whole multi-minute transfer ota_armed_ is
     // false while the task is streaming ota_image_ over the radio; ota_fetching_ is false by
@@ -302,7 +309,24 @@ class Rfm69Gateway : public Component {
       ESP_LOGW(TAG, "OTA push already in progress, ignoring");
       return;
     }
-    ESP_LOGI(TAG, "OTA push requested, fetching %s", this->ota_hex_url_.c_str());
+    // Resolve the URL here, on the main task, and hand it to the fetch task through a member
+    // rather than re-deciding inside fetch_hex_(). The guard above guarantees no other push is
+    // in flight, so there is exactly one writer and the value cannot change under the task.
+    //
+    // An unset diagnostic URL falls back to the normal image rather than fetching an empty
+    // string. The fallback is the safe direction: the worst case is a diagnostic press that
+    // quietly reinstalls the ordinary firmware, which is the state the node should be in
+    // anyway -- as against bricking the push on a config key nobody set.
+    if (diagnostic && !this->ota_diag_hex_url_.empty()) {
+      this->ota_fetch_url_ = this->ota_diag_hex_url_;
+    } else {
+      if (diagnostic) {
+        ESP_LOGW(TAG, "no diagnostic image configured; pushing the normal firmware");
+      }
+      this->ota_fetch_url_ = this->ota_hex_url_;
+    }
+    ESP_LOGI(TAG, "OTA push requested (%s), fetching %s", diagnostic ? "diagnostic" : "normal",
+             this->ota_fetch_url_.c_str());
     this->set_ota_status_(OtaState::FETCHING, 0, "");
     this->publish_ota_status_();  // make "fetching" visible before the fetch task starts
     // ota_fetching_ has to be set before the task exists, same reasoning as ota_active_ in
@@ -576,7 +600,7 @@ class Rfm69Gateway : public Component {
     WiFiClientSecure client;
     client.setInsecure();  // no cert pinning; the payload is validated per-record by the node
     HTTPClient http;
-    if (!http.begin(client, this->ota_hex_url_.c_str())) {
+    if (!http.begin(client, this->ota_fetch_url_.c_str())) {
       this->set_ota_status_(OtaState::FAILED, 0, "bad url");
       return false;
     }
@@ -935,6 +959,11 @@ class Rfm69Gateway : public Component {
   uint8_t published_percent_{255};
 
   std::string ota_hex_url_;
+  std::string ota_diag_hex_url_;
+  // Which of the two the in-flight push is fetching. Written once on the main task in
+  // start_ota_push() before the fetch task exists, read only by that task; the
+  // fetching/armed/active guard there means there is never a second writer.
+  std::string ota_fetch_url_;
   // ota_armed_ stays a plain bool: it is only ever touched from the main task -- run_ota_fetch()
   // does not set it directly; loop() does, after observing ota_fetch_done_ (see loop()).
   bool ota_armed_{false};

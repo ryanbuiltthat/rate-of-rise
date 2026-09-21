@@ -156,11 +156,25 @@ Built with [PlatformIO](https://platformio.org/) (`board = moteino_zero`,
    `.github/workflows/firmware-hex.yml` builds `src/**` and `platformio.ini` on every
    push to `main` that touches them, runs the same `arm-none-eabi-objcopy -O ihex
    .pio/build/moteino_creek_node/firmware.elf firmware.hex` conversion (the atmelsam
-   platform doesn't emit a `.hex` on its own), and commits the result back to `main`
-   if it changed. A pull request only gets the build-and-verify half — the workflow
-   skips the commit-back step there, so `firmware.hex` on a PR branch stays whatever
-   you pushed until it merges. Trigger it manually from the Actions tab
-   (`workflow_dispatch`) if you need a rebuild without a source change.
+   platform doesn't emit a `.hex` on its own), and **publishes the result as an asset on
+   the moving `node-firmware-latest` release** — which is what the gateway downloads. It
+   then opens a PR to bring the committed copy into step. A pull request only gets the
+   build-and-verify half. Trigger it manually from the Actions tab (`workflow_dispatch`)
+   if you need a rebuild without a source change.
+
+   **The release is the delivery path; the committed `firmware.hex` is a copy.** Until
+   2026-09-21 it was the other way round — the workflow pushed the hex to `main` and the
+   gateway fetched it from `raw.githubusercontent.com`. Requiring pull requests on `main`
+   broke that push, and it would have broken it invisibly: a stale hex still serves 200 and
+   still flashes, so the node would have gone on taking an old image with nothing anywhere
+   reporting a problem. Publishing to a release writes the artifact without touching a
+   protected branch, so there is nothing left to go stale.
+
+   **The sync PR will sit without checks.** A PR opened with `GITHUB_TOKEN` does not trigger
+   workflows, so `test` never starts and the required status check stays pending. That is
+   harmless — the release was refreshed before the PR was opened, so the node is already
+   current. Close and reopen the PR to run checks under your own account, or merge it
+   alongside other work.
 
 **If the board stops being recognized by USB:** the SAMD21's native USB
 drops off the bus while asleep (`LowPower.standby()`), so once the sketch
@@ -280,13 +294,31 @@ side through `CheckForWirelessHEX()`. The whole gateway-side path lives in
    "Build & Flash → Creek node (Moteino M0)" step 4. PlatformIO's `atmelsam` platform does not
    emit a `.hex` on its own, so that conversion step is not optional, but it no longer needs to
    be run by hand.
-2. **Confirm `firmware.hex` landed on `main`.** The gateway fetches from a URL hardcoded to
-   that ref — `node_hex_url` in `gateway.base.yaml` is
-   `raw.githubusercontent.com/ryanbuiltthat/rate-of-rise/main/firmware/moteino_creek_node/firmware.hex`
-   — so pushing to a branch or opening a PR does nothing until it lands on `main`.
+2. **Confirm the release refreshed.** The gateway fetches the asset from the moving
+   `node-firmware-latest` release — `node_hex_url` in `gateway.base.yaml` — so what matters is
+   that the `firmware-hex` run on `main` finished, not that any branch contains the hex.
+   Check the run, or that the release's asset timestamp moved. A push to a branch or a PR
+   does nothing: the publish step is gated on the event not being a `pull_request`.
+
+   Do **not** repoint this at `/releases/latest/download/`. That resolves to the newest
+   release in the whole repository, and `release.yml` cuts a `v<version>` release on every
+   add-on version bump. Those have no `firmware.hex` attached, so the next add-on release
+   would turn the OTA URL into a 404 — a break with no connection to anything anyone changed
+   in the firmware. The fixed tag only moves when the node firmware moves.
 3. **Press "Push Node Firmware" in Home Assistant.** It's a `button.template` under the
    gateway device's Configuration section (`entity_category: config`), not the main entity
    card.
+
+   **"Push Node Diagnostic Firmware"** sits beside it and installs the armed radar-rail
+   diagnostic build (open question #17) instead. Both images come from the same CI run on the
+   same commit and live on the same release, so this is a choice between two artifacts that
+   already exist — there is nothing to build locally to use it.
+
+   There is deliberately no "disarm" button. The node-side window is one-shot: it latches
+   closed once it has collected a usable sample, so a diagnostic image left installed costs
+   one window, once. It also rejects a window that landed in daylight (the pack rises rather
+   than falls) and retries the next day, so the press does not have to be timed. Press "Push
+   Node Firmware" whenever convenient to return to the stock image.
 4. **Watch the OTA status sensor** — `ota_status:` in `gateway.base.yaml`, named
    "Node OTA Status". Following the same unprefixed naming already in effect for
    `sensor.creek_gateway_stage` and its neighbors above, that's `text_sensor.node_ota_status`.
@@ -312,7 +344,7 @@ spam — expect one line per real transition:
 | Reason | Cause |
 |---|---|
 | `bad url` | `ota_hex_url` didn't parse — a config problem, not a network one. |
-| `fetch error http <code>` | The GET to `raw.githubusercontent.com` didn't return 200. |
+| `fetch error http <code>` | The GET to the release asset didn't return 200. A `404` most often means the `node-firmware-latest` release or its `firmware.hex` asset is missing — check the `firmware-hex` workflow actually ran on `main` and published. |
 | `no memory for image` | `malloc()` for the decoded-image buffer failed, or the response decoded to more bytes than the buffer was sized for. Check the logged free-heap figure. |
 | `empty image` | The GET returned 200 but decoded to 0 bytes, or the connection stalled before the server's declared `Content-Length` was reached. |
 | `timeout, node did not respond` | 10 minutes armed and the node's telemetry never triggered a handshake. |

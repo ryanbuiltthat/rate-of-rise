@@ -219,6 +219,92 @@ def test_diagnostic_peek_gap_stays_under_the_rate_of_rise_window():
         "so anything beyond ~30 min stops being a peek and becomes an outage")
 
 
+def test_ota_url_points_at_the_tag_the_firmware_workflow_publishes():
+    """`node_hex_url` and firmware-hex.yml's FIRMWARE_TAG have to name the same release.
+
+    They are two files with no reference between them, and the failure is silent in the worst
+    direction: a mismatched tag makes the fetch 404, the gateway reports `fetch error http
+    404`, and the node keeps running whatever it already had. Nothing on the dashboard
+    changes, so an OTA that never happened looks exactly like an OTA that did.
+
+    Also pins the URL to a release asset rather than raw.githubusercontent.com. The raw form
+    served the committed copy, which the workflow can no longer push to main now that main
+    requires pull requests — it would serve a stale image indefinitely, with a 200.
+    """
+    workflow = (ROOT / ".github" / "workflows" / "firmware-hex.yml").read_text(
+        encoding="utf-8")
+    tag_match = re.search(r"FIRMWARE_TAG:\s*(\S+)", workflow)
+    assert tag_match, "could not find FIRMWARE_TAG in firmware-hex.yml"
+    tag = tag_match.group(1)
+
+    subs = yaml.load(GATEWAY.read_text(encoding="utf-8"), Loader=_EsphomeLoader)[
+        "substitutions"]
+    url = subs["node_hex_url"]
+
+    assert "raw.githubusercontent.com" not in url, (
+        "node_hex_url points at the committed firmware.hex; that copy is no longer pushed "
+        "to main automatically and will silently go stale")
+    assert f"/releases/download/{tag}/" in url, (
+        f"node_hex_url {url!r} does not fetch from the {tag!r} release the workflow publishes")
+
+
+def test_diagnostic_image_is_built_published_and_reachable_by_one_button():
+    """Running the #17 diagnostic must stay a single button press, end to end.
+
+    Three things have to line up and none of them reference each other: CI has to build the
+    armed image and attach it to the release, the gateway has to point at that asset, and a
+    button has to exist to push it. Break any one and the failure is a dead end for the person
+    trying to use it — the button is there but 404s, or the asset exists but nothing installs
+    it. The whole point of the design is that nobody has to arm, build and convert anything by
+    hand, so the wiring that makes that true is worth pinning.
+    """
+    workflow = (ROOT / ".github" / "workflows" / "firmware-hex.yml").read_text(
+        encoding="utf-8")
+    assert "firmware-diag.hex" in workflow, (
+        "the workflow no longer builds the armed diagnostic image")
+    assert "DIAG_RADAR_WINDOW_ENABLE 1" in workflow, (
+        "the workflow no longer arms the diagnostic build at build time")
+
+    tag = re.search(r"FIRMWARE_TAG:\s*(\S+)", workflow).group(1)
+    subs = yaml.load(GATEWAY.read_text(encoding="utf-8"), Loader=_EsphomeLoader)[
+        "substitutions"]
+    assert f"/releases/download/{tag}/firmware-diag.hex" in subs["node_diag_hex_url"], (
+        "node_diag_hex_url does not fetch the diagnostic asset the workflow publishes")
+
+    names = set(gateway_entity_ids())
+    assert "Push Node Diagnostic Firmware" in names, (
+        "no button installs the diagnostic image; it would have to be flashed by hand")
+
+
+def test_diagnostic_window_is_one_shot():
+    """A forgotten diagnostic image has to expire on its own.
+
+    The safety argument for shipping an armed build at all is that it costs one window, once —
+    not a blind window every day until somebody notices. That rests entirely on the latch, and
+    on the latch only closing once the window has produced usable data (so a storm-shortened
+    night retries instead of burning the single shot and needing a human to intervene). Lose
+    either half and the design quietly becomes one that depends on remembering to revert.
+    """
+    node_src = (ROOT / "firmware" / "moteino_creek_node" / "src" / "main.cpp").read_text(
+        encoding="utf-8")
+    assert "diagCompleted" in node_src, "the one-shot latch is gone"
+    assert re.search(r"diagHeld\s*>=\s*DIAG_MIN_USEFUL_HOLDS", node_src), (
+        "the latch no longer requires a usable sample, so a cut-short window burns the shot")
+
+
+def test_ota_url_does_not_use_the_floating_latest_release():
+    """`/releases/latest/` resolves repo-wide, and release.yml publishes `v*` add-on releases.
+
+    Those carry no firmware.hex, so pointing the gateway at `latest` means the next add-on
+    version bump turns the OTA URL into a 404 — a break with no causal connection to anything
+    anyone touched in the firmware.
+    """
+    subs = yaml.load(GATEWAY.read_text(encoding="utf-8"), Loader=_EsphomeLoader)[
+        "substitutions"]
+    assert "/releases/latest/" not in subs["node_hex_url"], (
+        "node_hex_url uses the floating latest release; an add-on release would break it")
+
+
 def test_blanking_zone_matches_the_sensor_datasheet():
     """SEN0676 minimum range is 0.15 m; anything closer is not a measurement. The stage
     lambda uses this to reject a lost target, so a too-small value publishes noise as depth."""
