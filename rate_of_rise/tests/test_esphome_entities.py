@@ -262,6 +262,16 @@ def test_diagnostic_image_is_built_published_and_reachable_by_one_button():
         encoding="utf-8")
     assert "firmware-diag.hex" in workflow, (
         "the workflow no longer builds the armed diagnostic image")
+    # Both publish paths, not just one. `create` runs when the release is new and `upload`
+    # when it already exists, and they name their assets separately -- the create path once
+    # shipped with only firmware.hex, which published a release the diagnostic button could
+    # not use while the workflow reported success.
+    for command in ("gh release create", "gh release upload"):
+        line = next((l for l in workflow.splitlines()
+                     if command in l and not l.strip().startswith("#")), None)
+        assert line is not None, f"{command!r} is gone from the workflow"
+        assert "firmware-diag.hex" in line, (
+            f"{command!r} does not publish the diagnostic image: {line.strip()!r}")
     assert "DIAG_RADAR_WINDOW_ENABLE 1" in workflow, (
         "the workflow no longer arms the diagnostic build at build time")
 

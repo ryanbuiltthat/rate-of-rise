@@ -165,11 +165,35 @@ jobs:
             git push -f origin "refs/tags/$TAG"
             gh release edit "$TAG" --notes "$notes"
           else
-            gh release create "$TAG" firmware.hex \
+            gh release create "$TAG" firmware.hex firmware-diag.hex \
               --target "$SHA" \
               --title "Creek node firmware (rolling)" \
               --notes "$notes"
           fi
+
+      # Assert both assets are actually on the release before calling this a success.
+      #
+      # Publishing is two code paths -- create when the release is new, upload when it
+      # already exists -- and they take the asset list separately. One of them shipped with
+      # only firmware.hex in it, which is how the first real run published a release the
+      # diagnostic button could not use: the workflow went green, the tag appeared, and the
+      # only symptom was a 404 nobody would see until they pressed the button. Checking the
+      # published result rather than trusting the command that produced it is the difference
+      # between those two paths being a typo and being an outage.
+      - name: Verify both images are on the release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ env.FIRMWARE_TAG }}
+        run: |
+          published=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          echo "published assets: $published"
+          for f in firmware.hex firmware-diag.hex; do
+            echo "$published" | grep -qx "$f" || {
+              echo "::error::$f is missing from the $TAG release"
+              exit 1
+            }
+          done
 
       # Bookkeeping only — see the header note about checks not running on this PR.
       # A fixed branch name keeps at most one sync PR open instead of accumulating one per
