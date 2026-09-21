@@ -34,10 +34,17 @@ on:
     paths:
       - "firmware/moteino_creek_node/src/**"
       - "firmware/moteino_creek_node/platformio.ini"
+      # This file too, so a change to the publishing logic republishes. Without it, the
+      # commit that first points node_hex_url at the release would not create that release
+      # -- the gateway's OTA URL would 404 until some unrelated firmware change happened to
+      # trigger a build, and the only symptom would be a failed OTA with a 404 nobody could
+      # trace back to a CI path filter.
+      - ".github/workflows/firmware-hex.yml"
   pull_request:
     paths:
       - "firmware/moteino_creek_node/src/**"
       - "firmware/moteino_creek_node/platformio.ini"
+      - ".github/workflows/firmware-hex.yml"
   workflow_dispatch:
 
 permissions:
