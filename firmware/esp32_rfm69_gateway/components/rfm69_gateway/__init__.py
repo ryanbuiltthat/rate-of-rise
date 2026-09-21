@@ -56,6 +56,7 @@ CONF_FAST_MODE = "fast_mode"
 CONF_NODE_STATUS = "node_status"
 CONF_OTA_STATUS = "ota_status"
 CONF_OTA_HEX_URL = "ota_hex_url"
+CONF_OTA_DIAG_HEX_URL = "ota_diag_hex_url"
 
 
 def _https_url(value):
@@ -136,6 +137,9 @@ CONFIG_SCHEMA = cv.Schema(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         ),
         cv.Required(CONF_OTA_HEX_URL): _https_url,
+        # Optional: a gateway with no diagnostic image configured just pushes the normal
+        # one when the diagnostic button is pressed, rather than failing the build.
+        cv.Optional(CONF_OTA_DIAG_HEX_URL): _https_url,
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -158,6 +162,8 @@ async def to_code(config):
     await cg.register_component(var, config)
     cg.add(var.set_node_timeout(config[CONF_TIMEOUT]))
     cg.add(var.set_ota_hex_url(config[CONF_OTA_HEX_URL]))
+    if url := config.get(CONF_OTA_DIAG_HEX_URL):
+        cg.add(var.set_ota_diag_hex_url(url))
 
     if conf := config.get(CONF_DISTANCE):
         cg.add(var.set_distance_sensor(await sensor.new_sensor(conf)))

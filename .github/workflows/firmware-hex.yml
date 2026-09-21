@@ -85,6 +85,36 @@ jobs:
           objcopy=$(find ~/.platformio/packages/toolchain-gccarmnoneeabi/bin -name 'arm-none-eabi-objcopy')
           "$objcopy" -O ihex .pio/build/moteino_creek_node/firmware.elf firmware.hex
 
+      # The armed radar-rail diagnostic build (open question #17), from the same commit.
+      #
+      # Built by flipping the define at build time rather than by committing a `1`. The source
+      # therefore always ships disabled -- which test_esphome_entities.py asserts, because a
+      # forgotten `1` in the repository would blind the creek sensor -- while the armed image
+      # still exists as an artifact anyone can install with one button press. Nobody has to
+      # arm, build and convert anything by hand to run the diagnostic.
+      #
+      # `git checkout` afterwards, so the sync-PR step below never sees the flipped define as
+      # a local modification and try to commit it.
+      - name: Build the armed diagnostic image
+        working-directory: firmware/moteino_creek_node
+        run: |
+          grep -q '#define DIAG_RADAR_WINDOW_ENABLE 0' src/main.cpp || {
+            echo "::error::DIAG_RADAR_WINDOW_ENABLE is not 0 in source; refusing to build"
+            exit 1
+          }
+          sed -i 's/#define DIAG_RADAR_WINDOW_ENABLE 0/#define DIAG_RADAR_WINDOW_ENABLE 1/' src/main.cpp
+          pio run -e moteino_creek_node
+          objcopy=$(find ~/.platformio/packages/toolchain-gccarmnoneeabi/bin -name 'arm-none-eabi-objcopy')
+          "$objcopy" -O ihex .pio/build/moteino_creek_node/firmware.elf firmware-diag.hex
+          git checkout -- src/main.cpp
+          # A diagnostic image identical to the normal one means the define did not reach the
+          # build, and the button would silently install ordinary firmware while the log said
+          # "diagnostic". Fail here instead.
+          if cmp -s firmware.hex firmware-diag.hex; then
+            echo "::error::diagnostic image is identical to the normal one"
+            exit 1
+          fi
+
       # Guard the one number that silently breaks OTA. The gateway decodes the hex into a
       # fixed RAM buffer (OTA_IMAGE_MAX_BYTES, 96 KB) and sizes it at content-length/2, so a
       # firmware that outgrows that limit fails at flash time on the pole rather than here.
@@ -94,13 +124,15 @@ jobs:
       - name: Check the image still fits the gateway's OTA buffer
         working-directory: firmware/moteino_creek_node
         run: |
-          bytes=$(wc -c < firmware.hex)
           limit=196608  # 2 x OTA_IMAGE_MAX_BYTES
-          echo "firmware.hex is $bytes bytes (ceiling $limit)"
-          if [ "$bytes" -gt "$limit" ]; then
-            echo "::error::firmware.hex is too large for the gateway's OTA buffer"
-            exit 1
-          fi
+          for f in firmware.hex firmware-diag.hex; do
+            bytes=$(wc -c < "$f")
+            echo "$f is $bytes bytes (ceiling $limit)"
+            if [ "$bytes" -gt "$limit" ]; then
+              echo "::error::$f is too large for the gateway's OTA buffer"
+              exit 1
+            fi
+          done
 
       # This is the delivery path. It runs before the sync PR on purpose: OTA must never be
       # blocked on a housekeeping PR being merged.
@@ -126,7 +158,7 @@ jobs:
           version marker. Add-on releases are the \`v*\` tags and are unrelated."
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" firmware.hex --clobber
+            gh release upload "$TAG" firmware.hex firmware-diag.hex --clobber
             # Move the tag so the release points at the commit that produced the asset.
             # The branch ruleset targets branches, not tags, so this needs no bypass.
             git tag -f "$TAG" "$SHA"

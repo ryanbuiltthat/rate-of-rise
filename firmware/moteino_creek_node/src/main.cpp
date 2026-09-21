@@ -149,6 +149,20 @@
 // install height changes and this constant does not follow it.
 #define DIAG_MIN_SAFE_DISTANCE_MM 850
 
+// ONE-SHOT. The window runs until it has collected this many held cycles, then latches shut
+// for the life of the boot. This is what makes the armed image safe to forget about: a
+// diagnostic build left on the node costs one window, once -- not a blind window every day
+// until somebody notices. It is also why there is no "disarm" button in Home Assistant, and
+// why nobody has to remember to reinstall the normal firmware on a schedule.
+//
+// The latch is deliberately tied to USEFUL data rather than to the window merely having
+// opened. A window abandoned early -- creek up, or the node in fast-sampling mode -- does not
+// count, so the test quietly retries the next night instead of burning its single shot on a
+// storm and needing a human to notice and press the button again. At a 60 s cadence with a
+// peek every 20 cycles, a full two-hour window yields ~114 held cycles, so this asks for
+// roughly half a window.
+#define DIAG_MIN_USEFUL_HOLDS    60
+
 // ─── Bench testing ───────────────────────────────────────────────────────────
 // On USB/bench power: skip LowPower.standby() entirely so the board stays
 // reachable over serial instead of the port dropping for 30-55 s per wake,
@@ -184,12 +198,19 @@ static uint8_t quietSamples   = 0;
 static bool    fastMode       = false;
 
 #if DIAG_RADAR_WINDOW_ENABLE
-// Cycles counted since the current diagnostic window opened, and a latch that keeps an
-// abandoned window abandoned. Both live in plain SRAM across standby, same as the crest
-// sampling state above. diagAborted clears when the window closes, so a creek that was
-// high tonight does not disable the test for good.
-static uint16_t diagCycles  = 0;
-static bool     diagAborted = false;
+// Window bookkeeping, all in plain SRAM across standby like the crest sampling state above.
+// diagCycles counts every cycle inside the window and diagHeld only the ones that actually
+// held the rail off; diagAborted parks a window that turned unsafe, and clears when the
+// window closes so one high-water night does not disable the test for good. diagCompleted is
+// the one-shot latch and never clears -- only a reboot re-arms it.
+static uint16_t diagCycles    = 0;
+static uint16_t diagHeld      = 0;
+static bool     diagAborted   = false;
+static bool     diagCompleted = false;
+// Pack voltage at the window's first cycle and at its most recent one. The window only counts
+// as usable if the pack FELL across it -- see the daylight check where the latch closes.
+static uint16_t diagStartMv   = 0;
+static uint16_t diagLastMv    = 0;
 #endif
 
 // RTC seconds-of-day. This is the only usable time base across a sleep: the RTC is what
@@ -444,11 +465,34 @@ void loop() {
   // rail. Compiles away entirely when the diagnostic is disabled, which is how it ships.
   bool diagHold = false;
 #if DIAG_RADAR_WINDOW_ENABLE
-  const bool diagWindow = inDiagWindow();
+  const bool diagWindow = inDiagWindow() && !diagCompleted;
   if (!diagWindow) {
-    // Outside the window everything resets, so tomorrow's window starts clean even if
-    // tonight's was abandoned.
+    // Leaving the window is where the one-shot latch closes -- but only if the window
+    // actually produced enough held cycles to fit a slope to. A window cut short by high
+    // water or a rising creek resets instead, and tries again tomorrow, so the diagnostic
+    // does not spend its single shot on a night it could not measure.
+    //
+    // The pack has to have FALLEN across the window, or this was daylight and the number is
+    // worthless. That check is what makes the button safe to press at any hour: the window is
+    // measured from boot, so pressing at noon would otherwise put it at 2 pm, produce a
+    // confident-looking slope of a charging battery, latch, and be done. Rising means the
+    // panel is up -- and during charging the A5 divider reads the charger's OUT rail rather
+    // than the cell, so the rise is large and unmistakable rather than marginal. Retry
+    // tomorrow instead; the window lands at the same offset every day, so it will eventually
+    // fall in the dark, and nobody has to have timed the press correctly.
+    const bool fell = diagLastMv > 0 && diagLastMv <= diagStartMv;
+    if (diagHeld >= DIAG_MIN_USEFUL_HOLDS && fell) {
+      diagCompleted = true;
+      Serial.println(F("diag: window produced a usable sample; not repeating this boot"));
+    } else if (diagHeld >= DIAG_MIN_USEFUL_HOLDS) {
+      Serial.println(F("diag: pack rose across the window (daylight); retrying tomorrow"));
+    } else if (diagCycles > 0) {
+      Serial.println(F("diag: window cut short, retrying tomorrow"));
+    }
     diagCycles = 0;
+    diagHeld = 0;
+    diagStartMv = 0;
+    diagLastMv = 0;
     diagAborted = false;
   } else if (!diagAborted && !fastMode) {
     // fastMode means the creek is already rising: never start going blind into that.
@@ -456,6 +500,7 @@ void loop() {
     const bool peek = (diagCycles % DIAG_PEEK_EVERY) == 0;
     diagCycles++;
     diagHold = !peek;
+    if (diagHold) diagHeld++;
   }
 #endif
 
@@ -492,6 +537,15 @@ void loop() {
 #endif
 
   uint16_t batt_mv = readBatteryMv();
+
+#if DIAG_RADAR_WINDOW_ENABLE
+  // Track the window's first and latest pack reading, for the fell-across-the-window test
+  // above. Taken on every in-window cycle, peeks included: they are the same measurement.
+  if (diagWindow) {
+    if (diagStartMv == 0) diagStartMv = batt_mv;
+    diagLastMv = batt_mv;
+  }
+#endif
 
   // Decide this cycle's cadence before transmitting, so the payload and the OTA window
   // below both reflect it. Pure arithmetic, and guarded against a zero elapsed time —

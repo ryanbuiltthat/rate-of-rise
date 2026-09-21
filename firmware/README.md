@@ -308,6 +308,17 @@ side through `CheckForWirelessHEX()`. The whole gateway-side path lives in
 3. **Press "Push Node Firmware" in Home Assistant.** It's a `button.template` under the
    gateway device's Configuration section (`entity_category: config`), not the main entity
    card.
+
+   **"Push Node Diagnostic Firmware"** sits beside it and installs the armed radar-rail
+   diagnostic build (open question #17) instead. Both images come from the same CI run on the
+   same commit and live on the same release, so this is a choice between two artifacts that
+   already exist — there is nothing to build locally to use it.
+
+   There is deliberately no "disarm" button. The node-side window is one-shot: it latches
+   closed once it has collected a usable sample, so a diagnostic image left installed costs
+   one window, once. It also rejects a window that landed in daylight (the pack rises rather
+   than falls) and retries the next day, so the press does not have to be timed. Press "Push
+   Node Firmware" whenever convenient to return to the stock image.
 4. **Watch the OTA status sensor** — `ota_status:` in `gateway.base.yaml`, named
    "Node OTA Status". Following the same unprefixed naming already in effect for
    `sensor.creek_gateway_stage` and its neighbors above, that's `text_sensor.node_ota_status`.

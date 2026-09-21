@@ -79,6 +79,13 @@ substitutions:
   # HTTPC_STRICT_FOLLOW_REDIRECTS (rfm69_gateway.h), so the redirect needs no code change.
   node_hex_url: "https://github.com/ryanbuiltthat/rate-of-rise/releases/download/node-firmware-latest/firmware.hex"
 
+  # The armed radar-rail diagnostic build (open question #17), built by the same CI run from
+  # the same commit and attached to the same release. Having it always present is the point:
+  # running the diagnostic is then pressing a button in Home Assistant, not remembering a
+  # sequence of local build steps. The node-side window is one-shot, so this image also
+  # reverts itself -- see DIAG_RADAR_WINDOW_ENABLE in moteino_creek_node/src/main.cpp.
+  node_diag_hex_url: "https://github.com/ryanbuiltthat/rate-of-rise/releases/download/node-firmware-latest/firmware-diag.hex"
+
   # --- Stage conversion (datum = creekbed) ----------------------------------------------
   # The node sends raw distance (sensor face -> water surface). Depth is the complement:
   # installation height - distance. The conversion lives here rather than on the node so the
@@ -167,6 +174,7 @@ rfm69_gateway:
   is_rfm69hw: true
   encryption_key: !secret rfm69_encrypt_key
   ota_hex_url: ${node_hex_url}
+  ota_diag_hex_url: ${node_diag_hex_url}
   # Raw distance, sensor face -> water surface. Named for what it is: it moves *opposite*
   # to water level, so publishing it as "Creek Water Level" (as it was) reads backwards on
   # a dashboard -- a rising creek made the number fall. Stage/depth below are the real ones.
@@ -287,3 +295,18 @@ button:
     entity_category: config
     on_press:
       - lambda: id(creek_radio).start_ota_push();
+
+  # Pushes the armed radar-rail diagnostic build (open question #17) instead of the normal
+  # one. Both images come from the same CI run on the same commit, so this is a choice
+  # between two artifacts that already exist -- nothing has to be built by hand to use it.
+  #
+  # There is no "turn it off" button on purpose. The node-side window is ONE-SHOT: it opens
+  # once, DIAG_WINDOW_START_S after the image boots, and latches closed afterwards. Forgetting
+  # to reinstall the normal firmware therefore costs one two-hour window, once -- not a blind
+  # window every day until someone notices. Press "Push Node Firmware" whenever convenient to
+  # get back to the stock image; nothing depends on doing it promptly.
+  - platform: template
+    name: Push Node Diagnostic Firmware
+    entity_category: config
+    on_press:
+      - lambda: id(creek_radio).start_ota_push(true);

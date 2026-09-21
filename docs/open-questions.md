@@ -317,15 +317,30 @@ the calibration phase.
   problem needs: a known ~35 mA step against a measured slope change converts mV/h to mA
   for every future night.
 
-  To run it: set the define to `1`, **flash at a time that lands the window in the small
-  hours** (it is measured from boot, not from the wall clock — `rtc.setTime()` is never
-  called, so flashing at 20:00 puts a 2 h window at 22:00), leave it one night, then revert
-  to `0` and reflash. A test asserts it ships disabled, because a forgotten `1` blinds the
-  creek sensor two hours a day and looks exactly like a Modbus timeout while doing it. The
-  window self-protects: it never starts while the node is in fast-sampling mode, it
-  abandons the night if a reading shows the creek up (distance < 850 mm ≈ 10 in of depth at
-  the current mount), and it surfaces for one ordinary reading every 20 minutes so the
-  longest blind gap is 20 min rather than the full two hours.
+  **To run it: press "Push Node Diagnostic Firmware" in Home Assistant. That is the whole
+  procedure.** CI builds the armed image from the same commit as the normal one and attaches
+  both to the same release, so there is nothing to arm, build or convert by hand, and no
+  local toolchain involved. `DIAG_RADAR_WINDOW_ENABLE` stays `0` in the source — the workflow
+  flips it at build time — and a test asserts that, because a forgotten `1` in the repository
+  would blind the creek sensor.
+
+  **Nothing has to be remembered afterwards, and the press does not have to be well timed.**
+  The window is one-shot: it latches closed for the life of the boot once it has collected a
+  usable sample, so a diagnostic image left installed costs one window, once — not a blind
+  window every day until somebody notices. "Usable" means both that the window ran to
+  something like half its length *and* that the pack fell across it; a window that landed in
+  daylight sees the pack rise (during charging the A5 divider reads the charger's OUT rail,
+  so the rise is unmistakable) and simply retries the next day at the same offset. A window
+  cut short by high water retries too. So the press can happen at any hour and the node keeps
+  trying until it catches a real overnight discharge.
+
+  Press "Push Node Firmware" whenever convenient to go back to the stock image. Nothing
+  depends on doing that promptly.
+
+  The window self-protects while it runs: it never opens while the node is in fast-sampling
+  mode, it abandons the night if a reading shows the creek up (distance < 850 mm ≈ 10 in of
+  depth at the current mount), and it surfaces for one ordinary reading every 20 minutes so
+  the longest blind gap is 20 min rather than the full two hours.
 
   **Cheapest discriminator is still a meter at the pole** — measure pack current with the node
   idle between reports. Failing that, the two-night calibration in `docs/node-hardware.md`
