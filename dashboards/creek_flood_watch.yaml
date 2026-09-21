@@ -338,32 +338,35 @@ views:
 
       - type: markdown
         title: Model review
-        content: >
+        content: |
           ### Active vs candidate
 
           | Metric | Active | Candidate |
           |---|---|---|
-          | Version | {{ states('sensor.ackerly_creek_modeling_creek_active_model') }} | {{ states('sensor.ackerly_creek_modeling_creek_candidate_model') }} |
-          {% set a = state_attr('sensor.ackerly_creek_modeling_creek_active_model', 'active_metrics') or {} %}
-          {% set c = state_attr('sensor.ackerly_creek_modeling_creek_active_model', 'candidate_metrics') or {} %}
-          {% set keys = (a.keys() | list + c.keys() | list) | unique | list %}
+          | Version | `{{ states('sensor.ackerly_creek_modeling_creek_active_model') }}` | `{{ states('sensor.ackerly_creek_modeling_creek_candidate_model') }}` |
+          {% set a = state_attr('sensor.ackerly_creek_modeling_creek_active_model', 'active_metrics') or {} %}{% set c = state_attr('sensor.ackerly_creek_modeling_creek_active_model', 'candidate_metrics') or {} %}{% set keys = (a.keys() | list + c.keys() | list) | unique | reject('eq', 'note') | list -%}
           {% for k in keys %}| {{ k }} | {{ a.get(k, '—') }} | {{ c.get(k, '—') }} |
           {% endfor %}
 
-          {% if state_attr('sensor.rate_of_rise_creek_active_model', 'active_validated') == false %}
+          {{ '📋 **Active:** ' + a.note if a.get('note') else '' }}
+          {{ '📋 **Candidate:** ' + c.note if c.get('note') else '' }}
+
+          {% if state_attr('sensor.ackerly_creek_modeling_creek_active_model', 'active_validated') == false %}
           ⚠️ **The active model was never validated** — its held-out split could not
           score it (no `roc_auc` above). Its probability alone raises Tier 3 at 50%
           and Tier 4 at 80%, so treat the next tiers it produces with suspicion, and
           use **Rollback** if they do not match the creek.
           {% endif %}
 
-          **Promote** activates the candidate. A candidate a held-out split could not
-          score is still promotable — the call is yours — but it is flagged here and
-          in the command result for as long as it stays active.
+          #### Promote
+          Activates the candidate. A candidate a held-out split could not score is
+          still promotable — the call is yours — but it is flagged here and in the
+          command result for as long as it stays active.
 
-          **Rollback** undoes the last promote. With no earlier model to return to
-          it restores the threshold estimate, so backing out a bad promotion never
-          requires editing `registry.json` by hand.
+          #### Rollback
+          Undoes the last promote. With no earlier model to return to, it restores
+          the threshold estimate, so backing out a bad promotion never requires
+          editing `registry.json` by hand.
 
       - type: entities
         title: Ingestion health
