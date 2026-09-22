@@ -142,12 +142,29 @@
 #define DIAG_PEEK_EVERY          20
 
 // A peek that finds the creek high or rising abandons the window until the next day. The
-// node only has RAW DISTANCE -- the datum lives in Home Assistant, not here -- so this is
-// a distance, and distance SHRINKS as water rises. At the surveyed 1105 mm mount this is
-// 1105 - 850 = 255 mm ≈ 10 in of depth, well under the 24 in Warning threshold in
-// app/tiers.py. **Re-derive it if the pole is ever raised** (open question #16): the
-// install height changes and this constant does not follow it.
-#define DIAG_MIN_SAFE_DISTANCE_MM 850
+// node only has RAW DISTANCE -- the datum lives in Home Assistant, not here -- so this is a
+// distance, and distance SHRINKS as water rises: the window aborts when the reading falls
+// BELOW this.
+//
+// DERIVE IT FROM THE CREEK, NOT FROM A ROUND NUMBER. This was 850 mm on the theory that
+// 1105 - 850 = 255 mm is about 10 in of depth and therefore "well under the 24 in Warning".
+// Both halves were true and the value was still wrong, because nobody checked what the creek
+// actually sits at: baseline depth here is 11-13 in, occasionally 16. So the guard read
+// normal conditions as "creek too high" and abandoned the window on its first peek, every
+// single night. The 2026-09-21 run never held the rail once, and the resulting unchanged
+// battery slope looked exactly like a confirmed diagnosis.
+//
+// The bound that matters is the Warning threshold, not an arbitrary margin above zero:
+//   WARNING_STAGE_FT 2.0 ft = 24 in = 610 mm depth  ->  1105 - 610 =  495 mm distance
+//   this guard, 18 in = 457 mm depth                ->  1105 - 457 =  648 mm distance
+//   observed baseline, 11-13 in (16 in peak)        ->           ~790-840 mm distance
+// So it sits above the Warning distance (aborts well before a Warning is plausible) and
+// below the creek's normal distance (does not abort on an ordinary night). fastMode is the
+// first line of defence anyway -- any rise at all blocks the window before this is reached.
+//
+// **Re-derive it if the pole is ever raised** (open question #16): the install height moves
+// and this constant does not follow it.
+#define DIAG_MIN_SAFE_DISTANCE_MM 650
 
 // ONE-SHOT. The window runs until it has collected this many held cycles, then latches shut
 // for the life of the boot. This is what makes the armed image safe to forget about: a
