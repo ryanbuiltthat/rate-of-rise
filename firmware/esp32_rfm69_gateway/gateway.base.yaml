@@ -13,7 +13,14 @@
 #
 # WIRING (Seeed XIAO ESP32-C3) — deliberately NOT the board's default SPI pins:
 #   RFM69HW MISO  -> D2  (GPIO4)
-#   RFM69HW MOSI  -> D10 (GPIO10)
+#   RFM69HW MOSI  -> D6  (GPIO21) — was D10 (GPIO10) until 2026-09-21. GPIO10 failed short to
+#                    ground on the deployed gateway: driven high it stays at 0 V, with nothing
+#                    at all connected to the pad. CS and SCK on the same board still drive both
+#                    ways, so it is that one pin, not the chip. A grounded MOSI passes every
+#                    continuity test and reads back REG_VERSION=0x00 forever, which is exactly
+#                    what a dead radio looks like — two modules were suspected before the pin
+#                    was. GPIO21 is UART0 TX, free here because the logger runs on the C3's
+#                    native USB (see `logger:` below).
 #   RFM69HW SCK   -> D1  (GPIO3)
 #   RFM69HW CS    -> D3  (GPIO5)
 #   RFM69HW DIO0  -> D4  (GPIO6)  (interrupt)
@@ -50,7 +57,7 @@ substitutions:
   rfm69_cs_pin: "5"        # D3
   rfm69_sck_pin: "3"       # D1
   rfm69_miso_pin: "4"      # D2
-  rfm69_mosi_pin: "10"     # D10
+  rfm69_mosi_pin: "21"     # D6 -- moved off the failed GPIO10, see WIRING above
   rfm69_irq_pin: "6"       # D4
   rfm69_reset_pin: "7"     # D5 -- RFM69 RST (active HIGH; idles low)
   # North American ISM band. MUST match FREQUENCY in moteino_creek_node/src/main.cpp --
@@ -124,7 +131,12 @@ esp32:
   toolchain: platformio
 
 logger:
+  # INFO, not DEBUG: 80c9141 turned the volume down on main after the radio work settled.
   level: INFO
+  # Pinned, not defaulted. The C3's native USB peripheral is on GPIO18/19, which leaves UART0
+  # (GPIO20 RX / GPIO21 TX) free -- and MOSI now lives on GPIO21. If this ever silently fell
+  # back to UART0 the logger would fight the radio for that pin, so state it explicitly.
+  hardware_uart: USB_SERIAL_JTAG
 
 # The whole data path: the radio readings are published as native entities over this API, and
 # it is also what makes the device discoverable at all — mDNS only advertises the
