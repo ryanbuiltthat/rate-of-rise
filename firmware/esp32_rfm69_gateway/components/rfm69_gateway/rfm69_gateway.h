@@ -148,6 +148,182 @@ class Rfm69Gateway : public Component {
   // diagnostic button never requires anyone to build anything by hand.
   void set_ota_diag_hex_url(const std::string &url) { this->ota_diag_hex_url_ = url; }
 
+  // Bit-banged SPI mode 0 read on the configured pins, deliberately slow (~150 kHz) and
+  // completely independent of the SPI peripheral. It exists to answer the one question a
+  // meter cannot: is the radio genuinely unreachable, or is the ESP32 not clocking the pins
+  // we think it is? The remap in setup() rests on winning a race with RFM69::initialize()'s
+  // bare SPI.begin(); if that ever stops holding, SCK/MOSI idle on the board's default pads
+  // and MISO never moves, which looks exactly like a dead module from outside.
+  // Mode 0: MSB first, MOSI set while SCK is low, both ends sampling on the rising edge.
+  uint8_t bitbang_read_reg_on_(uint8_t cs, uint8_t sck, uint8_t mosi, uint8_t miso,
+                               uint8_t addr) {
+    pinMode(sck, OUTPUT);
+    digitalWrite(sck, LOW);
+    pinMode(mosi, OUTPUT);
+    pinMode(miso, INPUT);
+    pinMode(cs, OUTPUT);
+
+    digitalWrite(cs, LOW);
+    delayMicroseconds(5);
+
+    for (int i = 7; i >= 0; i--) {  // address byte; bit 7 clear selects a read
+      digitalWrite(mosi, ((addr & 0x7F) >> i) & 1);
+      delayMicroseconds(3);
+      digitalWrite(sck, HIGH);
+      delayMicroseconds(3);
+      digitalWrite(sck, LOW);
+    }
+
+    uint8_t in = 0;
+    digitalWrite(mosi, LOW);
+    for (int i = 7; i >= 0; i--) {
+      delayMicroseconds(3);
+      digitalWrite(sck, HIGH);
+      in |= (uint8_t) (digitalRead(miso) ? 1 : 0) << i;
+      delayMicroseconds(3);
+      digitalWrite(sck, LOW);
+    }
+
+    digitalWrite(cs, HIGH);
+    delayMicroseconds(5);
+    return in;
+  }
+
+  uint8_t bitbang_read_reg_(uint8_t addr) {
+    return this->bitbang_read_reg_on_(this->cs_pin_, this->sck_pin_, this->mosi_pin_,
+                                      this->miso_pin_, addr);
+  }
+
+  // Drive a pin both ways and read the pad back. The bit-bang above assumes these pins
+  // actually move; a pin held by something external, or damaged, fails silently and looks
+  // exactly like a radio that will not answer.
+  // arduino-esp32 configures OUTPUT as GPIO_MODE_INPUT_OUTPUT, so the pad reads back what it
+  // is actually at rather than what we asked for -- which is the whole point here.
+  void report_pin_drive_(const char *name, uint8_t pin) {
+    pinMode(pin, OUTPUT);
+    digitalWrite(pin, HIGH);
+    delayMicroseconds(200);
+    const bool hi = digitalRead(pin);
+    digitalWrite(pin, LOW);
+    delayMicroseconds(200);
+    const bool lo = digitalRead(pin);
+    const char *verdict = (hi && !lo)   ? "drives both ways"
+                          : (!hi && !lo) ? "STUCK LOW -- held down externally"
+                          : (hi && lo)   ? "STUCK HIGH -- held up externally"
+                                         : "inverted -- not sane";
+    ESP_LOGE(TAG, "  probe: %s (gpio %u) reads %d when driven high, %d when driven low -- %s",
+             name, pin, hi, lo, verdict);
+  }
+
+  // Try every assignment of the four SPI signals across the four configured GPIOs and report
+  // any that makes the radio answer. A harness re-terminated into a new enclosure can land a
+  // wire on the wrong pad with every wire still passing a continuity test end to end, and the
+  // result is indistinguishable from a dead module -- except that one permutation reads 0x24.
+  void scan_pin_permutations_() {
+    const uint8_t pins[4] = {this->cs_pin_, this->sck_pin_, this->mosi_pin_, this->miso_pin_};
+    const char *names[4] = {"cs", "sck", "mosi", "miso"};
+    bool found = false;
+
+    for (int a = 0; a < 4; a++) {
+      for (int b = 0; b < 4; b++) {
+        if (b == a) continue;
+        for (int c = 0; c < 4; c++) {
+          if (c == a || c == b) continue;
+          const int d = 6 - a - b - c;
+          const uint8_t v =
+              this->bitbang_read_reg_on_(pins[a], pins[b], pins[c], pins[d], REG_VERSION);
+          if (v != 0x24) continue;
+          found = true;
+          ESP_LOGE(TAG,
+                   "  probe: RADIO ANSWERS 0x24 with cs=%u sck=%u mosi=%u miso=%u "
+                   "-- i.e. the wire on the %s pad is really %s, %s is %s, %s is %s, %s is %s",
+                   pins[a], pins[b], pins[c], pins[d], names[a], "cs", names[b], "sck",
+                   names[c], "mosi", names[d], "miso");
+        }
+      }
+    }
+    if (!found)
+      ESP_LOGE(TAG, "  probe: no permutation of the four SPI pins gets an answer");
+  }
+
+  // Runs only on the init-failure path, where the component is about to be marked failed
+  // anyway -- so it is free to reconfigure the pins and never put them back.
+  void probe_bus_() {
+    // 1. The reset wire. Releasing the pin for a moment reads the wire rather than the
+    //    ESP32: the Adafruit breakout carries a pull-up on RST to the radio's own 3V3 rail,
+    //    so HIGH means the wire really does land on a powered RST net, and LOW means it is
+    //    open or grounded. Reset is asserted for the length of the read and then driven back
+    //    low, which is the same pulse setup() already performs.
+    if (this->reset_pin_ >= 0) {
+      pinMode(this->reset_pin_, INPUT);
+      delayMicroseconds(500);
+      const bool floats_high = digitalRead(this->reset_pin_);
+      pinMode(this->reset_pin_, OUTPUT);
+      digitalWrite(this->reset_pin_, LOW);
+      delay(10);
+      ESP_LOGE(TAG, "  probe: reset pin %d released reads %s -- %s", this->reset_pin_,
+               floats_high ? "HIGH" : "LOW",
+               floats_high ? "wire lands on a pulled-up RST net (rail is up)"
+                           : "RST is open or tied to ground");
+    } else {
+      ESP_LOGE(TAG, "  probe: no reset pin configured");
+    }
+
+    // 2. MISO. With CS high a healthy radio tri-states MISO, so the internal pull decides the
+    //    level and a line that refuses to follow it is shorted. This is the test a meter
+    //    cannot do in circuit, because the module's ESD structures read low either way.
+    digitalWrite(this->cs_pin_, HIGH);
+    pinMode(this->miso_pin_, INPUT_PULLUP);
+    delayMicroseconds(500);
+    const bool miso_pu = digitalRead(this->miso_pin_);
+    pinMode(this->miso_pin_, INPUT_PULLDOWN);
+    delayMicroseconds(500);
+    const bool miso_pd = digitalRead(this->miso_pin_);
+    const char *miso_verdict = (miso_pu && !miso_pd) ? "follows the pull -- free, not shorted"
+                               : (!miso_pu && !miso_pd)
+                                   ? "STUCK LOW -- shorted to ground"
+                                   : (miso_pu && miso_pd) ? "STUCK HIGH -- shorted to 3V3"
+                                                          : "inverted -- wiring is not sane";
+    ESP_LOGE(TAG, "  probe: miso pullup=%d pulldown=%d -- %s", miso_pu, miso_pd, miso_verdict);
+
+    // 3. DIO0. The radio drives this pin whenever it has power and is out of reset, so unlike
+    //    MISO -- legitimately tri-stated while CS is high -- it reports on the module's own
+    //    3V3 rail. Following the internal pull means nothing is driving it, which separates a
+    //    module that is unpowered (a dead regulator behind a healthy Vin) from one that is
+    //    powered but not answering (a dead chip).
+    pinMode(this->irq_pin_, INPUT_PULLUP);
+    delayMicroseconds(500);
+    const bool dio0_pu = digitalRead(this->irq_pin_);
+    pinMode(this->irq_pin_, INPUT_PULLDOWN);
+    delayMicroseconds(500);
+    const bool dio0_pd = digitalRead(this->irq_pin_);
+    ESP_LOGE(TAG, "  probe: dio0 pullup=%d pulldown=%d -- %s", dio0_pu, dio0_pd,
+             (dio0_pu != dio0_pd)
+                 ? "FLOATING -- nothing driving it; the module is unpowered or dead"
+                 : "driven by the radio -- it has a live rail and is out of reset");
+
+    // 4. The same register the hardware bus just failed to read, read again without the SPI
+    //    peripheral. Twice, so a one-off glitch does not get mistaken for an answer.
+    const uint8_t bb_version = this->bitbang_read_reg_(REG_VERSION);
+    const uint8_t bb_version2 = this->bitbang_read_reg_(REG_VERSION);
+    const uint8_t bb_opmode = this->bitbang_read_reg_(REG_OPMODE);
+    ESP_LOGE(TAG, "  probe: bit-banged REG_VERSION=0x%02X/0x%02X OPMODE=0x%02X", bb_version,
+             bb_version2, bb_opmode);
+    if (bb_version == 0x24) {
+      ESP_LOGE(TAG, "  probe: the radio ANSWERS when the pins are bit-banged -- the wiring and "
+                    "the module are fine, and the SPI peripheral is not driving these pins");
+      return;
+    }
+    ESP_LOGE(TAG, "  probe: no answer on the bit-banged bus either");
+
+    // 5. Everything above still assumes these three pins move and land where we think. Prove
+    //    the first, then brute-force the second.
+    this->report_pin_drive_("cs", this->cs_pin_);
+    this->report_pin_drive_("sck", this->sck_pin_);
+    this->report_pin_drive_("mosi", this->mosi_pin_);
+    this->scan_pin_permutations_();
+  }
+
   void setup() override {
     this->radio_mutex_ = xSemaphoreCreateMutex();
     if (this->radio_mutex_ == nullptr) {
@@ -203,8 +379,10 @@ class Rfm69Gateway : public Component {
                "IRQFLAGS1=0x%02X (MODEREADY=%s)",
                version, opmode, irqflags1,
                (irqflags1 & RF_IRQFLAGS1_MODEREADY) ? "set" : "clear");
-      ESP_LOGE(TAG, "  pins cs=%u sck=%u miso=%u mosi=%u irq=%u", this->cs_pin_, this->sck_pin_,
-               this->miso_pin_, this->mosi_pin_, this->irq_pin_);
+      ESP_LOGE(TAG, "  pins cs=%u sck=%u miso=%u mosi=%u irq=%u reset=%d", this->cs_pin_,
+               this->sck_pin_, this->miso_pin_, this->mosi_pin_, this->irq_pin_,
+               this->reset_pin_);
+      this->probe_bus_();
       this->mark_failed();
       return;
     }
