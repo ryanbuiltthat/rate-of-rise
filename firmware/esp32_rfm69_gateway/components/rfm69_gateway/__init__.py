@@ -53,6 +53,7 @@ CONF_ENCRYPTION_KEY = "encryption_key"
 CONF_RSSI = "rssi"
 CONF_PACKET_COUNT = "packet_count"
 CONF_FAST_MODE = "fast_mode"
+CONF_DIAG_ACTIVE = "diag_active"
 CONF_NODE_STATUS = "node_status"
 CONF_OTA_STATUS = "ota_status"
 CONF_OTA_HEX_URL = "ota_hex_url"
@@ -129,6 +130,12 @@ CONFIG_SCHEMA = cv.Schema(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             icon="mdi:speedometer",
         ),
+        # On while the node is holding the radar rail off for the #17 diagnostic. No
+        # device_class: this is not a problem state, it is the test running as intended.
+        cv.Optional(CONF_DIAG_ACTIVE): binary_sensor.binary_sensor_schema(
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:flask-outline",
+        ),
         cv.Optional(CONF_NODE_STATUS): binary_sensor.binary_sensor_schema(
             device_class=DEVICE_CLASS_CONNECTIVITY,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
@@ -175,6 +182,8 @@ async def to_code(config):
         cg.add(var.set_packet_count_sensor(await sensor.new_sensor(conf)))
     if conf := config.get(CONF_FAST_MODE):
         cg.add(var.set_fast_mode_sensor(await binary_sensor.new_binary_sensor(conf)))
+    if conf := config.get(CONF_DIAG_ACTIVE):
+        cg.add(var.set_diag_active_sensor(await binary_sensor.new_binary_sensor(conf)))
     if conf := config.get(CONF_NODE_STATUS):
         cg.add(var.set_node_status_sensor(await binary_sensor.new_binary_sensor(conf)))
     if conf := config.get(CONF_OTA_STATUS):

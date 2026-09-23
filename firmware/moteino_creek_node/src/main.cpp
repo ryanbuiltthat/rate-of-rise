@@ -123,12 +123,29 @@
 // ~6 mV/h effect. It doubles as the calibration anchor, since a known ~35 mA step against
 // a measured slope change converts mV/h to mA for every future night.
 //
-// THE WINDOW IS RELATIVE TO BOOT, NOT TO THE CLOCK. setup() calls rtc.begin() and never
-// rtc.setTime(), so the RTC starts at 00:00:00 on every power-up and secondsOfDay() is
-// really seconds-since-boot. The window therefore opens DIAG_WINDOW_START_S after the
-// node boots and repeats every 24 h at that same offset. **Flash at a time that puts it
-// in the small hours** -- flashing at 20:00 local puts a 2 h window at 22:00. Any reboot
-// (brownout, OTA, watchdog) restarts the clock and shifts the window with it.
+// THE WINDOW IS MEASURED FROM WHEN THIS IMAGE STARTED RUNNING, by accumulating elapsed
+// seconds -- NOT by reading the RTC's absolute value. That distinction is the whole reason
+// the 2026-09-23 run collected nothing.
+//
+// This used to test secondsOfDay() directly, on the stated theory that "setup() calls
+// rtc.begin() and never rtc.setTime(), so the RTC starts at 00:00:00 on every power-up".
+// That is false after an OTA. RTCZero::begin(bool resetTime = false) preserves the clock
+// when the reset cause is a watchdog, system or external reset:
+//
+//     if ((!resetTime) && (PM->RCAUSE.reg & (PM_RCAUSE_SYST|PM_RCAUSE_WDT|PM_RCAUSE_EXT)))
+//       ... oldTime.reg = RTC->MODE2.CLOCK.reg;          // captured
+//     if ((!resetTime) && (validTime) && (oldTime.reg != 0L))
+//       RTC->MODE2.CLOCK.reg = oldTime.reg;              // restored, not zeroed
+//
+// and RFM69_OTA reboots through resetUsingWatchdog(), which sets PM_RCAUSE_WDT. So after a
+// wireless update the RTC carries on from wherever it was, anchored to the last time the
+// battery was physically connected. The window was therefore parked at an arbitrary offset
+// that the 8.4 h the diagnostic image ran never swept across -- it opened zero times, and
+// the resulting unchanged battery slope was indistinguishable from a real diagnosis.
+//
+// Accumulating deltas is immune to all of that: it does not care what the clock reads, only
+// how much it advances. The window now genuinely opens DIAG_WINDOW_START_S after this image
+// starts, whatever reset brought it up, and repeats every 24 h of running from there.
 #define DIAG_RADAR_WINDOW_ENABLE 0        // 1 to arm. Keep 0 on anything left on the pole.
 #define DIAG_WINDOW_START_S      7200L    // opens this long after boot
 #define DIAG_WINDOW_LENGTH_S     7200L    // and stays open this long (start+length < 24 h)
@@ -220,6 +237,10 @@ static bool    fastMode       = false;
 // held the rail off; diagAborted parks a window that turned unsafe, and clears when the
 // window closes so one high-water night does not disable the test for good. diagCompleted is
 // the one-shot latch and never clears -- only a reboot re-arms it.
+// Seconds this image has been running, accumulated from RTC deltas rather than read off the
+// clock -- see the note above. diagLastSod is -1 until the first cycle establishes a base.
+static int32_t  diagLastSod   = -1;
+static uint32_t diagUptimeS   = 0;
 static uint16_t diagCycles    = 0;
 static uint16_t diagHeld      = 0;
 static bool     diagAborted   = false;
@@ -402,9 +423,26 @@ static void updateRateOfRise(int32_t distance_mm) {
 static_assert(DIAG_WINDOW_START_S + DIAG_WINDOW_LENGTH_S < SECONDS_PER_DAY,
               "diagnostic window must not cross the RTC's 24 h rollover");
 
+// Fold this cycle's elapsed time into diagUptimeS. Wrap-safe the same way updateRateOfRise()
+// is, and it keeps its own last-sample marker rather than sharing that one, because the rate
+// tracker deliberately skips cycles whose Modbus read failed -- and a held cycle has no read
+// at all, so sharing it would stall the clock exactly while the window was open.
+static void tickDiagUptime() {
+  const int32_t now = secondsOfDay();
+  if (diagLastSod >= 0) {
+    int32_t elapsed = now - diagLastSod;
+    if (elapsed < 0) elapsed += SECONDS_PER_DAY;    // wrapped past the RTC's midnight
+    // A jump beyond an hour is not elapsed time, it is the clock having been changed under
+    // us; count nothing rather than skipping the window forward by a bogus amount.
+    if (elapsed <= 3600) diagUptimeS += (uint32_t) elapsed;
+  }
+  diagLastSod = now;
+}
+
 static bool inDiagWindow() {
-  const int32_t sod = secondsOfDay();
-  return sod >= DIAG_WINDOW_START_S && sod < (DIAG_WINDOW_START_S + DIAG_WINDOW_LENGTH_S);
+  const uint32_t since = diagUptimeS % (uint32_t) SECONDS_PER_DAY;
+  return since >= (uint32_t) DIAG_WINDOW_START_S &&
+         since < (uint32_t) (DIAG_WINDOW_START_S + DIAG_WINDOW_LENGTH_S);
 }
 #endif
 
@@ -482,6 +520,7 @@ void loop() {
   // rail. Compiles away entirely when the diagnostic is disabled, which is how it ships.
   bool diagHold = false;
 #if DIAG_RADAR_WINDOW_ENABLE
+  tickDiagUptime();
   const bool diagWindow = inDiagWindow() && !diagCompleted;
   if (!diagWindow) {
     // Leaving the window is where the one-shot latch closes -- but only if the window
@@ -581,15 +620,23 @@ void loop() {
   // JSON parse failure. Worst case today is 57 bytes (distance_mm at the SEN0676's
   // 40000 mm ceiling, battery_mv at the divider's 6600 mV ceiling), so there are 4
   // bytes of headroom. Anything longer needs shorter keys, not a bigger buffer.
+  //
+  // `diag` was paid for by dropping `node`, which cost exactly the 9 bytes it needed.
+  // That key was always redundant: every packet already carries the sender in
+  // RFM69::SENDERID, which is what the gateway uses to address an OTA push back, and
+  // nothing ever read the JSON field. `diag` marks a cycle where the radar rail was
+  // deliberately held off, which is the one thing about this firmware that cannot be
+  // inferred downstream -- a held cycle and a failed Modbus read both publish a null
+  // distance, and telling them apart by hand meant querying the recorder.
   char payload[128];
   if (distance_mm >= 0) {
     snprintf(payload, sizeof(payload),
-      "{\"node\":%d,\"distance_mm\":%ld,\"battery_mv\":%u,\"fast\":%d}",
-      NODEID, (long)distance_mm, batt_mv, fastMode ? 1 : 0);
+      "{\"distance_mm\":%ld,\"battery_mv\":%u,\"fast\":%d,\"diag\":%d}",
+      (long)distance_mm, batt_mv, fastMode ? 1 : 0, diagHold ? 1 : 0);
   } else {
     snprintf(payload, sizeof(payload),
-      "{\"node\":%d,\"distance_mm\":null,\"battery_mv\":%u,\"fast\":%d}",
-      NODEID, batt_mv, fastMode ? 1 : 0);
+      "{\"distance_mm\":null,\"battery_mv\":%u,\"fast\":%d,\"diag\":%d}",
+      batt_mv, fastMode ? 1 : 0, diagHold ? 1 : 0);
   }
 
   if (radioOk) {

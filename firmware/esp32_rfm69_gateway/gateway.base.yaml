@@ -237,6 +237,8 @@ rfm69_gateway:
     name: Creek Node Packets
   fast_mode:
     name: Creek Node Fast Sampling
+  diag_active:
+    name: Creek Node Diagnostic Active
   node_status:
     name: Creek Node Status
   ota_status:

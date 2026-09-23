@@ -140,6 +140,7 @@ class Rfm69Gateway : public Component {
   void set_rssi_sensor(sensor::Sensor *s) { this->rssi_sensor_ = s; }
   void set_packet_count_sensor(sensor::Sensor *s) { this->packet_count_sensor_ = s; }
   void set_fast_mode_sensor(binary_sensor::BinarySensor *s) { this->fast_mode_sensor_ = s; }
+  void set_diag_active_sensor(binary_sensor::BinarySensor *s) { this->diag_active_sensor_ = s; }
   void set_node_status_sensor(binary_sensor::BinarySensor *s) { this->node_status_sensor_ = s; }
   void set_ota_status_sensor(text_sensor::TextSensor *s) { this->ota_status_sensor_ = s; }
   void set_ota_hex_url(const std::string &url) { this->ota_hex_url_ = url; }
@@ -665,6 +666,17 @@ class Rfm69Gateway : public Component {
       // (OTA_LISTEN_FAST_MS 300 ms vs OTA_LISTEN_MS 1500 ms), so a fast wake costs less than
       // a normal one while arriving 12x more often. Without this flag a raised packet rate is
       // ambiguous -- it could be a rise, or it could be the gateway having been offline.
+      // Whether the node deliberately held the radar rail off for this cycle (open question
+      // #17). It matters because a held cycle and a failed Modbus read both publish a null
+      // distance, and nothing else distinguishes them -- which made "did the diagnostic
+      // window actually run?" a question only a recorder query could answer. It was asked
+      // twice, and both times the honest answer turned out to be no, after the unchanged
+      // battery slope had already been read as a confirmed diagnosis. This entity is that
+      // question, answered on the dashboard.
+      if (this->diag_active_sensor_ != nullptr) {
+        auto diag = root["diag"];
+        this->diag_active_sensor_->publish_state(!diag.isNull() && diag.as<int>() != 0);
+      }
       if (this->fast_mode_sensor_ != nullptr) {
         auto fast = root["fast"];
         // Absent (an older node build) is not the same as false, but a binary_sensor has no
@@ -1110,6 +1122,7 @@ class Rfm69Gateway : public Component {
   sensor::Sensor *rssi_sensor_{nullptr};
   sensor::Sensor *packet_count_sensor_{nullptr};
   binary_sensor::BinarySensor *fast_mode_sensor_{nullptr};
+  binary_sensor::BinarySensor *diag_active_sensor_{nullptr};
   binary_sensor::BinarySensor *node_status_sensor_{nullptr};
   text_sensor::TextSensor *ota_status_sensor_{nullptr};
 
