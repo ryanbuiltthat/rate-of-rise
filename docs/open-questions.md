@@ -317,6 +317,15 @@ the calibration phase.
   problem needs: a known ~35 mA step against a measured slope change converts mV/h to mA
   for every future night.
 
+  **Two runs produced nothing, both diagnosed as results before being checked.** 2026-09-21
+  aborted on its first peek every night: the abort guard sat at 10 in of depth while the creek
+  baseline is 11-13 in. 2026-09-23 never opened the window at all: it was keyed off
+  `secondsOfDay()`, and RTCZero preserves the RTC across the watchdog reset RFM69_OTA reboots
+  through, so the offset was anchored to the last battery connect rather than to the flash and
+  the 8.4 h run never swept across it. Both times the unchanged battery slope looked exactly
+  like "SHDN is disconnected, confirmed". **Check `binary_sensor.*_creek_node_diagnostic_active`
+  went on before reading any slope** -- that entity exists because this mistake was made twice.
+
   **To run it: press "Push Node Diagnostic Firmware" in Home Assistant. That is the whole
   procedure.** CI builds the armed image from the same commit as the normal one and attaches
   both to the same release, so there is nothing to arm, build or convert by hand, and no

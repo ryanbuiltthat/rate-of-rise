@@ -346,6 +346,66 @@ def test_ota_url_does_not_use_the_floating_latest_release():
         "node_hex_url uses the floating latest release; an add-on release would break it")
 
 
+def test_diagnostic_window_is_measured_from_uptime_not_the_rtc():
+    """The window must not be derived from the RTC's absolute value.
+
+    `rtc.begin()` takes `resetTime = false`, and RTCZero preserves the clock whenever the
+    reset cause is watchdog, system or external — which is exactly how RFM69_OTA reboots the
+    node. After a wireless push the RTC therefore carries on from wherever it was, anchored
+    to the last time the battery was physically connected, and `secondsOfDay()` is not
+    seconds-since-boot. The 2026-09-23 run parked the window at an offset that the 8.4 h the
+    diagnostic image ran never swept across: it opened zero times, and the unchanged battery
+    slope that produced read exactly like a confirmed diagnosis.
+
+    Accumulated deltas do not care what the clock reads, only how much it advances.
+    """
+    node_src = (ROOT / "firmware" / "moteino_creek_node" / "src" / "main.cpp").read_text(
+        encoding="utf-8")
+    match = re.search(r"static bool inDiagWindow\(\)\s*\{(.*?)\n\}", node_src, re.DOTALL)
+    assert match, "inDiagWindow() is gone"
+    body = match.group(1)
+    assert "diagUptimeS" in body, "the window no longer uses accumulated uptime"
+    assert "secondsOfDay()" not in body, (
+        "inDiagWindow() reads the RTC directly again; that value survives an OTA reboot and "
+        "is not time-since-boot")
+    assert "tickDiagUptime" in node_src, "nothing accumulates the uptime"
+
+
+def test_diagnostic_active_is_sent_by_the_node_and_published():
+    """A held cycle and a failed Modbus read both publish a null distance.
+
+    Nothing else tells them apart, which made "did the diagnostic window actually run?" a
+    question only a recorder query could answer — and it was asked twice, both times after an
+    unchanged slope had already been read as a result. This flag is that question answered on
+    the dashboard, so the next run reports on itself.
+    """
+    node_src = (ROOT / "firmware" / "moteino_creek_node" / "src" / "main.cpp").read_text(
+        encoding="utf-8")
+    assert '\\"diag\\":%d' in node_src, "the node no longer sends the diag flag"
+    names = set(gateway_entity_ids())
+    assert "Creek Node Diagnostic Active" in names, (
+        f"gateway does not publish the diagnostic flag: {sorted(names)}")
+
+
+def test_node_payload_fits_the_radio_frame():
+    """RFM69::sendFrame() silently truncates past RF69_MAX_DATA_LEN (61).
+
+    Truncation is not a crash: the node logs a perfectly good payload while the gateway logs
+    a JSON parse failure, so the packet budget has to be checked here rather than discovered
+    in the field. `diag` only fits because `node` was dropped to pay for it, and the headroom
+    left is four bytes — narrow enough that the next key added without checking overflows it.
+    """
+    node_src = (ROOT / "firmware" / "moteino_creek_node" / "src" / "main.cpp").read_text(
+        encoding="utf-8")
+    match = re.search(r'"(\{\\"distance_mm\\":%ld.*?\})"', node_src)
+    assert match, "could not find the numeric payload format string"
+    # Worst case: the SEN0676's 40000 mm ceiling, the divider's 6600 mV ceiling, flags at 1.
+    worst = (match.group(1).replace('\\"', '"')
+             .replace("%ld", "40000").replace("%u", "6600").replace("%d", "1"))
+    assert len(worst) <= 61, (
+        f"worst-case payload is {len(worst)} bytes, over RF69_MAX_DATA_LEN: {worst!r}")
+
+
 def test_blanking_zone_matches_the_sensor_datasheet():
     """SEN0676 minimum range is 0.15 m; anything closer is not a measurement. The stage
     lambda uses this to reject a lost target, so a too-small value publishes noise as depth."""
