@@ -23,7 +23,7 @@
 # (41e6caf), so:
 #
 #   * Entities that existed BEFORE that rename keep the old device's prefix ->
-#     sensor.ackerly_creek_modeling_creek_*. Do not "fix" these to match discovery.py
+#     sensor.rate_of_rise_creek_*. Do not "fix" these to match discovery.py
 #     without re-pointing the live device identity and migrating the entity registry.
 #   * Entities added AFTER it register against the current device name ->
 #     sensor.rate_of_rise_creek_* (creek_rate_of_rise, creek_stage_age, the Google Flood
@@ -48,13 +48,13 @@ views:
     cards:
       - type: markdown
         content: >
-          # {{ state_attr('sensor.ackerly_creek_modeling_creek_alert_tier', 'label') or 'Unknown' }}
+          # {{ state_attr('sensor.rate_of_rise_creek_alert_tier', 'label') or 'Unknown' }}
 
-          **Tier {{ states('sensor.ackerly_creek_modeling_creek_alert_tier') }}** · flood probability
-          **{{ states('sensor.ackerly_creek_modeling_creek_flood_probability') }}%**
-          ({{ states('sensor.ackerly_creek_modeling_creek_model_method') }} model)
+          **Tier {{ states('sensor.rate_of_rise_creek_alert_tier') }}** · flood probability
+          **{{ states('sensor.rate_of_rise_creek_flood_probability') }}%**
+          ({{ states('sensor.rate_of_rise_creek_model_method') }} model)
 
-          {% set tier = states('sensor.ackerly_creek_modeling_creek_alert_tier') %}
+          {% set tier = states('sensor.rate_of_rise_creek_alert_tier') %}
           {% if tier == '4' %}🚨 Flooding imminent or underway — act now.
           {% elif tier == '3' %}⚠️ Creek is responding to rain — monitor closely.
           {% elif tier == '2' %}👀 Rain is falling upstream — conditions are setting up.
@@ -62,13 +62,13 @@ views:
           {% else %}✅ No elevated flood risk right now.
           {% endif %}
 
-          {% set why = state_attr('sensor.ackerly_creek_modeling_creek_alert_tier', 'why') %}
+          {% set why = state_attr('sensor.rate_of_rise_creek_alert_tier', 'why') %}
           {% if tier not in ['0', 'unknown', 'unavailable'] and why %}**Why:** {{ why }}{% endif %}
 
           _Placeholder thresholds — not yet field-calibrated (open questions #5/#7)._
 
       - type: gauge
-        entity: sensor.ackerly_creek_modeling_creek_flood_probability
+        entity: sensor.rate_of_rise_creek_flood_probability
         name: Flood Probability
         unit: '%'
         min: 0
@@ -89,36 +89,36 @@ views:
         title: Now
         show_header_toggle: false
         entities:
-          - entity: sensor.ackerly_creek_modeling_creek_predicted_crest
+          - entity: sensor.rate_of_rise_creek_predicted_crest
             name: Predicted crest
-          - entity: sensor.ackerly_creek_modeling_creek_lag_estimate
+          - entity: sensor.rate_of_rise_creek_lag_estimate
             name: Lag estimate
-          - entity: sensor.ackerly_creek_modeling_creek_soil_moisture_mean
+          - entity: sensor.rate_of_rise_creek_soil_moisture_mean
             name: Soil moisture (mean)
-          - entity: binary_sensor.ackerly_creek_modeling_creek_soil_ponding
+          - entity: binary_sensor.rate_of_rise_creek_soil_ponding
             name: Low-lying ponding
 
       - type: entities
         title: Rainfall & forecast
         show_header_toggle: false
         entities:
-          - entity: sensor.ackerly_creek_modeling_creek_rain_1h
+          - entity: sensor.rate_of_rise_creek_rain_1h
             name: Rain (1 h)
-          - entity: sensor.ackerly_creek_modeling_creek_rain_6h
+          - entity: sensor.rate_of_rise_creek_rain_6h
             name: Rain (6 h)
-          - entity: sensor.ackerly_creek_modeling_creek_rain_24h
+          - entity: sensor.rate_of_rise_creek_rain_24h
             name: Rain (24 h)
-          - entity: sensor.ackerly_creek_modeling_creek_rain_72h
+          - entity: sensor.rate_of_rise_creek_rain_72h
             name: Rain (72 h)
           - type: divider
-          - entity: sensor.ackerly_creek_modeling_creek_qpf_6h
+          - entity: sensor.rate_of_rise_creek_qpf_6h
             name: Forecast rain (next 6 h)
-          - entity: sensor.ackerly_creek_modeling_creek_qpf_24h
+          - entity: sensor.rate_of_rise_creek_qpf_24h
             name: Forecast rain (next 24 h)
           - type: divider
           # Basin-wide antecedent wetness — weeks of rainfall history in one number.
           # High API means the next storm runs off instead of soaking in.
-          - entity: sensor.ackerly_creek_modeling_creek_antecedent_precipitation_index
+          - entity: sensor.rate_of_rise_creek_antecedent_precipitation_index
             name: Antecedent precipitation index
 
       # WPC's Excessive Rainfall Outlook: the only input that grades forecast rain
@@ -128,11 +128,11 @@ views:
         title: Excessive rainfall outlook (WPC)
         show_header_toggle: false
         entities:
-          - entity: sensor.ackerly_creek_modeling_creek_wpc_excessive_rain_risk_day_1
+          - entity: sensor.rate_of_rise_creek_wpc_excessive_rain_risk_day_1
             name: Today
-          - entity: sensor.ackerly_creek_modeling_creek_wpc_excessive_rain_risk_day_2
+          - entity: sensor.rate_of_rise_creek_wpc_excessive_rain_risk_day_2
             name: Tomorrow
-          - entity: sensor.ackerly_creek_modeling_creek_wpc_excessive_rain_risk_day_3
+          - entity: sensor.rate_of_rise_creek_wpc_excessive_rain_risk_day_3
             name: Day 3
 
       # Google's Flood Forecasting model, read two ways: gauge severity at the nearest
@@ -167,13 +167,13 @@ views:
         title: Inbound cells (radar)
         show_header_toggle: false
         entities:
-          - entity: sensor.ackerly_creek_modeling_creek_radar_threat_eta
+          - entity: sensor.rate_of_rise_creek_radar_threat_eta
             name: Inbound cell ETA
-          - entity: sensor.ackerly_creek_modeling_creek_radar_threat_cells
+          - entity: sensor.rate_of_rise_creek_radar_threat_cells
             name: Cells on intercept
-          - entity: sensor.ackerly_creek_modeling_creek_radar_threat_max_dbz
+          - entity: sensor.rate_of_rise_creek_radar_threat_max_dbz
             name: ↳ strongest (dBZ)
-          - entity: sensor.ackerly_creek_modeling_creek_radar_cells_tracked
+          - entity: sensor.rate_of_rise_creek_radar_cells_tracked
             name: Cells tracked (<nexrad site>)
 
       # Snowpack. Rain-on-snow is a major the region flood driver (spec §1) — the pack melts
@@ -182,11 +182,11 @@ views:
         title: Snowpack
         show_header_toggle: false
         entities:
-          - entity: binary_sensor.ackerly_creek_modeling_creek_rain_on_snow
+          - entity: binary_sensor.rate_of_rise_creek_rain_on_snow
             name: Rain on snow
-          - entity: sensor.ackerly_creek_modeling_creek_snow_water_equivalent
+          - entity: sensor.rate_of_rise_creek_snow_water_equivalent
             name: Snow water equivalent
-          - entity: sensor.ackerly_creek_modeling_creek_temperature
+          - entity: sensor.rate_of_rise_creek_temperature
             name: Temperature
 
       # Active NWS products covering the site. Any of these floors the alert tier (§6).
@@ -194,31 +194,31 @@ views:
         title: NWS alerts
         show_header_toggle: false
         entities:
-          - entity: binary_sensor.ackerly_creek_modeling_creek_nws_flash_flood_warning
+          - entity: binary_sensor.rate_of_rise_creek_nws_flash_flood_warning
             name: Flash Flood Warning
-          - entity: binary_sensor.ackerly_creek_modeling_creek_nws_flood_warning
+          - entity: binary_sensor.rate_of_rise_creek_nws_flood_warning
             name: Flood Warning
-          - entity: binary_sensor.ackerly_creek_modeling_creek_nws_flood_watch
+          - entity: binary_sensor.rate_of_rise_creek_nws_flood_watch
             name: Flood Watch
-          - entity: sensor.ackerly_creek_modeling_creek_nws_alert_count
+          - entity: sensor.rate_of_rise_creek_nws_alert_count
             name: Active alerts (all types)
 
       - type: entities
         title: Upstream & model
         show_header_toggle: false
         entities:
-          - entity: sensor.ackerly_creek_modeling_creek_upstream_rain_1h
+          - entity: sensor.rate_of_rise_creek_upstream_rain_1h
             name: Upstream rain (1 h)
-          - entity: sensor.ackerly_creek_modeling_creek_upstream_rain_6h
+          - entity: sensor.rate_of_rise_creek_upstream_rain_6h
             name: Upstream rain (6 h)
-          - entity: sensor.ackerly_creek_modeling_creek_upstream_rain_24h
+          - entity: sensor.rate_of_rise_creek_upstream_rain_24h
             name: Upstream rain (24 h)
-          - entity: sensor.ackerly_creek_modeling_creek_upstream_precip_today
+          - entity: sensor.rate_of_rise_creek_upstream_precip_today
             name: Upstream rain (today)
           - type: divider
-          - entity: sensor.ackerly_creek_modeling_creek_nwm_flow
+          - entity: sensor.rate_of_rise_creek_nwm_flow
             name: NWM forecast flow
-          - entity: sensor.ackerly_creek_modeling_creek_nwm_flow_peak
+          - entity: sensor.rate_of_rise_creek_nwm_flow_peak
             name: NWM forecast peak
 
       # Downstream USGS gauges. Different basin and a longer lag than ours, so these are
@@ -242,7 +242,7 @@ views:
         title: Upstream rain vs downstream response (24 h)
         hours_to_show: 24
         entities:
-          - entity: sensor.ackerly_creek_modeling_creek_upstream_rain_3h
+          - entity: sensor.rate_of_rise_creek_upstream_rain_3h
             name: Upstream rain (3 h)
           - entity: sensor.rate_of_rise_creek_usgs_adjacent_gage_height
             name: the adjacent creek gage
@@ -256,30 +256,30 @@ views:
       # Banner only while the service is mid-task.
       - type: conditional
         conditions:
-          - entity: sensor.ackerly_creek_modeling_creek_pipeline_state
+          - entity: sensor.rate_of_rise_creek_pipeline_state
             state: running
         card:
           type: markdown
           content: >
             ⏳ **Pipeline running** — task:
-            {{ state_attr('sensor.ackerly_creek_modeling_creek_pipeline_state', 'task') }}. Buttons are queued
+            {{ state_attr('sensor.rate_of_rise_creek_pipeline_state', 'task') }}. Buttons are queued
             single-threaded, so a press now runs after the current task.
 
       - type: entities
         title: Controls
         show_header_toggle: false
         entities:
-          - entity: button.ackerly_creek_modeling_creek_run_inference_now
+          - entity: button.rate_of_rise_creek_run_inference_now
             name: Run inference now
-          - entity: button.ackerly_creek_modeling_creek_retrain_now
+          - entity: button.rate_of_rise_creek_retrain_now
             name: Retrain now
           - type: divider
-          - entity: button.ackerly_creek_modeling_creek_promote_model
+          - entity: button.rate_of_rise_creek_promote_model
             name: Promote candidate → active
-          - entity: button.ackerly_creek_modeling_creek_rollback_model
+          - entity: button.rate_of_rise_creek_rollback_model
             name: Rollback to previous
           - type: divider
-          - entity: sensor.ackerly_creek_modeling_creek_last_command
+          - entity: sensor.rate_of_rise_creek_last_command
             name: Last command
             secondary_info: last-changed
 
@@ -288,17 +288,17 @@ views:
         title: Storms & lag
         show_header_toggle: false
         entities:
-          - entity: binary_sensor.ackerly_creek_modeling_creek_storm_in_progress
+          - entity: binary_sensor.rate_of_rise_creek_storm_in_progress
             name: Storm in progress
-          - entity: sensor.ackerly_creek_modeling_creek_event_count
+          - entity: sensor.rate_of_rise_creek_event_count
             name: Storms recorded
           - type: divider
-          - entity: sensor.ackerly_creek_modeling_creek_lag_estimate
+          - entity: sensor.rate_of_rise_creek_lag_estimate
             name: Rainfall → response lag
           # Which series the lag was fitted against. Until the creek node exists this
           # reads as a USGS proxy — a different, larger basin, so that number is a sanity
           # check on the method, NOT the creek's warning window.
-          - entity: sensor.ackerly_creek_modeling_creek_lag_response_series
+          - entity: sensor.rate_of_rise_creek_lag_response_series
             name: ↳ fitted against
           - type: divider
           # Annotation from here, no SSH/Samba needed for the normal case. Shows *which*
@@ -307,33 +307,33 @@ views:
           # anything, so you are never annotating blind. Anything more specific (an older
           # un-annotated storm, correcting one already noted) still needs the sqlite3/
           # Samba path in docs/storm-runbook.md.
-          - entity: sensor.ackerly_creek_modeling_creek_storm_to_annotate
+          - entity: sensor.rate_of_rise_creek_storm_to_annotate
             name: Ready to annotate
-          - entity: text.ackerly_creek_modeling_creek_annotate_latest_storm
+          - entity: text.rate_of_rise_creek_annotate_latest_storm
             name: ↳ notes
 
       - type: entities
         title: Pipeline & model status
         show_header_toggle: false
         entities:
-          - entity: sensor.ackerly_creek_modeling_creek_pipeline_state
+          - entity: sensor.rate_of_rise_creek_pipeline_state
             name: Pipeline state
-          - entity: sensor.ackerly_creek_modeling_creek_last_inference
+          - entity: sensor.rate_of_rise_creek_last_inference
             name: Last inference
-          - entity: sensor.ackerly_creek_modeling_creek_last_nightly_run
+          - entity: sensor.rate_of_rise_creek_last_nightly_run
             name: Last nightly run
           - type: divider
-          - entity: sensor.ackerly_creek_modeling_creek_model_health
+          - entity: sensor.rate_of_rise_creek_model_health
             name: Model health
-          - entity: sensor.ackerly_creek_modeling_creek_model_method
+          - entity: sensor.rate_of_rise_creek_model_method
             name: Active method
-          - entity: sensor.ackerly_creek_modeling_creek_dataset_rows
+          - entity: sensor.rate_of_rise_creek_dataset_rows
             name: Dataset rows
-          - entity: sensor.ackerly_creek_modeling_creek_event_count
+          - entity: sensor.rate_of_rise_creek_event_count
             name: Storm events captured
-          - entity: sensor.ackerly_creek_modeling_creek_active_model
+          - entity: sensor.rate_of_rise_creek_active_model
             name: Active model
-          - entity: sensor.ackerly_creek_modeling_creek_candidate_model
+          - entity: sensor.rate_of_rise_creek_candidate_model
             name: Candidate model
 
       - type: markdown
@@ -343,15 +343,15 @@ views:
 
           | Metric | Active | Candidate |
           |---|---|---|
-          | Version | `{{ states('sensor.ackerly_creek_modeling_creek_active_model') }}` | `{{ states('sensor.ackerly_creek_modeling_creek_candidate_model') }}` |
-          {% set a = state_attr('sensor.ackerly_creek_modeling_creek_active_model', 'active_metrics') or {} %}{% set c = state_attr('sensor.ackerly_creek_modeling_creek_active_model', 'candidate_metrics') or {} %}{% set keys = (a.keys() | list + c.keys() | list) | unique | reject('eq', 'note') | list -%}
+          | Version | `{{ states('sensor.rate_of_rise_creek_active_model') }}` | `{{ states('sensor.rate_of_rise_creek_candidate_model') }}` |
+          {% set a = state_attr('sensor.rate_of_rise_creek_active_model', 'active_metrics') or {} %}{% set c = state_attr('sensor.rate_of_rise_creek_active_model', 'candidate_metrics') or {} %}{% set keys = (a.keys() | list + c.keys() | list) | unique | reject('eq', 'note') | list -%}
           {% for k in keys %}| {{ k }} | {{ a.get(k, '—') }} | {{ c.get(k, '—') }} |
           {% endfor %}
 
           {{ '📋 **Active:** ' + a.note if a.get('note') else '' }}
           {{ '📋 **Candidate:** ' + c.note if c.get('note') else '' }}
 
-          {% if state_attr('sensor.ackerly_creek_modeling_creek_active_model', 'active_validated') == false %}
+          {% if state_attr('sensor.rate_of_rise_creek_active_model', 'active_validated') == false %}
           ⚠️ **The active model was never validated** — its held-out split could not
           score it (no `roc_auc` above). Its probability alone raises Tier 3 at 50%
           and Tier 4 at 80%, so treat the next tiers it produces with suspicion, and
@@ -404,11 +404,11 @@ views:
         title: Watchdogs
         show_header_toggle: false
         entities:
-          - entity: binary_sensor.ackerly_creek_modeling_creek_stage_stale
+          - entity: binary_sensor.rate_of_rise_creek_stage_stale
             name: Creek stage stale
-          - entity: binary_sensor.ackerly_creek_modeling_creek_soil_moisture_stale
+          - entity: binary_sensor.rate_of_rise_creek_soil_moisture_stale
             name: Soil moisture stale
-          - entity: binary_sensor.ackerly_creek_modeling_creek_rain_rate_stale
+          - entity: binary_sensor.rate_of_rise_creek_rain_rate_stale
             name: Rain rate stale
           # Stays HA-side: the add-on cannot report its own death.
           - entity: binary_sensor.creek_modeling_service_stale
@@ -416,21 +416,21 @@ views:
           - type: divider
           # Ingest sources — ON means the source published no value, not that the value
           # is old (a legitimate 0.00 in never changes state).
-          - entity: binary_sensor.ackerly_creek_modeling_creek_forecast_data_missing
+          - entity: binary_sensor.rate_of_rise_creek_forecast_data_missing
             name: NWS QPF missing
-          - entity: binary_sensor.ackerly_creek_modeling_creek_upstream_data_missing
+          - entity: binary_sensor.rate_of_rise_creek_upstream_data_missing
             name: Upstream PWS missing
-          - entity: binary_sensor.ackerly_creek_modeling_creek_nwm_data_missing
+          - entity: binary_sensor.rate_of_rise_creek_nwm_data_missing
             name: NWM reach missing
-          - entity: binary_sensor.ackerly_creek_modeling_creek_downstream_gauge_missing
+          - entity: binary_sensor.rate_of_rise_creek_downstream_gauge_missing
             name: USGS gauges missing
-          - entity: binary_sensor.ackerly_creek_modeling_creek_snowpack_data_missing
+          - entity: binary_sensor.rate_of_rise_creek_snowpack_data_missing
             name: SNODAS snowpack missing
-          - entity: binary_sensor.ackerly_creek_modeling_creek_nws_alert_feed_missing
+          - entity: binary_sensor.rate_of_rise_creek_nws_alert_feed_missing
             name: NWS alert feed missing
-          - entity: binary_sensor.ackerly_creek_modeling_creek_radar_cells_missing
+          - entity: binary_sensor.rate_of_rise_creek_radar_cells_missing
             name: Radar cell feed missing
-          - entity: binary_sensor.ackerly_creek_modeling_creek_wpc_outlook_missing
+          - entity: binary_sensor.rate_of_rise_creek_wpc_outlook_missing
             name: WPC outlook missing
           - entity: binary_sensor.rate_of_rise_creek_google_flood_status_missing
             name: Google flood status missing

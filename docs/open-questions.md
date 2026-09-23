@@ -297,7 +297,11 @@ the calibration phase.
 ## Carried into v1.1 — known, scoped, deliberately not in v1
 
 - **#17.** **The node draws ~60 mA, and the firmware says it should draw 1–2 mA.** Opened
-  2026-09-20, spun out of #11. The first measurement of average draw — least-squares fit to
+  2026-09-20, spun out of #11. **Suspect (1) confirmed 2026-09-23, found by hand rather than
+  by the diagnostic window:** the SHDN wire was on the wrong header pin, so the radar ran
+  24/7. Moving it to `~4` made the rail switch and exposed a too-short radar warm-up (fixed
+  in `main.cpp`, "Radar warm-up"). Re-measure the overnight slope once that firmware is on
+  the pole; if it is not near ~4–5 mV/h, suspects (2) and (3) are still live. The first measurement of average draw — least-squares fit to
   the pack's overnight discharge, 2026-09-19/20, −10.87 ± 0.08 mV/h over 265 reports — puts
   the node at **~60 mA** (40–80 mA, the band set by the unknown OCV curve). Summing what the
   firmware actually does gives 1–2 mA. A ~30× gap is a fault, not a modelling error.

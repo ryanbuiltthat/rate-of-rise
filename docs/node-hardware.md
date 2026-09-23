@@ -88,7 +88,10 @@ drawing current continuously that should not be. The likeliest candidates, in or
 1. **The radar rail never actually switches.** `SENSOR_EN_PIN` is driven correctly in
    firmware, but if the U1V11F5's SHDN is not wired (or is wired to a rail that holds it
    high) the SEN0676 runs 24/7 at ~35 mA. This single fault would explain most of the gap,
-   and it is the first thing to check with a meter.
+   and it is the first thing to check with a meter. **Confirmed 2026-09-23:** the SHDN wire
+   was on the wrong header pin. Moved to `~4` (PA08, the pin `SENSOR_EN_PIN 4` drives), the
+   rail switches -- and the 500 ms settle turned out to be too short for a cold radar, which
+   read 0. The node now polls until the reading settles (`main.cpp`, "Radar warm-up").
 2. **`LowPower.standby()` is not being entered**, leaving the SAMD21 spinning at ~12 mA.
 3. **Quiescent draw of the two boosts plus the charger and protection board**, which is
    budgeted at nothing anywhere in this file and never verified.

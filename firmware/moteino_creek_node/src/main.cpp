@@ -4,9 +4,9 @@
 // JSON payload, and transmits over RFM69HW (915 MHz) to the ESP32 gateway.
 // Sleeps between cycles and duty-cycles the radar rail, which should hold average
 // draw to a few mA. It does not: the pack says ~60 mA, and ~5.7x more than it drew
-// before 2026-09-14. See open question #17 and the radar-rail diagnostic below —
-// the leading suspect is that SHDN on the 5 V boost is not connected to
-// SENSOR_EN_PIN, so the radar never actually powers down. Reporting is
+// before 2026-09-14. See open question #17 and the radar-rail diagnostic below.
+// Answered 2026-09-23: the SHDN wire was on the wrong header pin, so the radar never
+// powered down. It is on ~4 (PA08) now, which is what exposed the radar warm-up below. Reporting is
 // every 60 s normally and every 5 s once it detects the creek rising (see
 // "Adaptive crest sampling" below). Listens briefly after each TX for a
 // wireless firmware push (see firmware/README.md, OTA section) so future
@@ -58,8 +58,31 @@
 
 // ─── Timing ──────────────────────────────────────────────────────────────────
 #define REPORT_INTERVAL_S   60        // 60 s between reports (spec §2)
-#define SENSOR_SETTLE_MS    500       // time after powering the radar before polling
 #define MODBUS_TIMEOUT_MS   1000
+
+// ─── Radar warm-up ───────────────────────────────────────────────────────────
+// The datasheet's "100 ms startup" is when the SEN0676 starts ANSWERING, not when its
+// answer means anything. Register 0x0001 is filtered, and straight off a cold rail it
+// reads 0 -- a well-formed reply with a good CRC. This fixed 500 ms delay used to be a
+// single read, which went unnoticed for as long as the EN wire was on the wrong header pin
+// (SHDN's own pull-up kept the radar on 24/7, so every read found a settled filter). The
+// wire moved to ~4 on 2026-09-23 and the creek immediately read 0; pulling it again brought
+// the reading back. A 0 is not harmless
+// either -- the gateway clamps anything inside the blanking zone to the range ceiling,
+// so it published a calm creek as 37.6 in, a few inches off the bank top.
+//
+// So poll until the filter has settled: two consecutive non-zero readings that agree
+// within SENSOR_STABLE_MM (the sensor is ±5 mm, so honest consecutive readings of a
+// still surface land within 10 mm of each other).
+#define SENSOR_FIRST_POLL_MS     300   // first Modbus attempt after power-up
+#define SENSOR_POLL_MS           250   // between warm-up polls
+#define SENSOR_STABLE_MM         10
+// If the filter never settles, give up and report the last answer -- even a 0. Reporting
+// null instead would be the tidier choice for a flaky radar, but the gateway's clamp
+// exists so that a radar reading "too close" keeps the alarm up as the creek nears the
+// bank, and a null would drop it. Erring high here only costs battery when the radar is
+// misbehaving; erring low costs the alarm.
+#define SENSOR_READY_TIMEOUT_MS  10000
 #define OTA_LISTEN_MS       1500      // post-TX window to catch a wireless firmware push
 
 // ─── Adaptive crest sampling (open question #15) ─────────────────────────────
@@ -93,7 +116,7 @@
 // Don't manufacture a rate across a gap this long — a missed cycle or two is a real
 // interval and fine to measure over, but anything beyond this is a cold start.
 #define MAX_RATE_GAP_S           300
-// Each wake already costs ~0.5 s of sensor settle plus the Modbus read before the
+// Each wake already costs the Modbus read (the rail stays up in fast mode, so no warm-up) before the
 // OTA_LISTEN_MS window, so at a 5 s sleep the full 1.5 s window would make the real
 // period ~7 s and hold the node awake ~30 % of it. Shortening the window in fast mode
 // buys that back. It is shortened rather than skipped so a push is still *possible*
@@ -373,6 +396,49 @@ static int32_t modbusReadHolding(uint8_t addr, uint16_t reg) {
   return (resp[3] << 8) | resp[4];
 }
 
+// ─── Read a settled distance off the radar rail ──────────────────────────────
+// Powers the rail if it is off and polls until the filter settles (see "Radar warm-up").
+// A rail that is already on -- fast mode keeps it up between cycles -- has a live filter,
+// so one good read is enough. Returns mm, or -1 if the radar never answered at all.
+static bool radarPowered = false;
+
+static int32_t readRadarDistance() {
+  if (radarPowered) {
+    const int32_t d = modbusReadHolding(SENSOR_ADDR, REG_DISTANCE);
+    if (d > 0) return d;
+    // A warm radar reading 0 or not answering: fall through and treat it as cold.
+  } else {
+    digitalWrite(SENSOR_EN_PIN, HIGH);
+    radarPowered = true;
+  }
+
+  const uint32_t poweredAt = millis();
+  delay(SENSOR_FIRST_POLL_MS);
+  int32_t prev = -1;
+  int32_t last = -1;
+  for (;;) {
+    const int32_t d = modbusReadHolding(SENSOR_ADDR, REG_DISTANCE);
+    if (d > 0 && prev > 0 && labs(d - prev) <= SENSOR_STABLE_MM) {
+      Serial.print(F("radar settled after "));
+      Serial.print(millis() - poweredAt);
+      Serial.println(F(" ms"));
+      return d;
+    }
+    if (d >= 0) last = d;
+    prev = d;
+    if (millis() - poweredAt >= SENSOR_READY_TIMEOUT_MS) break;
+    delay(SENSOR_POLL_MS);
+  }
+  Serial.print(F("radar did not settle; reporting last answer "));
+  Serial.println(last);
+  return last;
+}
+
+static void radarPowerDown() {
+  digitalWrite(SENSOR_EN_PIN, LOW);
+  radarPowered = false;
+}
+
 // ─── Sampling cadence ────────────────────────────────────────────────────────
 // Entering fast mode takes RISE_CONFIRM_SAMPLES consecutive qualifying samples; leaving
 // it takes FAST_MODE_HOLD_SAMPLES quiet ones. The two are deliberately unequal — see
@@ -567,17 +633,10 @@ void loop() {
     // publishes NAN and Home Assistant shows unknown, exactly as it does for a Modbus
     // timeout. Nothing downstream needs to know the difference, and the packet budget
     // (see below) has no room to tell it anyway.
-    digitalWrite(SENSOR_EN_PIN, LOW);
+    radarPowerDown();
     Serial.println(F("diag: radar rail held off this cycle"));
   } else {
-    // Power up the radar
-    digitalWrite(SENSOR_EN_PIN, HIGH);
-    delay(SENSOR_SETTLE_MS);
-
-    distance_mm = modbusReadHolding(SENSOR_ADDR, REG_DISTANCE);
-
-    // Power down the radar
-    digitalWrite(SENSOR_EN_PIN, LOW);
+    distance_mm = readRadarDistance();
   }
 
 #if DIAG_RADAR_WINDOW_ENABLE
@@ -607,6 +666,12 @@ void loop() {
   // below both reflect it. Pure arithmetic, and guarded against a zero elapsed time —
   // nothing here can keep the node from reaching its TX.
   updateRateOfRise(distance_mm);
+
+  // Fast mode keeps the radar rail up across its 5 s sleeps. A cold start costs a warm-up
+  // of up to SENSOR_READY_TIMEOUT_MS, which at a 5 s cadence would stretch the period and
+  // spend most of the rail-on time anyway -- while the creek is rising, the ~35 mA is the
+  // right thing to spend. It drops again on the first cycle back at 60 s.
+  if (!fastMode) radarPowerDown();
 
   // Build JSON payload. `fast` is not read by the gateway today (it looks up
   // distance_mm/battery_mv by key and ignores the rest), but the node is the expensive
