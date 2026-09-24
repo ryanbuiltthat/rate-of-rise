@@ -90,6 +90,92 @@ def test_persistence_keeps_history():
     assert abs(out["rain_1h_in"] - 0.1667) < 0.002  # prior increment survived
 
 
+class CounterHA:
+    """A rate entity plus the station's own monotonic counter."""
+
+    def __init__(self, rate=0.0, total=10.0, unit="in"):
+        self.rate, self.total, self.unit = rate, total, unit
+
+    def get_float(self, entity):
+        return self.total if entity == "sensor.rain_total" else self.rate
+
+    def get_unit(self, entity):
+        return self.unit if entity == "sensor.rain_total" else "in/h"
+
+
+def make_counter(ha):
+    tmp = Path(tempfile.mkdtemp())
+    clock = Clock()
+    acc = RainAccumulator(tmp, "sensor.rain_rate", ha, now_fn=clock,
+                          total_entity="sensor.rain_total")
+    return acc, clock, tmp
+
+
+def test_the_counter_gives_exact_rain_even_when_the_rate_misses_it():
+    """A burst between two samples leaves the rate at 0 both times; the counter moved."""
+    ha = CounterHA(rate=0.0, total=27.783)
+    acc, clock, _ = make_counter(ha)
+    acc.poll()                                    # baseline
+    clock.t = 300
+    ha.total = 28.035                             # 0.252 in, rate never saw it
+    out = acc.poll()
+    assert abs(out["rain_1h_in"] - 0.252) < 1e-9, out
+    assert out["api_index_in"] > 0.25
+
+
+def test_a_counter_reset_is_not_negative_rain():
+    ha = CounterHA(total=30.0)
+    acc, clock, _ = make_counter(ha)
+    acc.poll()
+    clock.t = 300
+    ha.total = 0.0
+    assert acc.poll()["rain_1h_in"] == 0.0
+    clock.t = 600
+    ha.total = 0.1
+    assert abs(acc.poll()["rain_1h_in"] - 0.1) < 1e-9, "counts again from the new value"
+
+
+def test_a_long_counter_gap_rebaselines_instead_of_landing_it_in_one_loop():
+    ha = CounterHA(total=5.0)
+    acc, clock, _ = make_counter(ha)
+    acc.poll()
+    clock.t = 3 * 3600
+    ha.total = 6.2                                # 1.2 in over 3 h: real, but not "now"
+    assert acc.poll()["rain_1h_in"] == 0.0
+
+
+def test_an_unavailable_counter_falls_back_to_the_rate_without_double_counting():
+    ha = CounterHA(rate=1.2, total=5.0)
+    acc, clock, _ = make_counter(ha)
+    acc.poll()
+    clock.t = 300
+    ha.total = None                               # counter down: rate covers 5 min
+    out = acc.poll()
+    assert abs(out["rain_1h_in"] - 0.1) < 1e-9
+    clock.t = 600
+    ha.total = 5.3                                # back: a fresh baseline, not +0.3
+    assert abs(acc.poll()["rain_1h_in"] - 0.1) < 1e-9
+
+
+def test_the_counter_baseline_survives_a_restart():
+    ha = CounterHA(total=5.0)
+    acc, clock, tmp = make_counter(ha)
+    acc.poll()
+    ha.total = 5.2
+    again = RainAccumulator(tmp, "sensor.rain_rate", ha, now_fn=lambda: 120.0,
+                            total_entity="sensor.rain_total")
+    assert abs(again.poll()["rain_1h_in"] - 0.2) < 1e-9, "rain across the restart was lost"
+
+
+def test_a_millimetre_counter_is_converted():
+    ha = CounterHA(total=100.0, unit="mm")
+    acc, clock, _ = make_counter(ha)
+    acc.poll()
+    clock.t = 300
+    ha.total = 125.4
+    assert abs(acc.poll()["rain_1h_in"] - 1.0) < 1e-9
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

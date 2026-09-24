@@ -1,5 +1,5 @@
 name: Rate of Rise
-version: "0.22.1"
+version: "0.23.0"
 slug: rate_of_rise
 description: Flood-probability + predicted-stage inference and nightly retrain for the creek.
 url: https://github.com/ryanbuiltthat/rate-of-rise
@@ -50,9 +50,25 @@ options:
   # rate_of_rise_confirm_samples  Consecutive gap-free samples a rate must survive after a
   #                               dropout before it alone can raise Tier 3. Costs nothing
   #                               while the link is up; stage is never gated this way.
+  # rate_of_rise_window_minutes   Rate of rise is measured against a reading at least this
+  #                               old, not the previous one. The node reports whole mm and a
+  #                               still creek flickers 1-2 mm, which over one 63 s report is
+  #                               0.075 in/min -- over the Warning. Over 10 min it is noise.
+  # max_stage_rise_in_min         Fastest rise the creek can physically make. A jump past it
+  #                               (a cold radar's 0, clamped to 37.6 in by the gateway) is
+  #                               withheld as a sensor fault and raises Stage Implausible,
+  #                               instead of raising Tier 4. Held for 30 min, it is believed.
   stage_max_age_minutes: 6
   rate_of_rise_max_gap_minutes: 10
   rate_of_rise_confirm_samples: 2
+  rate_of_rise_window_minutes: 10
+  max_stage_rise_in_min: 2.0
+  # --- ML ------------------------------------------------------------------------------
+  # Off: a promoted model runs in SHADOW -- its probability is published (Creek ML Shadow
+  # Probability) and recorded every loop, but the alert tiers use the threshold estimate.
+  # On: a promoted model past min_events_for_ml drives the tiers (20 % Watch, 50 % Warning,
+  # 80 % Emergency). Leave off until a model has been watched through real storms.
+  ml_drives_alerts: false
   # Google Flood Forecasting (floodforecasting.googleapis.com) — needs a Google Cloud
   # project with the API enabled and an API key. Setting it enables two reads: the
   # gauges Google models within 25 mi of the site (neighbouring rivers, not this creek —
@@ -82,6 +98,11 @@ options:
   # reports are arriving, OFF after five are missed. Blank it to fall back to
   # stage_max_age_minutes alone.
   creek_node_status_entity: binary_sensor.creek_gateway_creek_node_status
+  # The gateway's packet counter, which changes on every report. The status sensor above
+  # only writes on a transition, so a gateway that stops publishing leaves it frozen at
+  # `on`; a counter that stops moving is what tells the add-on the link is really down.
+  # (outside_creek_gateway_ prefix: registered after the gateway device was renamed in HA.)
+  creek_node_packets_entity: sensor.outside_creek_gateway_creek_node_packets
   soil_moisture_entities:
     # Order is significant: [0] -> soil_moisture_near_house_pct, [1] -> ..._near_creek_pct.
     # WH51 #1 — near the house, by the willow tree (low-lying, ponds early)
@@ -89,6 +110,10 @@ options:
     # WH51 #2 — furthest from house, closest to the creek (low-lying, ponds early)
     - sensor.outside_weather_station_soil_moisture_field
   onsite_rain_rate_entity: sensor.outside_weather_station_rain_intensity
+  # The station's own monotonic rain counter. When set, rolling rain totals are the exact
+  # difference between readings instead of the rate above sampled every loop and
+  # integrated (which read 5-10 % low against the station). The rate stays the fallback.
+  onsite_rain_total_entity: sensor.outside_weather_station_rain_total
   # NOTE: currently unused — parsed into Config and read by nothing. The rolling
   # rain_{1,3,6,24,72}h_in features are integrated from onsite_rain_rate_entity by
   # rain.py, not taken from this entity.
@@ -123,6 +148,9 @@ schema:
   stage_max_age_minutes: float(1.0,120.0)
   rate_of_rise_max_gap_minutes: float(1.0,120.0)
   rate_of_rise_confirm_samples: int(1,10)
+  rate_of_rise_window_minutes: float(5.0,60.0)
+  max_stage_rise_in_min: float(0.5,20.0)
+  ml_drives_alerts: bool
   google_floods_api_key: password?
   wu_api_key: password?
   nwm_reach_id: str?
@@ -130,9 +158,11 @@ schema:
     - str
   stage_entity: str
   creek_node_status_entity: str?
+  creek_node_packets_entity: str?
   soil_moisture_entities:
     - str
   onsite_rain_rate_entity: str?
+  onsite_rain_total_entity: str?
   onsite_rain_daily_entity: str?
   usgs_downstream: bool
   snodas_swe: bool

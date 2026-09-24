@@ -1,35 +1,34 @@
-# Creek node & gateway health flags
+# Creek node & gateway health flags — and the push that tells a person about any of them
 # =====================================================================================
-# Three ways the creek gauge can stop working, and how each is noticed.
+# Ways the creek data can stop being true, and how each is noticed.
 #
-#   radar fault  -> packets arrive carrying no reading. The link is fine; the sensor on
-#                   the end of it is not. Detected ON THE GATEWAY (it has the packets) and
-#                   published as binary_sensor.*_creek_node_radar_fault.
-#   link down    -> no packets at all. The gateway already publishes
-#                   binary_sensor.*_creek_node_status for this, off after 5 min of silence.
-#   gateway down -> the gateway itself stops. THIS FILE. See below for why it cannot live
-#                   anywhere else.
+#   radar fault     -> packets arrive carrying no reading. The link is fine; the sensor on
+#                      the end of it is not. Detected ON THE GATEWAY (it has the packets) and
+#                      published as binary_sensor.*_creek_node_radar_fault.
+#   stage frozen    -> packets arrive carrying a reading, but the same one for 30 min. The
+#                      2026-09-23 morning: one value for 3 h 11 min, and no null to count.
+#                      Detected in the add-on (binary_sensor.rate_of_rise_creek_stage_frozen).
+#   stage implausible -> a reading the creek could not have reached (a cold radar's 0,
+#                      clamped to 37.6 in by the gateway). Withheld from the tiers by the
+#                      add-on (binary_sensor.rate_of_rise_creek_stage_implausible).
+#   link down / gateway down -> no packets at all. THIS FILE, below.
 #
 # WHY THE STALENESS CHECK IS HERE AND NOT IN THE FIRMWARE.
-# A device cannot report its own death. On 2026-09-23 the gateway wedged: it answered pings,
-# held TCP/6053 open, and published nothing for 25 hours. Home Assistant never marked a
-# single entity unavailable, because from its side the connection never dropped. Every value
-# simply froze -- including binary_sensor.creek_gateway_creek_node_status, which sat at `on`
-# from the previous day and told the add-on's link check that everything was fine. A
-# flood-warning system was blind for a day and nothing anywhere said so.
+# A device cannot report its own death. A gateway that stops publishing while holding its
+# API connection open leaves every entity frozen at its last value — including
+# binary_sensor.creek_gateway_creek_node_status, which only writes on a transition. The only
+# place that outage is visible is outside the gateway, by noticing that a value which should
+# keep changing has stopped.
 #
-# The only place that outage is visible is outside the gateway, by noticing that a value
-# which should keep changing has stopped.
+# (The 25-hour silence of 2026-09-23 that prompted this was, at least in part, Home
+# Assistant's RECORDER stopping — every entity in the database went silent, add-on included,
+# while automations kept running. A recorder stall looks exactly like a frozen device on a
+# history graph. This check reads live state, not the recorder, so it is right either way.)
 #
 # WHY THE PACKET COUNTER IS THE BEACON.
-# It is monotonic, so it changes on every single packet and HA's recorder can never dedup it
-# into silence. Battery voltage can legitimately hold the same value for many minutes (6.45 mV
-# ADC quantum), and node_status only writes on transition -- both can look frozen while
-# healthy. A counter that stops incrementing has genuinely stopped.
-#
-# It also covers all three failure modes at once: node silent, radio dead, or gateway wedged
-# all present identically as "the counter stopped moving", which is exactly the question
-# worth alerting on.
+# It is monotonic, so it changes on every single packet and last_updated moves with it.
+# Battery voltage can legitimately hold the same value for many minutes (6.45 mV ADC
+# quantum), and node_status only writes on transition -- both can look frozen while healthy.
 #
 # ENTITY IDS ARE NOT WHAT THE REPO IMPLIES. The gateway device was renamed in HA at some
 # point, and HA does not retroactively rename existing entity_ids -- so entities created
@@ -37,8 +36,9 @@
 # `outside_creek_gateway_`. Both prefixes are live and correct. Verify against the entity
 # list before changing either; do not "tidy" them to match.
 #
-# INSTALL: save to /config/ha-packages/ (alongside creek_warning.yaml) and restart HA.
-# `homeassistant: packages: !include_dir_named ha-packages` is already in configuration.yaml.
+# INSTALL: save to /config/ha-packages/ (alongside creek_warning.yaml), then Developer tools
+# -> YAML -> "All YAML configuration" reload (or restart HA). The pause timer and the phone
+# ids live in creek_warning.yaml; this file needs it loaded too.
 # =====================================================================================
 
 template:
@@ -71,9 +71,9 @@ template:
               {{ (now() - states[e].last_updated).total_seconds() | round(0) }}
             {% endif %}
 
-      # Rolls the three faults into one thing to put on a dashboard or drive a single alert.
-      # Deliberately does NOT include the diagnostic-active flag: a held radar rail is the
-      # system doing what it was told, not a fault.
+      # Rolls the gauge faults into one thing to put on a dashboard. Deliberately does NOT
+      # include the diagnostic-active flag: a held radar rail is the system doing what it
+      # was told, not a fault.
       - name: "Creek Gauge Unhealthy"
         unique_id: creek_gauge_unhealthy
         device_class: problem
@@ -81,72 +81,151 @@ template:
         state: >
           {{ is_state('binary_sensor.creek_telemetry_stale', 'on')
              or is_state('binary_sensor.outside_creek_gateway_creek_node_radar_fault', 'on')
-             or is_state('binary_sensor.creek_gateway_creek_node_status', 'off') }}
+             or is_state('binary_sensor.creek_gateway_creek_node_status', 'off')
+             or is_state('binary_sensor.rate_of_rise_creek_stage_frozen', 'on')
+             or is_state('binary_sensor.rate_of_rise_creek_stage_implausible', 'on') }}
 
 automation:
-  # 5 minutes of silence is five missed reports at the 60 s cadence, matching the gateway's
-  # own node timeout. `for:` rather than a bare trigger so a single slow packet or an HA
-  # restart does not page anyone.
-  - id: creek_telemetry_stale_alert
-    alias: "Creek: telemetry stopped"
-    mode: single
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.creek_telemetry_stale
-        to: "on"
-        for: "00:05:00"
-    action:
-      - service: persistent_notification.create
-        data:
-          notification_id: creek_telemetry_stale
-          title: "Creek gauge is not reporting"
-          message: >
-            No packets for
-            {{ state_attr('binary_sensor.creek_telemetry_stale', 'seconds_since_packet')
-               | int // 60 }} minutes.
-            The node, the radio link, or the gateway has stopped. If the gateway pings but
-            publishes nothing it is wedged -- use the Restart switch on the gateway device.
-
-  - id: creek_telemetry_recovered
-    alias: "Creek: telemetry recovered"
-    mode: single
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.creek_telemetry_stale
-        to: "off"
-    action:
-      - service: persistent_notification.dismiss
-        data:
-          notification_id: creek_telemetry_stale
-
-  # Separate from the staleness alert on purpose. This one means packets ARE arriving and the
-  # radar is not answering, which is a different repair -- the pole, not the radio.
-  - id: creek_radar_fault_alert
-    alias: "Creek: radar not responding"
-    mode: single
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.outside_creek_gateway_creek_node_radar_fault
+  # Every one of these used to end in a dashboard row or a persistent notification — which
+  # at 2 a.m. is the same as nothing. A gauge that goes blind during a storm is exactly when
+  # the tiers stop meaning anything, so it has to reach a phone.
+  #
+  # Normal-priority push ("Creek Watch" channel) as a rule. CRITICAL (alarm stream) only
+  # for a fault that blinds the gauge WHILE a storm is open: that is the one combination
+  # where the missing number is a missing alarm. Respects the pause in creek_warning.yaml,
+  # so work on the node does not page anyone.
+  - id: creek_data_watchdog_push
+    alias: "Creek: data problem"
+    initial_state: true
+    mode: queued
+    max: 20
+    triggers:
+      # Gauge-blinding faults. The short `for:` rides out a single slow packet or an HA
+      # restart; the sensors themselves already wait (telemetry 5 min, service 15 min).
+      - trigger: state
+        entity_id:
+          - binary_sensor.creek_telemetry_stale
+          - binary_sensor.outside_creek_gateway_creek_node_radar_fault
+          - binary_sensor.creek_modeling_service_stale
+          - binary_sensor.rate_of_rise_creek_stage_stale
+          - binary_sensor.rate_of_rise_creek_stage_frozen
         to: "on"
         for: "00:02:00"
-    action:
-      - service: persistent_notification.create
+        id: gauge
+      # Withheld reading: say so at once, with the number, because the tiers are ignoring it.
+      - trigger: state
+        entity_id: binary_sensor.rate_of_rise_creek_stage_implausible
+        to: "on"
+        id: gauge
+      # Rain inputs: not blinding on their own (the other gauge still reports), but a
+      # storm recorded with one dark is a storm half-recorded.
+      - trigger: state
+        entity_id:
+          - binary_sensor.rate_of_rise_creek_rain_rate_stale
+          - binary_sensor.rate_of_rise_creek_upstream_data_missing
+        to: "on"
+        for: "00:10:00"
+        id: rain
+    conditions:
+      - condition: template
+        value_template: "{{ not is_state('timer.creek_alerts_paused', 'active') }}"
+    variables:
+      entity: "{{ trigger.entity_id }}"
+      what: "{{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }}"
+      storm: "{{ is_state('binary_sensor.rate_of_rise_creek_storm_in_progress', 'on') }}"
+      is_critical: "{{ storm and trigger.id == 'gauge' }}"
+      push_tag: "creek_watchdog_{{ trigger.entity_id.split('.')[1] }}"
+      advice:
+        binary_sensor.creek_telemetry_stale: >-
+          No packets from the creek node. The node, the radio link or the gateway has
+          stopped. If the gateway pings but publishes nothing, use its Restart switch.
+        binary_sensor.outside_creek_gateway_creek_node_radar_fault: >-
+          Packets are arriving but carry no distance reading. The radio link is fine; the
+          radar or its 5 V rail is not.
+        binary_sensor.creek_modeling_service_stale: >-
+          The Rate of Rise add-on has not run inference in 15 minutes. Alert tiers are not
+          being evaluated. Restart the add-on.
+        binary_sensor.rate_of_rise_creek_stage_stale: >-
+          No usable creek stage for 30 minutes. Stage-based Warning and Emergency cannot
+          fire until it returns.
+        binary_sensor.rate_of_rise_creek_stage_frozen: >-
+          The creek reading has not changed in 30 minutes although the node is reporting.
+          The radar is probably returning a stale value. Rate of rise reads 0 regardless of
+          the creek.
+        binary_sensor.rate_of_rise_creek_stage_implausible: >-
+          The gauge reads a rise the creek could not have made, so the alert tiers are
+          ignoring it as a sensor fault. Go and look — if it holds for 30 minutes the add-on
+          will believe it.
+        binary_sensor.rate_of_rise_creek_rain_rate_stale: >-
+          The on-site rain gauge has not reported for an hour. On-site rain totals and the
+          rain-driven tiers are blind.
+        binary_sensor.rate_of_rise_creek_upstream_data_missing: >-
+          No upstream weather station has answered for 40 minutes. Upstream rain totals
+          and the Watch rules built on them are blind.
+      detail: >-
+        {{ advice.get(entity, 'Check the Operator tab.') }}
+        {% if entity == 'binary_sensor.rate_of_rise_creek_stage_implausible' %}
+        Reading: {{ states('sensor.creek_gateway_creek_depth') }} in.
+        {% endif %}
+    actions:
+      - action: persistent_notification.create
         data:
-          notification_id: creek_radar_fault
-          title: "Creek radar not responding"
-          message: >
-            Packets are arriving but carry no distance reading
-            ({{ states('sensor.outside_creek_gateway_creek_node_radar_failures') }}
-            consecutive failures). The radio link is fine; the SEN0676 or its 5 V rail is not.
+          notification_id: "{{ push_tag }}"
+          title: "Creek data problem: {{ what }}"
+          message: "{{ detail }}"
+      - &watch_push
+        domain: mobile_app
+        type: notify
+        continue_on_error: true
+        title: "{{ ('STORM — ' if storm else '') ~ 'Creek data problem: ' ~ what }}"
+        message: "{{ detail }}"
+        data:
+          tag: "{{ push_tag }}"
+          notification_icon: mdi:database-alert-outline
+          ttl: 0
+          priority: high
+          # Same two channels as Creek Alert, never a new one: Android fixes a channel's
+          # importance the first time it is used, and alarm_stream is the one already
+          # granted Do Not Disturb override.
+          channel: "{{ 'alarm_stream' if is_critical else 'Creek Watch' }}"
+          importance: "{{ 'high' if is_critical else 'default' }}"
+        device_id: efa8fde8c961dd7d5c23feda71661457   # primary phone
+      - <<: *watch_push
+        device_id: add926d1f120f4aaba2565bf982c61b1   # second phone
 
-  - id: creek_radar_recovered
-    alias: "Creek: radar recovered"
-    mode: single
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.outside_creek_gateway_creek_node_radar_fault
+  # Recovery clears what the problem push left behind, on the dashboard and on the phones,
+  # so a fixed fault does not keep reading as a live one.
+  - id: creek_data_watchdog_clear
+    alias: "Creek: data problem cleared"
+    initial_state: true
+    mode: queued
+    max: 20
+    triggers:
+      - trigger: state
+        entity_id:
+          - binary_sensor.creek_telemetry_stale
+          - binary_sensor.outside_creek_gateway_creek_node_radar_fault
+          - binary_sensor.creek_modeling_service_stale
+          - binary_sensor.rate_of_rise_creek_stage_stale
+          - binary_sensor.rate_of_rise_creek_stage_frozen
+          - binary_sensor.rate_of_rise_creek_stage_implausible
+          - binary_sensor.rate_of_rise_creek_rain_rate_stale
+          - binary_sensor.rate_of_rise_creek_upstream_data_missing
+        from: "on"
         to: "off"
-    action:
-      - service: persistent_notification.dismiss
+    variables:
+      push_tag: "creek_watchdog_{{ trigger.entity_id.split('.')[1] }}"
+    actions:
+      - action: persistent_notification.dismiss
         data:
-          notification_id: creek_radar_fault
+          notification_id: "{{ push_tag }}"
+      - &watch_clear
+        domain: mobile_app
+        type: notify
+        continue_on_error: true
+        message: clear_notification
+        data:
+          tag: "{{ push_tag }}"
+        device_id: efa8fde8c961dd7d5c23feda71661457   # primary phone
+      - <<: *watch_clear
+        device_id: add926d1f120f4aaba2565bf982c61b1   # second phone

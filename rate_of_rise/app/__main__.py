@@ -29,6 +29,7 @@ from .ha import HAClient
 from .model import Model
 from .mqtt_client import MqttClient
 from .registry import ModelRegistry
+from .stagelog import StageLogger, stage_log_dir
 from .storms import StormLog
 from .sources import FEATURE_KEYS, SourceCoordinator
 from . import train
@@ -68,7 +69,10 @@ def _run_inference_once(
 ) -> str:
     row = features.build()
     pred = model.predict(row)
-    mqtt.publish("flood_probability", {"value": pred.flood_probability, "method": pred.method})
+    shadow = model.shadow(row)
+    ml_value, ml_version = shadow if shadow is not None else (None, None)
+    mqtt.publish("flood_probability", {"value": pred.flood_probability, "method": pred.method,
+                                       "ml_value": ml_value, "ml_version": ml_version})
     mqtt.publish("predicted_crest", {"value": pred.predicted_crest_ft})
     tier, label, reasons = compute_tier(row, pred.flood_probability, ror_confirm_samples)
     mqtt.publish("alert_tier", {"value": tier, "label": label, "reasons": reasons,
@@ -84,7 +88,9 @@ def _run_inference_once(
     if health is not None and sources is not None:
         mqtt.publish("status/health",
                      health.evaluate(row, sources.health(), sources.configured()))
-    dataset.append_row(row)
+    dataset.append_row(row, {"alert_tier": tier, "flood_probability": pred.flood_probability,
+                             "probability_method": pred.method, "ml_probability": ml_value,
+                             "ml_version": ml_version})
     if storms is not None:
         if storms.observe(row, tier) is not None:
             _publish_storms(mqtt, storms)
@@ -123,6 +129,11 @@ def _publish_model_health(cfg: Config, mqtt: MqttClient, rows: int, model: Model
         "event_count": model.event_count(),
         "min_events_for_ml": cfg.min_events_for_ml,
         "active_method": method,
+        # Whether a promoted model is allowed to drive the tiers, and which model the
+        # shadow probability comes from — so "threshold" above is never ambiguous about
+        # whether an ML model exists at all.
+        "ml_drives_alerts": cfg.ml_drives_alerts,
+        "shadow_model": model.shadow_version,
         "ran_at": ran_at,
     })
     return method
@@ -228,6 +239,8 @@ def main() -> int:
         continue_rain_1h_in=cfg.storm_continue_rain_1h_in,
         quiet_seconds=cfg.storm_quiet_hours * 3600,
     )
+    stage_log = StageLogger(ha, cfg.stage_entity, stage_log_dir(data_dir, SHARE_DIR))
+    log.info("High-resolution stage record at %s", stage_log_dir(data_dir, SHARE_DIR))
 
     status = {
         "state": "idle",
@@ -237,6 +250,13 @@ def main() -> int:
         "last_error": None,
     }
 
+    def refresh_health():
+        # Model Health was published only at startup and by the nightly batch, so after a
+        # Rollback it went on naming the model that had just been removed until 3 AM — the
+        # dashboard could not answer "what is live right now?" when it mattered most.
+        _publish_model_health(cfg, mqtt, dataset.row_count(), model,
+                              status.get("last_nightly_at"))
+
     processor = CommandProcessor(
         {
             "run_inference": lambda payload: _run_inference_once(
@@ -244,8 +264,9 @@ def main() -> int:
                 cfg.rate_of_rise_confirm_samples),
             "retrain": lambda payload: _nightly_batch(
                 cfg, dataset, mqtt, model, registry, status, storms),
-            "promote": lambda payload: _promote(mqtt, registry),
-            "rollback": lambda payload: _rollback(mqtt, registry),
+            "promote": lambda payload: _promote(mqtt, registry, refresh_health,
+                                                cfg.ml_drives_alerts),
+            "rollback": lambda payload: _rollback(mqtt, registry, refresh_health),
             "annotate": lambda payload: _annotate(mqtt, storms, payload),
         }
     )
@@ -289,24 +310,36 @@ def main() -> int:
                 time.sleep(min(5, interval - waited))
                 waited += 5
                 _process_commands(processor, cmd_queue, mqtt, status)
+                try:
+                    stage_log.tick()
+                except Exception:   # a record, not an input: never let it stop the loop
+                    log.exception("stage log tick failed")
     finally:
         mqtt.disconnect()
         log.info("Stopped.")
     return 0
 
 
-def _promote(mqtt: MqttClient, registry: ModelRegistry) -> str:
+def _promote(mqtt: MqttClient, registry: ModelRegistry, refresh_health=None,
+             drives_alerts: bool = True) -> str:
     """Promoting an unvalidated model is allowed but never silent — the caveat leads the
     command result, which is what the dashboard's Last Command sensor shows."""
     version = registry.promote()
     _publish_registry(mqtt, registry)
+    if refresh_health is not None:
+        refresh_health()
     caveat = registry.warning()
-    return f"WARNING: {caveat}" if caveat else f"promoted {version}"
+    where = ("" if drives_alerts else
+             " — shadow only: ml_drives_alerts is off, so alerts still use the threshold "
+             "estimate")
+    return (f"WARNING: {caveat}{where}" if caveat else f"promoted {version}{where}")
 
 
-def _rollback(mqtt: MqttClient, registry: ModelRegistry) -> str:
+def _rollback(mqtt: MqttClient, registry: ModelRegistry, refresh_health=None) -> str:
     version = registry.rollback()
     _publish_registry(mqtt, registry)
+    if refresh_health is not None:
+        refresh_health()
     # A None version is the threshold estimate, not a missing answer — say so, since
     # this is what the operator sees on the dashboard after backing out a bad model.
     return f"rolled back to {version or 'the threshold estimate (no ML model active)'}"

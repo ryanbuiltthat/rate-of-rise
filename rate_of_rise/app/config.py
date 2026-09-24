@@ -50,6 +50,23 @@ def _optional(value: str | None) -> str:
     return "" if text == "null" else text
 
 
+def _num(env, name: str, default: float) -> float:
+    """A numeric option from the environment, falling back to `default` when bashio hands
+    back nothing usable. An option added in a newer version is absent from an older
+    install's options.json until Supervisor merges defaults in, and bashio renders an
+    absent option as "null" — float("null") would take the service down at startup over an
+    option the operator never touched."""
+    raw = (env.get(name) or "").strip()
+    if raw in ("", "null"):
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        logging.getLogger("app.config").warning(
+            "option %s=%r is not a number; using %s", name, raw, default)
+        return default
+
+
 def _options() -> dict:
     try:
         return json.loads(_OPTIONS_JSON.read_text(encoding="utf-8"))
@@ -87,15 +104,39 @@ class Config:
     stage_max_age_minutes: float = 6.0
     rate_of_rise_max_gap_minutes: float = 10.0
     rate_of_rise_confirm_samples: int = 2
+    # Rate of rise is measured against a reading at least this old, not the previous one.
+    # The node reports at 1 mm resolution and a still creek flickers 1-2 mm between reports;
+    # two readings one report (~63 s) apart turn a 2 mm flicker into 0.075 in/min, over the
+    # 0.05 in/min Warning. Over 10 min the same flicker is 0.008 in/min, while a real
+    # Warning-rate rise is 0.5 in — still unmistakable. See FeatureBuilder._rate_of_rise.
+    rate_of_rise_window_minutes: float = 10.0
+    # Fastest rise the creek can physically make, for rejecting impossible jumps. A radar
+    # that returns 0 is clamped by the gateway to the range ceiling (37.6 in), so a still
+    # creek at 11 in "rises" 26 in in one reading — that was a Tier 4 Emergency on a dry
+    # 2026-09-17. See FeatureBuilder._plausible_stage.
+    max_stage_rise_in_min: float = 2.0
 
     # HA input entities
     stage_entity: str = "sensor.creek_gateway_stage"
     # Connectivity binary sensor published by the RFM69 gateway. Blank disables the check,
     # leaving only the age fallback in FeatureBuilder._link_usable.
     creek_node_status_entity: str | None = "binary_sensor.creek_gateway_creek_node_status"
+    # The gateway's packet counter: the one value that must change on every report. The
+    # status sensor above only writes on transitions, so a wedged gateway leaves it frozen
+    # at `on` — this is what tells the add-on the link is really alive. Blank disables it.
+    creek_node_packets_entity: str | None = "sensor.outside_creek_gateway_creek_node_packets"
     soil_moisture_entities: list[str] = field(default_factory=list)
     onsite_rain_rate_entity: str | None = None
+    # Monotonic rain counter (the Ecowitt's "rain total"). When set, on-site rain is the
+    # difference between successive readings — exact — instead of the instantaneous rate
+    # integrated at the fast-loop cadence, which read 5-10 % low against the station's own
+    # counter in steady rain and does worse in bursts. The rate entity stays the fallback.
+    onsite_rain_total_entity: str | None = None
     onsite_rain_daily_entity: str | None = None
+    # Whether a promoted ML model's probability may raise alert tiers. Off by default: a
+    # promoted model then runs in shadow — computed, published and recorded, but the tiers
+    # use the threshold estimate — until its storms-on-record justify handing it the alarm.
+    ml_drives_alerts: bool = False
     upstream_pws_ids: list[str] = field(default_factory=list)
     usgs_downstream: bool = True
     snodas_swe: bool = True
@@ -135,6 +176,8 @@ class Config:
             rate_of_rise_max_gap_minutes=float(
                 env.get("RATE_OF_RISE_MAX_GAP_MINUTES", 10.0)),
             rate_of_rise_confirm_samples=int(env.get("RATE_OF_RISE_CONFIRM_SAMPLES", 2)),
+            rate_of_rise_window_minutes=_num(env, "RATE_OF_RISE_WINDOW_MINUTES", 10.0),
+            max_stage_rise_in_min=_num(env, "MAX_STAGE_RISE_IN_MIN", 2.0),
             google_floods_api_key=_optional(env.get("GOOGLE_FLOODS_API_KEY")),
             wu_api_key=_optional(env.get("WU_API_KEY")),
             nwm_reach_id=_optional(env.get("NWM_REACH_ID")),
@@ -142,8 +185,13 @@ class Config:
             creek_node_status_entity=opts.get(
                 "creek_node_status_entity",
                 "binary_sensor.creek_gateway_creek_node_status") or None,
+            creek_node_packets_entity=opts.get(
+                "creek_node_packets_entity",
+                "sensor.outside_creek_gateway_creek_node_packets") or None,
             soil_moisture_entities=list(opts.get("soil_moisture_entities", [])),
             onsite_rain_rate_entity=opts.get("onsite_rain_rate_entity") or None,
+            onsite_rain_total_entity=opts.get("onsite_rain_total_entity") or None,
+            ml_drives_alerts=bool(opts.get("ml_drives_alerts", False)),
             onsite_rain_daily_entity=opts.get("onsite_rain_daily_entity") or None,
             upstream_pws_ids=list(opts.get("upstream_pws_ids", [])),
             usgs_downstream=bool(opts.get("usgs_downstream", True)),

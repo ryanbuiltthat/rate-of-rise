@@ -52,9 +52,22 @@ SOURCE_WATCHDOGS = {
     "google_floods": "google_flood_status_missing",
 }
 
+# Gauge faults that the link state cannot see, because packets keep arriving through them.
+#
+#   stage_frozen       the reading has not changed in this long while the link is up. The
+#                      node reports whole millimetres and a still creek flickers 1-2 mm
+#                      between reports, so the value normally moves every few minutes; on
+#                      2026-09-23 it sat on one number for 3 h 11 min while packets kept
+#                      coming, and stage_stale took an hour to notice. PLACEHOLDER, like the
+#                      tier thresholds.
+#   stage_implausible  the latest reading was a rise the creek cannot physically make
+#                      (FeatureBuilder._plausible_stage) and is being withheld from the tiers.
+STAGE_FROZEN_MINUTES = 30.0
+GAUGE_WATCHDOGS = ("stage_frozen", "stage_implausible")
+
 WATCHDOG_KEYS = tuple(key for key, _ in ENTITY_INPUTS.values()) + tuple(
     SOURCE_WATCHDOGS.values()
-)
+) + GAUGE_WATCHDOGS
 
 
 class HealthTracker:
@@ -117,6 +130,16 @@ class HealthTracker:
                 flags[key] = (now - self._started) > stale_after
             else:
                 flags[key] = age > stale_after
+
+        # Immediate, not measured from a last-good time like the inputs above: the age is
+        # already the elapsed time, and waiting another threshold on top of it is how the
+        # 2026-09-23 freeze went an hour before anything said so.
+        age_min = getattr(row, "stage_age_min", None)
+        flags["stage_frozen"] = bool(
+            getattr(row, "creek_node_online", None) is True
+            and getattr(row, "stage_raw_ft", getattr(row, "stage_ft", None)) is not None
+            and age_min is not None and age_min > STAGE_FROZEN_MINUTES)
+        flags["stage_implausible"] = bool(getattr(row, "stage_implausible", None))
 
         faults = sorted(k for k, v in flags.items() if v)
         if faults:

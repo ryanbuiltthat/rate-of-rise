@@ -108,10 +108,17 @@ class RadarCells:
             "radar_threat_scan_count": None,
         }
         etas, dbzs, scan_counts = [], [], []
+        now_naive = now.astimezone(timezone.utc).replace(tzinfo=None)
         for cell in cells:
             eta = self._intercept_eta_min(cell)
             if eta is not None:
-                etas.append(eta)
+                # The ETA is measured from the scan, and the scan is already old by the
+                # time it is read: IEM's processing plus up to a whole fast loop. A cell
+                # 25 min out at a scan 8 min ago is 17 min out now — inside the 20 min
+                # "imminent" bar that alerts on the first scan. Clamped at 0: a cell whose
+                # approach time has passed is overhead, not gone.
+                age_min = max(0.0, (now_naive - cell["valid"]).total_seconds() / 60.0)
+                etas.append(max(0.0, eta - age_min))
                 dbzs.append(cell["max_dbz"])
                 scan_counts.append(self._scan_count(by_id[cell["id"]]))
         if etas:

@@ -5,7 +5,8 @@ The [spec](../creek-flood-warning-spec.md) is the source of truth for *what is b
 built*; this file covers *how the system fits together, what the conventions are, and
 which mistakes have already been made and paid for*.
 
-Current state: add-on **v0.20.2**, 274 tests, all green on CI.
+Current state: add-on **v0.23.0**. ML runs in shadow (`ml_drives_alerts` off) — alerts use
+the threshold estimate.
 
 ---
 
@@ -259,6 +260,36 @@ from. Now persisted as `last_rain_ts` on the row. (0.14.0)
 no risk area* must not be `None`, or the watchdog cries wolf every quiet day and a real
 low-risk forecast reads as a broken feed. Conversely an unrecognised category stays
 `None` rather than being silently downgraded to "no risk".
+
+**`last_updated` moves only when the value changes (HA 2024.3+).** A write of the same value
+moves `last_reported`. So a stage "age" is time since the reading last *changed*, not since
+the node last reported — a still creek at 1 mm resolution can hold one value for many
+minutes. Differencing "the last change before each poll" put two readings one report apart
+and turned a 2 mm flicker into a Tier 3 rate (0.23.0). Treat the link (packet counter) as the
+authority on freshness; for a monotonic counter, `last_updated` *is* the last packet.
+
+**A single sample can be a sensor fault, and the gateway clamp makes it look like a flood.**
+A cold radar's 0 is inside the blanking zone, which the gateway (deliberately, #14) clamps to
+the 37.6 in range ceiling — a Tier 4 Emergency from a dry creek (2026-09-17). Check
+physical plausibility before a reading can alarm, and keep the baseline across dropouts:
+that one arrived as the first reading after a reconnect. (0.23.0)
+
+**Audit the training labels before trusting any metric.** Every positive the first models
+trained on was an artifact (that clamp, and a rate charged across a 2 h dropout). AUC was
+0.608 and "validated" was true on a model that caught 0 of 49 held-out positives. Also: the
+0.19.0 slug rename was a reinstall and wiped `/data`, so the dataset starts ~2026-09-12 while
+the storm log (migrated) counts every storm since July — the ML gate counts storms the
+training data does not contain.
+
+**An HA automation watching a deleted entity fails silently forever.** The alert automation
+still watched the old device's tier entity; deleting that device fired it once with
+`to_state: None` (a crash in the trace) and it then watched nothing for two days. After
+any device/entity cleanup, re-check what the automations trigger on.
+
+**A flat history graph can be HA's recorder, not the device.** On 2026-09-23 the recorder
+wrote no rows for *any* entity for 25 h while automations kept running; on the graphs every
+sensor looked frozen. Count recorder rows per hour across all entities before blaming one.
+The add-on now keeps its own high-resolution stage record in `/share/rate_of_rise/stage/`.
 
 **A storm may never close if any rain signal never reaches zero.** The close test takes
 the *stronger* of on-site and upstream 1 h rain, so one stuck PWS reporting a phantom

@@ -438,6 +438,33 @@ def test_blanking_zone_matches_the_sensor_datasheet():
     assert int(subs["blanking_mm"]) >= 150, "blanking zone below the datasheet minimum range"
 
 
+def test_node_and_gateway_agree_on_the_blanking_zone():
+    """The node decides whether an unsettled radar answer may be reported by how close the
+    creek last was to the blanking zone; the gateway decides what "inside the blanking
+    zone" means. If the two drift apart, the node's near-the-ceiling exception stops lining
+    up with the gateway's clamp."""
+    subs = yaml.load(GATEWAY.read_text(encoding="utf-8"), Loader=_EsphomeLoader)["substitutions"]
+    node_src = (ROOT / "firmware" / "moteino_creek_node" / "src" / "main.cpp").read_text(
+        encoding="utf-8")
+    m = re.search(r"#define\s+SENSOR_BLANKING_MM\s+(\d+)", node_src)
+    assert m, "SENSOR_BLANKING_MM missing from the node firmware"
+    assert int(m.group(1)) == int(subs["blanking_mm"])
+
+
+def test_an_unsettled_radar_far_from_the_ceiling_reports_no_reading():
+    """2026-09-17: a cold radar answered 0, the node reported it because it "never settled",
+    the gateway clamped it to 37.6 in, and a dry creek raised Tier 4 Emergency. Away from
+    the ceiling an unsettled answer must travel as null (a radar fault), not as a reading."""
+    node_src = (ROOT / "firmware" / "moteino_creek_node" / "src" / "main.cpp").read_text(
+        encoding="utf-8")
+    body = node_src[node_src.index("static int32_t readRadarDistance()"):]
+    body = body[:body.index("\nstatic void radarPowerDown()")]
+    tail = body[body.index("SENSOR_READY_TIMEOUT_MS) break;"):]
+    assert "nearCeiling" in tail and "UNSETTLED_TRUST_WITHIN_MM" in tail
+    assert tail.rstrip().rstrip("}").rstrip().endswith("return -1;"), (
+        "the unsettled path no longer ends in 'no reading'")
+
+
 def test_installation_height_default_is_the_surveyed_value():
     """43.5 in = 1105 mm, creekbed -> sensor face. If this drifts from the survey the whole
     depth scale shifts, and nothing else in the system can tell."""

@@ -73,6 +73,17 @@ class DiscoveryPublisher:
                 "name": "Creek Model Method",
                 "state_topic": f"{b}/flood_probability",
                 "value_template": "{{ value_json.method }}", "icon": "mdi:function-variant"}),
+            # What the ML model says, whether or not it drives the alert (config
+            # `ml_drives_alerts`). The only way to see a model's behaviour through a real
+            # storm without handing it the alarm first. Unknown when no model exists yet.
+            ("sensor", "creek_ml_shadow_probability", {
+                "name": "Creek ML Shadow Probability",
+                "state_topic": f"{b}/flood_probability",
+                "value_template": ("{{ (value_json.ml_value | float(0) * 100) | round(0) "
+                                   "if value_json.ml_value is not none else none }}"),
+                "unit_of_measurement": "%", "state_class": "measurement",
+                "json_attributes_topic": f"{b}/flood_probability",
+                "icon": "mdi:brain"}),
             ("sensor", "creek_predicted_crest", {
                 "name": "Creek Predicted Crest",
                 "state_topic": f"{b}/predicted_crest",
@@ -166,10 +177,12 @@ class DiscoveryPublisher:
                 "state_topic": f"{b}/status/lag",
                 "value_template": "{{ value_json.response if value_json.response is not none else 'none' }}",
                 "json_attributes_topic": f"{b}/status/lag", "icon": "mdi:chart-timeline-variant"}),
+            # "threshold", not "none": no active model *is* an answer — the threshold
+            # estimate — and after a Rollback the dashboard has to say which one is live.
             ("sensor", "creek_active_model", {
                 "name": "Creek Active Model",
                 "state_topic": f"{b}/status/registry",
-                "value_template": "{{ value_json.active_version if value_json.active_version is not none else 'none' }}",
+                "value_template": "{{ value_json.active_version if value_json.active_version is not none else 'threshold' }}",
                 "json_attributes_topic": f"{b}/status/registry", "icon": "mdi:cube-outline"}),
             ("sensor", "creek_candidate_model", {
                 "name": "Creek Candidate Model",
@@ -357,6 +370,10 @@ class DiscoveryPublisher:
             # WPC says and what the forecast discussion will call it, and an operator
             # reading a dashboard at 2 a.m. should not have to remember that 2 = Slight.
             # The numeric value rides along as an attribute for graphing.
+            #
+            # "No risk", never "None": Home Assistant's MQTT sensor treats a rendered
+            # "None" as a null state, so WPC's real "no risk area here" showed as unknown —
+            # indistinguishable on the dashboard from a feed that is down.
             *(
                 ("sensor", f"creek_wpc_ero_day{d}", {
                     "name": f"Creek WPC Excessive Rain Risk Day {d}",
@@ -364,7 +381,7 @@ class DiscoveryPublisher:
                     "value_template": (
                         "{% set r = value_json.wpc_ero_day" + str(d) + "_risk %}"
                         "{{ 'unknown' if r is none else"
-                        " {0: 'None', 1: 'Marginal', 2: 'Slight',"
+                        " {0: 'No risk', 1: 'Marginal', 2: 'Slight',"
                         " 3: 'Moderate', 4: 'High'}.get(r | int, r) }}"),
                     "icon": "mdi:weather-pouring"})
                 for d in (1, 2, 3)
@@ -410,7 +427,7 @@ class DiscoveryPublisher:
                     "{% set l = value_json.google_flash_flood_likely %}"
                     "{{ 'unknown' if hl is none and l is none else"
                     " 'Highly likely' if hl == 1 else"
-                    " 'Likely' if l == 1 else 'None' }}"),
+                    " 'Likely' if l == 1 else 'Not forecast' }}"),
                 "icon": "mdi:weather-pouring"}),
             ("sensor", "creek_google_flash_flood_events", {
                 "name": "Creek Google Flash Flood Events",
@@ -453,6 +470,8 @@ class DiscoveryPublisher:
                     ("ero_outlook_missing", "WPC Outlook Missing", "mdi:cloud-off-outline"),
                     ("google_flood_status_missing", "Google Flood Status Missing",
                      "mdi:cloud-off-outline"),
+                    ("stage_frozen", "Stage Frozen", "mdi:snowflake-alert"),
+                    ("stage_implausible", "Stage Implausible", "mdi:alert-remove-outline"),
                 )
             ),
             # --- command buttons ---

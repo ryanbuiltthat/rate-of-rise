@@ -20,6 +20,14 @@ What to do when a storm hits. Checklist form — meant to be readable on a phone
 
 ## Before / early in the storm — 30 seconds
 
+- [ ] **Creek Alert must be on** (Settings → Automations → *Creek Alert*). Since 0.23.0 it
+      re-arms itself on restart and after 2 h off, but check. To quiet the phones while
+      working at the creek, use **Operator → Controls → Pause phone alerts (2 h)** — never
+      switch the automation off. The pause ends by itself.
+- [ ] Data problems now **push to both phones** (telemetry stale, radar fault, stage
+      stale / frozen / implausible, rain sources, service stale) — critically if a storm is
+      open and the gauge is blind. If one arrives, the tiers above it are not trustworthy
+      until it clears.
 - [ ] Open **Creek Flood Watch → Operator → Watchdogs**.
 - [ ] All watchdogs off? Good. If **Modeling service stale** or **Upstream PWS missing** is
       on, fix it now — a storm recorded with dark sources is a wasted storm, and the ML
@@ -115,11 +123,24 @@ Either way, put the times from *During* in the notes. That's what calibrates the
       stage-based tier is dormant for that window regardless of what the creek did, and
       that gap belongs in the notes alongside the crest time.
 - [ ] Check **Storms recorded** on the Operator tab against `min_events_for_ml` (10).
+- [ ] The crest at full resolution is in `\\<ha-host>\share\rate_of_rise\stage\<date>.csv`
+      (`reading_ts` is unix seconds). Compare it with your clock times — it is the record
+      the calibration of #8 should be done against, not the 5-minute dataset.
 
 ## Nothing to press during the storm
 
 - **Run inference now** only skips the wait for the next 5-minute tick.
-- The nightly batch (3 am) rolls up the dataset and refits the lag on its own.
+- The nightly batch (at `nightly_retrain_hour`) rolls up the dataset and refits the lag on
+  its own.
+- **ML is in shadow** unless the add-on option `ml_drives_alerts` is on (default off): the
+  tiers use the threshold estimate, and *ML shadow probability* on the Flood Watch header
+  and Operator tab shows what the model says. Note it against what the creek does — that is
+  the evidence for ever letting it drive the alarm.
+- **Creek stage implausible** means the gauge jumped further than the creek can move and
+  the tiers are ignoring it. Go and look. If it holds 30 minutes the add-on believes it.
+- The storm's high-resolution record (every stage reading, ~10 s) is being written to
+  `/share/rate_of_rise/stage/` by the add-on itself, so it survives an HA recorder stall and
+  HA's 10-day history retention.
 - **Retrain / Promote / Rollback** are live now that Phase 4 has landed, and none of them
   is a storm-time action — see below. Retrain in particular reads the whole dataset and
   fits a model; do it after, not while you are watching the creek.
@@ -131,9 +152,11 @@ instead of skipping. What it produces on a short record is usually a model whose
 split contains no Warning-tier crossings at all, and a split with no positives cannot
 score anything — hit rate, false-alarm rate and AUC all come back undefined.
 
-That matters because a promoted model is not advisory: its probability alone raises
-**Tier 3 at 50% and Tier 4 at 80%**. Promoting an unscored model hands the alarm to
-something nothing has checked.
+Since 0.23.0 a promoted model is advisory by default: with `ml_drives_alerts` off it runs in
+shadow and the tiers use the threshold estimate. Turn that option on and its probability
+alone raises **Tier 3 at 50% and Tier 4 at 80%** — so doing that for an unscored model hands
+the alarm to something nothing has checked. "Validated" now also requires the model to have
+caught at least one held-out positive.
 
 - **Promote** will still activate such a candidate — the judgement is yours — but it says
   so at the press (the caveat leads **Last Command**) and keeps saying so: the Active

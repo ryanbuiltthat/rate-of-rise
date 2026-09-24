@@ -53,6 +53,12 @@ views:
           **Tier {{ states('sensor.rate_of_rise_creek_alert_tier') }}** · flood probability
           **{{ states('sensor.rate_of_rise_creek_flood_probability') }}%**
           ({{ states('sensor.rate_of_rise_creek_model_method') }} model)
+          {% set ml = states('sensor.rate_of_rise_creek_ml_shadow_probability') %}
+          {% if ml not in ['unknown', 'unavailable'] %}· ML shadow {{ ml }}%
+          _(recorded, not alerting)_{% endif %}
+          {% if is_state('timer.creek_alerts_paused', 'active') %}
+
+          🔕 **Phone alerts paused** until {{ as_timestamp(state_attr('timer.creek_alerts_paused', 'finishes_at')) | timestamp_custom('%-I:%M %p') }} — Operator → Controls to resume.{% endif %}
 
           {% set tier = states('sensor.rate_of_rise_creek_alert_tier') %}
           {% if tier == '4' %}🚨 Flooding imminent or underway — act now.
@@ -269,6 +275,18 @@ views:
         title: Controls
         show_header_toggle: false
         entities:
+          # Working at the creek or on the node: pause, don't switch Creek Alert off. A pause
+          # ends by itself after 2 h and re-announces the current tier; an automation turned
+          # off stays off until someone remembers (it did, for a day, in September 2026).
+          - entity: script.creek_pause_alerts
+            name: Pause phone alerts (2 h)
+          - entity: script.creek_resume_alerts
+            name: Resume phone alerts now
+          - entity: timer.creek_alerts_paused
+            name: ↳ pause remaining
+          - entity: input_number.creek_last_notified_tier
+            name: Last tier announced
+          - type: divider
           - entity: button.rate_of_rise_creek_run_inference_now
             name: Run inference now
           - entity: button.rate_of_rise_creek_retrain_now
@@ -327,6 +345,10 @@ views:
             name: Model health
           - entity: sensor.rate_of_rise_creek_model_method
             name: Active method
+          # What the ML model says every loop, whether or not it is allowed near the alarm
+          # (add-on option ml_drives_alerts). Watch this through a storm before trusting it.
+          - entity: sensor.rate_of_rise_creek_ml_shadow_probability
+            name: ML shadow probability
           - entity: sensor.rate_of_rise_creek_dataset_rows
             name: Dataset rows
           - entity: sensor.rate_of_rise_creek_event_count
@@ -353,9 +375,16 @@ views:
 
           {% if state_attr('sensor.rate_of_rise_creek_active_model', 'active_validated') == false %}
           ⚠️ **The active model was never validated** — its held-out split could not
-          score it (no `roc_auc` above). Its probability alone raises Tier 3 at 50%
-          and Tier 4 at 80%, so treat the next tiers it produces with suspicion, and
-          use **Rollback** if they do not match the creek.
+          score it, or it caught none of the positives it was tested on (`hit_rate` 0).
+          {% endif %}
+
+          {% if state_attr('sensor.rate_of_rise_creek_model_health', 'ml_drives_alerts') %}
+          🔔 **ML drives alerts** (add-on option `ml_drives_alerts` is on): an active
+          model's probability alone raises Tier 3 at 50% and Tier 4 at 80%.
+          {% else %}
+          🔕 **ML is in shadow**: alerts use the threshold estimate. The model's view is the
+          *ML shadow probability* row above, recorded every loop — model:
+          `{{ state_attr('sensor.rate_of_rise_creek_model_health', 'shadow_model') or 'none' }}`.
           {% endif %}
 
           #### Promote
@@ -382,13 +411,12 @@ views:
           # will not difference a reading against one from before a dropout. These two say
           # whether that is what is happening: the link itself, and how old the stage
           # reading behind the rate is.
-          # DO NOT read the node-link row on its own. On 2026-09-23 the gateway wedged --
-          # answering pings, API port open, publishing nothing for 25 hours -- and every one
-          # of its entities froze at its last value. This one sat at "on" the whole time, and
-          # because features.py::_link_usable returns True unconditionally when it reads
-          # online=True, the frozen value actively suppressed the stage-age fallback that
-          # would otherwise have caught it. It reports the last thing the gateway said, not
-          # whether the gateway is still saying anything.
+          # DO NOT read the node-link row on its own. It only writes on a transition, so a
+          # gateway that stops publishing leaves it frozen at "on": it reports the last thing
+          # the gateway said, not whether the gateway is still saying anything. Telemetry
+          # stale (the packet counter) is the row that answers that — and since 0.23.0 the
+          # add-on's own link check (features.py::_node_online) is overruled by the same
+          # counter, so a frozen "on" no longer vouches for a stale stage.
           - entity: binary_sensor.creek_telemetry_stale
             name: Telemetry stale
             secondary_info: last-changed
@@ -441,6 +469,16 @@ views:
         entities:
           - entity: binary_sensor.rate_of_rise_creek_stage_stale
             name: Creek stage stale
+            card_mod: *ok_or_x
+          # Same number for 30 min while packets keep arriving: the radar has stopped
+          # re-measuring (the 2026-09-23 morning, 3 h 11 min on one value).
+          - entity: binary_sensor.rate_of_rise_creek_stage_frozen
+            name: Creek stage frozen
+            card_mod: *ok_or_x
+          # A reading the creek could not have reached, withheld from the tiers (a cold
+          # radar's 0, clamped to 37.6 in — the 2026-09-17 false Emergency).
+          - entity: binary_sensor.rate_of_rise_creek_stage_implausible
+            name: Creek stage implausible
             card_mod: *ok_or_x
           - entity: binary_sensor.rate_of_rise_creek_soil_moisture_stale
             name: Soil moisture stale

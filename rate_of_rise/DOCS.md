@@ -141,15 +141,20 @@ Set these on the **Configuration** tab.
 | `stage_max_age_minutes` | `6` | How old a stage reading may be and still be differenced into a rate of rise. Only consulted when `creek_node_status_entity` is blank or unavailable |
 | `rate_of_rise_max_gap_minutes` | `10` | Longest gap between two stage samples that still yields a rate. Past it the rate is withheld and the baseline re-seeded — see *Radio dropouts and false rate-of-rise alarms* |
 | `rate_of_rise_confirm_samples` | `2` | Consecutive gap-free samples a rate must survive after a dropout before it alone can raise Tier 3. Costs nothing while the link is up |
+| `rate_of_rise_window_minutes` | `10` | Rate of rise is measured against a reading at least this old, never the previous one. A still creek flickers 1–2 mm between reports; over one ~63 s report that read as 0.075 in/min, over the Warning. See *Radio dropouts and false rate-of-rise alarms* |
+| `max_stage_rise_in_min` | `2.0` | Fastest rise the creek can physically make. A jump past it is withheld from the tiers as a sensor fault and raises *Creek Stage Implausible* (the 2026-09-17 false Emergency). Believed if it holds 30 min |
+| `ml_drives_alerts` | `false` | Off: a promoted model runs in **shadow** — published as *Creek ML Shadow Probability* and recorded every loop, while the tiers use the threshold estimate. On: a promoted model past `min_events_for_ml` drives the tiers (20 % Watch, 50 % Warning, 80 % Emergency) |
 | `google_floods_api_key` | `""` | Google Flood Forecasting API key (Google Cloud project + the API enabled). Setting it enables two reads: the gauges Google models within 25 mi of the site with their forecast status (neighbouring rivers, capped at Tier 2 Watch), and flash-flood polygon containment of the site itself (also capped at Tier 2 Watch). Blank disables both |
 | `wu_api_key` | `""` | Optional (Weather Underground PWS) |
 | `nwm_reach_id` | `<nwm reach id>` | NWM reach at the sensor site (open question #3) |
 | `upstream_pws_ids` | `<upstream PWS 1>`, `<upstream PWS 2>` | Upstream PWS in the upstream corridor (open question #4) |
 | `stage_entity` | `sensor.creek_gateway_stage` | Creek depth above the bed, published by the RFM69 gateway |
 | `creek_node_status_entity` | `binary_sensor.creek_gateway_creek_node_status` | Radio-link state for the creek node, published by the same gateway: ON while the node's 60 s reports arrive, OFF after five are missed. Blank to disable the check and fall back to `stage_max_age_minutes` |
+| `creek_node_packets_entity` | `sensor.outside_creek_gateway_creek_node_packets` | The gateway's packet counter. It changes on every report, so when it stops the link is treated as down even if the status sensor above is frozen at ON (it only writes on a transition). Blank to disable |
 | `soil_moisture_entities` | WH51 #1, #2 | `..._soil_moisture_willow` (near house), `..._soil_moisture_field` (near creek); order is significant |
-| `onsite_rain_rate_entity` | `sensor.outside_weather_station_rain_intensity` | Ecowitt |
-| `onsite_rain_daily_entity` | `sensor.outside_weather_station_rain_24hr` | Ecowitt. **Currently unused** — the rolling rain accumulations are integrated from `onsite_rain_rate_entity`, not read from here |
+| `onsite_rain_rate_entity` | `sensor.outside_weather_station_rain_intensity` | Ecowitt. Feeds the rain-rate watchdog, and the rain totals when the counter below is unavailable |
+| `onsite_rain_total_entity` | `sensor.outside_weather_station_rain_total` | Ecowitt's monotonic rain counter. Rolling rain totals are the exact difference between readings; integrating the sampled rate instead read 5–10 % low. Blank to use the rate |
+| `onsite_rain_daily_entity` | `sensor.outside_weather_station_rain_24hr` | Ecowitt. **Currently unused** |
 | `usgs_downstream` | `true` | Poll USGS `<usgs downstream>` / `<usgs adjacent>` (free, no key) for lag validation |
 | `snodas_swe` | `true` | Daily SNODAS snow-water-equivalent for the site cell (free, no key) |
 | `nexrad_cells` | `true` | NEXRAD storm-cell tracks via IEM (free, no key) — inbound-cell ETA for storms approaching from the W/NW, where the upstream gauges cannot lead |
@@ -213,34 +218,43 @@ Tier 3 threshold, instead of the 0.075 in/min it actually did. With the package'
 `critical_from_tier: 2`, that is a critical alarm-stream push for a creek doing nothing
 unusual.
 
-Three guards stop it, all in `app/features.py` and `app/tiers.py`:
+Four guards stop it, all in `app/features.py` and `app/tiers.py`:
 
 1. **The link is checked before the reading is used.** `creek_node_status_entity` is
    packet-driven — it is OFF because reports stopped arriving, not because the number
-   stopped changing — so a steady creek is never mistaken for a dead one, and a dead one is
-   never mistaken for a steady creek. While it is OFF no rate is computed at all.
-2. **A gap is never charged to one interval.** Samples are timestamped by the gateway's
-   `last_updated`, not by when the add-on happened to poll. If more than
-   `rate_of_rise_max_gap_minutes` separates two samples, the rate is withheld and the
-   baseline re-seeded at the creek's current level, so the *next* loop measures real
-   movement from a real starting point.
-3. **The first samples back are confirmed before they can alarm.** After any dropout the
-   rate must clear the threshold on `rate_of_rise_confirm_samples` consecutive gap-free
-   samples before it alone raises Tier 3. The counter saturates, so on a link that has been
-   up this adds no delay whatsoever; it only defers the minutes right after a reconnect,
-   which is exactly when the number deserves the least trust.
+   stopped changing — but it only writes on a transition, so a gateway that stops
+   publishing leaves it frozen at ON. `creek_node_packets_entity` overrules it: a packet
+   counter that has not moved in `stage_max_age_minutes` means the link is down, whatever
+   the status sensor still says. While the link is down no rate is computed at all.
+2. **A rate spans a window, not an interval.** Each rate is taken against the newest reading
+   at least `rate_of_rise_window_minutes` old. The node reports whole millimetres and a still
+   creek flickers a millimetre or two; the old two-reading difference could land on readings
+   one report (~63 s) apart and turn 2 mm into 0.075 in/min — a Warning from a creek that was
+   not moving (this happened twice on 2026-09-21; both were falls). If more than
+   `rate_of_rise_max_gap_minutes` separates two samples, the history is re-seeded, so a
+   window never spans a gap.
+3. **The first rates back are confirmed before they can alarm.** After any dropout the rate
+   must clear the threshold on `rate_of_rise_confirm_samples` consecutive rates before it
+   alone raises Tier 3.
+4. **Impossible readings are withheld.** A rise faster than `max_stage_rise_in_min` from the
+   last good reading is treated as a sensor fault, not a flood: `stage_ft` is withheld from the
+   tiers and *Creek Stage Implausible* turns on (and pushes to the phones). This is the
+   2026-09-17 case — a cold radar answered 0, the gateway clamped it to 37.6 in, and stage
+   alone raised Tier 4 on a dry day, on the first reading after a dropout. The baseline
+   therefore survives dropouts. A jump that holds for 30 minutes is believed, so a real rise
+   during an outage cannot be locked out.
 
-The cost is bounded and one-sided: after a dropout, a Warning driven *only* by rate of rise
-is delayed by `rate_of_rise_confirm_samples` loop intervals. Nothing else is delayed —
-stage, model probability and the NWS floors are untouched, so a creek that is genuinely high
-still warns on the first reading back. Because the delay is measured in loop intervals, set
-`fast_loop_minutes: 1` to match the node's 60 s telemetry and that worst case becomes about
-two minutes.
+The cost is bounded and one-sided: a Warning driven *only* by rate of rise needs a full window
+of history first (10 min after a start or reconnect) plus the confirmation. Stage, model
+probability and the NWS floors are untouched, so a creek that is genuinely high still warns
+on the first reading back — unless that reading is an impossible jump, which is exactly the
+case that must not.
 
-Three entities make this visible on the dashboard's *Ingestion health* card: the node's link
-state, `sensor.rate_of_rise_creek_stage_age` (how old the reading behind the rate is), and
-the `Stage Stale` watchdog — which now trips on a dead link holding a stale number, where
-before it only tripped when the entity went away entirely.
+The dashboard's *Ingestion health* and *Watchdogs* cards make this visible: the node's link
+state, *Telemetry stale* (the packet counter), `sensor.rate_of_rise_creek_stage_age`, and the
+*Stage Stale*, *Stage Frozen* (same reading for 30 min while packets arrive — a radar that has
+stopped re-measuring) and *Stage Implausible* watchdogs. All of them push to the phones
+(`ha-packages/creek_node_health.yaml`), critically if a storm is open.
 
 ## Persistent storage
 
@@ -250,9 +264,19 @@ before it only tripped when the entity went away entirely.
 /data/models/registry.json                versioned artifacts + skill metrics
 /data/models/model-<version>.json         a candidate/active artifact (xgboost native format)
 /data/models/model-<version>.meta.json    its feature column order + horizon
-/data/state/*.json                        rain/API/SNODAS accumulator state
+/data/state/*.json                        rain/API/SNODAS accumulator + rain-counter state
 /share/rate_of_rise/events.sqlite       annotated storm event log
+/share/rate_of_rise/stage/YYYY-MM-DD.csv  every stage reading, ~10 s resolution
 ```
+
+The stage CSVs are the storm's high-resolution record, kept by the add-on itself from HA's
+live state. The dataset keeps one row per 5-minute loop; the node reports every 60 s (every
+~5 s while the creek rises), and until 0.23.0 that finer record lived only in Home
+Assistant's recorder — which keeps 10 days by default, and which on 2026-09-23 stopped
+writing for 25 hours while HA kept running. Each row is `reading_ts,logged_ts,stage_ft`
+(unix seconds; a blank stage is an unknown/unavailable reading, kept because the gap is
+information). Each dataset row now also records the alert tier, the probability that drove
+it, and the ML shadow probability, so a storm can be replayed afterwards.
 
 `/data` is private to this add-on. The storm log is the exception and lives in `/share`,
 because it is the one file a human is expected to edit: `/data` inside the SSH/Terminal
@@ -315,6 +339,18 @@ splits with no Warning-tier crossings in them, so a candidate usually cannot be 
 all; Promote says so at the press and keeps saying so while such a model is active. Until
 storms accumulate, the threshold estimate is the honest answer and the tier thresholds
 stay placeholders.
+
+**Shadow mode (0.23.0).** With `ml_drives_alerts` off (the default) the alert tiers use the
+threshold estimate whatever is promoted, and the ML model — the active one, or with none
+active the newest candidate — runs alongside as *Creek ML Shadow Probability*, recorded in
+every dataset row. That is how to see what a model would have done through a real storm
+before letting it raise one. Three things changed with it, all found in the September 2026
+record: every positive label the first models trained on was an artifact (a rate charged
+across a 2-hour dropout, and the 3.13 ft radar-fault clamp), so training now ignores
+implausible stages and rates without a confirmed sample count; "validated" now also requires
+catching at least one held-out positive (the model active on 2026-09-24 had AUC 0.608 and
+caught 0 of 49); and inference undoes the class weighting, which inflated probabilities by
+up to ~34x in odds against the fixed 20/50/80 % tier cut-offs.
 
 > **Calibration note:** WH51 soil-moisture readings are relative (0–100 %) and site-specific.
 > The saturated/dry endpoints need field calibration (open question #7) before the ponding

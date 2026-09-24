@@ -65,7 +65,11 @@ class SourceCoordinator:
     def __init__(self, cfg: Config, ha: HAClient, data_dir: Path):
         self._sources = []
         if cfg.onsite_rain_rate_entity:
-            self._sources.append(RainAccumulator(data_dir, cfg.onsite_rain_rate_entity, ha))
+            total_entity = getattr(cfg, "onsite_rain_total_entity", None)
+            self._sources.append(RainAccumulator(data_dir, cfg.onsite_rain_rate_entity, ha,
+                                                 total_entity=total_entity))
+            if total_entity:
+                log.info("On-site rain from the %s counter (rate as fallback)", total_entity)
         else:
             log.warning("onsite_rain_rate_entity unset — rain accumulation disabled")
 
@@ -128,7 +132,12 @@ class SourceCoordinator:
             if now >= self._next_poll.get(src.name, 0.0):
                 try:
                     self._cache.update(src.poll())
-                    self._last_ok[src.name] = now
+                    # A source can return values and still report that the poll did not
+                    # really succeed — WU when no station answered: it still owes the
+                    # coordinator its rolled-forward totals, but it is not alive, and the
+                    # watchdog has to be able to say so.
+                    if getattr(src, "last_poll_ok", True):
+                        self._last_ok[src.name] = now
                 except Exception:  # keep last-good cache; never break the loop
                     log.exception("source %s poll failed", src.name)
                 self._next_poll[src.name] = now + src.refresh_seconds

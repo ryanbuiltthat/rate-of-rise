@@ -36,6 +36,11 @@ class FeatureRow:
     stage_age_min: float | None = None
     creek_node_online: bool | None = None
     rate_of_rise_sample_count: float | None = None
+    # What the gauge actually reported, before the plausibility check — kept so a rejected
+    # reading is still on record — and whether that check threw it out (stage_ft is then
+    # None). See FeatureBuilder._plausible_stage.
+    stage_raw_ft: float | None = None
+    stage_implausible: bool | None = None
     # --- forecast/upstream features (Addendum C, filled by SourceCoordinator) ---
     rain_rate_in_hr: float | None = None   # raw Ecowitt rate; None = entity unavailable
     rain_1h_in: float | None = None
@@ -111,7 +116,8 @@ class FeatureRow:
 # Features derived here rather than by a source. They are not in sources.FEATURE_KEYS, so
 # they must be added explicitly wherever the feature payload is assembled.
 DERIVED_KEYS = ("temp_f", "rain_on_snow_flag", "rate_of_rise_in_min",
-                "stage_age_min", "creek_node_online", "rate_of_rise_sample_count")
+                "stage_age_min", "creek_node_online", "rate_of_rise_sample_count",
+                "stage_raw_ft", "stage_implausible")
 
 
 # Above this soil-moisture reading the low-lying areas are effectively saturated
@@ -151,6 +157,19 @@ def _to_fahrenheit(value: float | None, unit: str | None) -> float | None:
 RATE_OF_RISE_SAMPLE_CAP = 10.0   # the streak counter saturates here; it only gates the
                                  # first samples after a reconnect, so it need not grow
 
+# Loop timing is not exact: a baseline taken "10 minutes ago" by a 5-minute loop can be
+# 9 min 58 s old. Without this slack that reading would miss the window and the rate would
+# silently stretch to 15 min.
+RATE_WINDOW_SLACK_S = 60.0
+
+# How long a rejected jump must persist before it is believed anyway. The plausibility
+# check (FeatureBuilder._plausible_stage) can only compare against the last good reading,
+# and a creek genuinely can outrun the budget — a big rise while the radio was down, or
+# one faster than max_stage_rise_in_min. Without an exit that reading would be withheld
+# forever. The operator hears about the rejection at once (the stage_implausible watchdog,
+# with the raw reading); this only bounds how long the tiers wait for them.
+IMPLAUSIBLE_ACCEPT_AFTER_S = 30 * 60.0
+
 
 class FeatureBuilder:
     def __init__(self, cfg: Config, ha: HAClient, sources=None, now_fn=time.time):
@@ -159,72 +178,43 @@ class FeatureBuilder:
         self._sources = sources   # SourceCoordinator | None (Addendum C)
         self._now = now_fn        # injectable so the link guards are testable (HealthTracker
                                   # takes the same parameter for the same reason)
-        self._last_stage: tuple[float, float] | None = None  # (sample_ts, stage_ft)
+        # (sample_ts, stage_ft), oldest first, trimmed to what the rate window still needs.
+        self._stage_hist: list[tuple[float, float]] = []
         self._ror_samples = 0.0   # consecutive gap-free rates since the last re-seed
+        # Last reading the plausibility check accepted: (sample_ts, stage_ft). Deliberately
+        # kept across link dropouts — see _plausible_stage.
+        self._last_good: tuple[float, float] | None = None
+        self._implausible_since: float | None = None
         self._temp_unit: str | None = None                   # cached on first read
 
     def _node_online(self) -> bool | None:
-        """The gateway's own view of the radio link, or None if it is not configured.
+        """Whether the creek node is really reporting right now, or None if unknown.
 
         `binary_sensor.creek_gateway_creek_node_status` is driven by *packet arrival*
         (components/rfm69_gateway: `node_timeout`, 5 min = five missed 60 s reports), not
         by whether the stage number changed — which is the only honest link check on a
         creek that can legitimately sit at the same depth for an hour.
+
+        But that sensor only writes on a transition, so it cannot report the gateway's own
+        death: a gateway that stops publishing leaves it frozen at `on`, and on its own it
+        told this code the link was fine through exactly that. The packet counter moves on
+        every report, so a counter that has stopped moving overrules it. An unavailable
+        counter counts as stopped — the gateway is rebooting, and the stage it last served
+        is no fresher than the counter.
         """
-        entity = self._cfg.creek_node_status_entity
-        if not entity:
-            return None
-        return self._ha.get_bool(entity)
-
-    def _rate_of_rise(
-        self, now: float, stage_ft: float | None, age_s: float | None, online: bool | None,
-    ) -> float | None:
-        """Inches per minute between two *contiguous* stage samples.
-
-        None whenever that cannot be said honestly: no reading, the link is down, the
-        first reading back after a dropout, or a gap longer than
-        `rate_of_rise_max_gap_minutes`. Each of those also re-seeds the baseline, so the
-        next loop measures from the creek's real position rather than from wherever it
-        was before the radio went quiet.
-        """
-        if stage_ft is None or not self._link_usable(age_s, online):
-            self._reseed(None)
-            return None
-
-        # Timestamp the *reading*, not the poll: `last_updated` is when the gateway wrote
-        # this value, so dt is the interval the creek actually moved over even when the
-        # loop runs on a different cadence than the node's 60 s reports.
-        sample_ts = now - age_s if age_s is not None else now
-        prev = self._last_stage
-        if prev is None:
-            self._reseed((sample_ts, stage_ft))
-            return None
-
-        prev_ts, prev_stage = prev
-        dt_min = (sample_ts - prev_ts) / 60.0
-
-        if dt_min <= 0:
-            # Same reading polled twice. The link is up (checked above), so the creek has
-            # simply not moved enough to change the published value: the rate is zero, not
-            # unknown. Carry the baseline forward to now so the next real change is
-            # measured from here rather than from a timestamp that is already hours old.
-            self._last_stage = (now, stage_ft)
-            self._ror_samples = min(self._ror_samples + 1.0, RATE_OF_RISE_SAMPLE_CAP)
-            return 0.0
-
-        if dt_min > self._cfg.rate_of_rise_max_gap_minutes:
-            # A gap. Whatever the creek did across it did not happen in one interval, and
-            # attributing it to one is exactly the false alarm this guard exists for.
-            log.info(
-                "stage gap of %.1f min (limit %.1f) — rate of rise suppressed and re-seeded "
-                "at %.2f ft", dt_min, self._cfg.rate_of_rise_max_gap_minutes, stage_ft,
-            )
-            self._reseed((sample_ts, stage_ft))
-            return None
-
-        self._last_stage = (sample_ts, stage_ft)
-        self._ror_samples = min(self._ror_samples + 1.0, RATE_OF_RISE_SAMPLE_CAP)
-        return (stage_ft - prev_stage) * 12.0 / dt_min
+        status = None
+        if self._cfg.creek_node_status_entity:
+            status = self._ha.get_bool(self._cfg.creek_node_status_entity)
+        packets = self._cfg.creek_node_packets_entity
+        if packets:
+            value, age_s = self._ha.get_float_with_age(packets)
+            if value is None and age_s is None:
+                return status          # entity missing entirely: nothing to overrule with
+            if value is None or age_s > self._cfg.stage_max_age_minutes * 60.0:
+                return False
+            if status is None:
+                return True            # counter moving is itself proof the link is up
+        return status
 
     def _link_usable(self, age_s: float | None, online: bool | None) -> bool:
         """Whether this stage reading is current enough to difference against another."""
@@ -237,13 +227,108 @@ class FeatureBuilder:
         # is the only signal left, and erring towards "no rate" errs towards no alarm.
         return age_s is None or age_s <= self._cfg.stage_max_age_minutes * 60.0
 
-    def _reseed(self, sample: tuple[float, float] | None) -> None:
-        self._last_stage = sample
+    def _plausible_stage(self, sample_ts: float, stage_ft: float) -> bool:
+        """Whether a reading is a rise the creek could physically have made.
+
+        The failure this exists for, from the field: a radar that has not warmed up answers
+        0, the gateway treats anything that close as water inside the blanking zone and
+        clamps depth to the range ceiling (37.6 in), and a creek sitting at 11 in "rose"
+        26 in between two readings. Stage alone raised a Tier 4 Emergency on a dry
+        2026-09-17. A jump like that is not a flood, it is a sensor fault, and the tier
+        must not treat it as either a reading or an alarm.
+
+        Rises only: falling fast raises no alarm, and a glitch that got through has to be
+        able to come back down. The budget stops growing at `rate_of_rise_max_gap_minutes`,
+        so a sensor stuck on the bad value does not become "plausible" merely by staying
+        there. The baseline survives link dropouts on purpose: the 2026-09-17 reading was
+        the *first* one after a 24-minute dropout — the node came back with a cold radar —
+        so trusting whatever arrives after a reconnect would have let exactly it through.
+
+        The price is that a creek which really does outrun the budget (a big rise while the
+        radio was down) is withheld too. IMPLAUSIBLE_ACCEPT_AFTER_S bounds that: a jump that
+        persists that long is believed. The stage_implausible watchdog pushes the raw
+        reading to the phones the moment the first one is rejected, so a person is looking
+        long before the tiers give in.
+        """
+        if self._last_good is None:
+            self._last_good = (sample_ts, stage_ft)
+            return True
+        good_ts, good_stage = self._last_good
+        minutes = (sample_ts - good_ts) / 60.0
+        minutes = min(max(minutes, 1.0), self._cfg.rate_of_rise_max_gap_minutes)
+        rise_in = (stage_ft - good_stage) * 12.0
+        if rise_in > self._cfg.max_stage_rise_in_min * minutes:
+            if self._implausible_since is None:
+                self._implausible_since = sample_ts
+            held_s = sample_ts - self._implausible_since
+            if held_s < IMPLAUSIBLE_ACCEPT_AFTER_S:
+                log.warning(
+                    "stage %.2f ft rejected as implausible: %.1f in above the last good "
+                    "reading (%.2f ft) — faster than %.1f in/min. Treating it as a sensor "
+                    "fault, not a flood (%.0f min so far).", stage_ft, rise_in, good_stage,
+                    self._cfg.max_stage_rise_in_min, held_s / 60.0)
+                return False
+            log.warning("stage %.2f ft has held for %.0f min — accepting it as real despite "
+                        "the jump from %.2f ft", stage_ft, held_s / 60.0, good_stage)
+        self._implausible_since = None
+        self._last_good = (sample_ts, stage_ft)
+        return True
+
+    def _rate_of_rise(self, sample_ts: float, stage_ft: float) -> float | None:
+        """Inches per minute across the last `rate_of_rise_window_minutes`.
+
+        Measured against the newest reading at least a window old, never the previous one.
+        The node reports whole millimetres and a still creek flickers a millimetre or two
+        between reports, and the two readings consecutive loops see can be one report
+        (~63 s) apart: 2 mm over 63 s is 0.075 in/min, over the 0.05 in/min Warning, from a
+        creek that is not moving. Over 10 min the same flicker is 0.008 in/min, while a real
+        Warning-rate rise is half an inch — nothing is lost but the noise.
+
+        None until the history spans a window (after a start or a re-seed), and after a
+        gap longer than `rate_of_rise_max_gap_minutes`, which re-seeds: whatever the creek
+        did across a gap did not happen in one interval.
+        """
+        hist = self._stage_hist
+        if hist:
+            gap_s = sample_ts - hist[-1][0]
+            if gap_s > self._cfg.rate_of_rise_max_gap_minutes * 60.0:
+                log.info(
+                    "stage gap of %.1f min (limit %.1f) — rate of rise suppressed and "
+                    "re-seeded at %.2f ft", gap_s / 60.0,
+                    self._cfg.rate_of_rise_max_gap_minutes, stage_ft)
+                self._reseed()
+            elif gap_s <= 0:
+                # The same reading again, with no link signal to vouch that it is current:
+                # nothing new to add. The rate as of the newest sample still stands.
+                return self._rate_from_history()
+        hist.append((sample_ts, stage_ft))
+        return self._rate_from_history()
+
+    def _rate_from_history(self) -> float | None:
+        hist = self._stage_hist
+        if len(hist) < 2:
+            return None
+        latest_ts, latest_stage = hist[-1]
+        need_s = self._cfg.rate_of_rise_window_minutes * 60.0 - RATE_WINDOW_SLACK_S
+        base = None
+        for i in range(len(hist) - 2, -1, -1):
+            if latest_ts - hist[i][0] >= need_s:
+                base = i
+                break
+        if base is None:
+            return None
+        del hist[:base]                    # older than the baseline: never needed again
+        base_ts, base_stage = hist[0]
+        self._ror_samples = min(self._ror_samples + 1.0, RATE_OF_RISE_SAMPLE_CAP)
+        return (latest_stage - base_stage) * 12.0 / ((latest_ts - base_ts) / 60.0)
+
+    def _reseed(self) -> None:
+        self._stage_hist.clear()
         self._ror_samples = 0.0
 
     def build(self) -> FeatureRow:
         ts = self._now()
-        stage_ft, stage_age_s = self._ha.get_float_with_age(self._cfg.stage_entity)
+        stage_raw, stage_age_s = self._ha.get_float_with_age(self._cfg.stage_entity)
         node_online = self._node_online()
 
         soils = [self._ha.get_float(e) for e in self._cfg.soil_moisture_entities]
@@ -253,7 +338,26 @@ class FeatureBuilder:
         soil_mean = sum(present) / len(present) if present else None
         ponding = any(s >= PONDING_SATURATION_PCT for s in present)
 
-        rate = self._rate_of_rise(ts, stage_ft, stage_age_s, node_online)
+        stage_ft, rate, implausible = stage_raw, None, None
+        if stage_raw is None or not self._link_usable(stage_age_s, node_online):
+            # No reading, or the radio is down and HA is serving the last one it heard.
+            # No rate across the gap. The plausibility baseline is kept (see
+            # _plausible_stage for why the reading after a dropout is the suspect one).
+            self._reseed()
+        else:
+            # With the link confirmed up, the reading HA holds is the creek as of now —
+            # `last_updated` only moves when the value changes, so it dates the last change,
+            # not the last report. Without that confirmation, date it by the write.
+            sample_ts = ts if node_online is True or stage_age_s is None else ts - stage_age_s
+            implausible = not self._plausible_stage(sample_ts, stage_raw)
+            if implausible:
+                # Withheld from the tiers, the rate history and the storm peaks alike —
+                # but not a gap: the rate resumes from the same history once readings are
+                # sane again, unless the fault outlasts rate_of_rise_max_gap_minutes.
+                stage_ft = None
+            else:
+                rate = self._rate_of_rise(sample_ts, stage_raw)
+
         row = FeatureRow(
             ts=ts,
             stage_ft=stage_ft,
@@ -267,6 +371,8 @@ class FeatureBuilder:
             # Published even when the rate is None, so the dashboard can show *why* it is
             # blank (0 = the link just came back, nothing to difference against yet).
             rate_of_rise_sample_count=self._ror_samples,
+            stage_raw_ft=stage_raw,
+            stage_implausible=implausible,
         )
         if self._sources is not None:
             for key, value in self._sources.features().items():

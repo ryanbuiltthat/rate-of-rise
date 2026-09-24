@@ -63,7 +63,8 @@ jobs:
           bad = []
           for p in ["rate_of_rise/config.yaml", "rate_of_rise/build.yaml",
                     "repository.yaml", "dashboards/creek_flood_watch.yaml",
-                    "ha-packages/creek_warning.yaml", ".github/workflows/tests.yml",
+                    "ha-packages/creek_warning.yaml", "ha-packages/creek_node_health.yaml",
+                    ".github/workflows/tests.yml",
                     "firmware/esp32_rfm69_gateway/gateway.base.yaml"]:
               try:
                   yaml.load(pathlib.Path(p).read_text(encoding="utf-8"), Loader=Loader)
