@@ -406,6 +406,31 @@ def test_node_payload_fits_the_radio_frame():
         f"worst-case payload is {len(worst)} bytes, over RF69_MAX_DATA_LEN: {worst!r}")
 
 
+def test_radar_fault_entities_are_published():
+    """A packet carrying no reading is the radar's fault, not the radio's.
+
+    The link plainly works or the packet would not have arrived, so this has to be flagged
+    separately from the link going quiet — they are different repairs, one at the pole and one
+    at the radio. Without it a dead radar looks like `unknown` on a dashboard and nothing else.
+    """
+    names = set(gateway_entity_ids())
+    for required in ("Creek Node Radar Fault", "Creek Node Radar Failures"):
+        assert required in names, f"gateway no longer publishes {required!r}: {sorted(names)}"
+
+
+def test_radar_fault_ignores_diagnostic_holds():
+    """A diagnostic hold publishes a null distance on purpose (open question #17).
+
+    Counting those would raise a radar fault every time the diagnostic ran — a false alarm on
+    a schedule, which is the fastest way to teach someone to ignore the real one.
+    """
+    header = (ROOT / "firmware" / "esp32_rfm69_gateway" / "components" / "rfm69_gateway" /
+              "rfm69_gateway.h").read_text(encoding="utf-8")
+    assert "radar_failures_" in header, "the radar failure streak is gone"
+    assert re.search(r"if \(!held\)", header), (
+        "the radar failure counter no longer excludes diagnostic holds")
+
+
 def test_blanking_zone_matches_the_sensor_datasheet():
     """SEN0676 minimum range is 0.15 m; anything closer is not a measurement. The stage
     lambda uses this to reject a lost target, so a too-small value publishes noise as depth."""
