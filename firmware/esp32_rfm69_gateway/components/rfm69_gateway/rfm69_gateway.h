@@ -62,6 +62,14 @@ static const size_t OTA_IMAGE_MAX_BYTES = 98304;  // 96 KB
 // per record on this hardware).
 static const size_t OTA_RECORD_BYTES = 16;
 
+// Consecutive failed radar reads before the fault flag raises. One failed Modbus read is
+// ordinary -- the healthy baseline runs under 1 % -- so flagging singles would cry wolf. Three
+// in a row is three minutes with no measurement at the 60 s cadence, which is long enough to
+// mean something and short enough to still be a warning rather than an autopsy. During the
+// 2026-09-15..17 enclosure work the failure rate hit 12-72 %, which is exactly the sustained
+// pattern this is meant to surface.
+static const uint8_t RADAR_FAULT_CONSECUTIVE = 3;
+
 // How long a press stays armed waiting for the node's next report. The node reports every 60 s,
 // so this tolerates several missed cycles rather than making the user press the button again.
 static const uint32_t OTA_ARM_TIMEOUT_MS = 600000;
@@ -141,6 +149,8 @@ class Rfm69Gateway : public Component {
   void set_packet_count_sensor(sensor::Sensor *s) { this->packet_count_sensor_ = s; }
   void set_fast_mode_sensor(binary_sensor::BinarySensor *s) { this->fast_mode_sensor_ = s; }
   void set_diag_active_sensor(binary_sensor::BinarySensor *s) { this->diag_active_sensor_ = s; }
+  void set_radar_fault_sensor(binary_sensor::BinarySensor *s) { this->radar_fault_sensor_ = s; }
+  void set_radar_failures_sensor(sensor::Sensor *s) { this->radar_failures_sensor_ = s; }
   void set_node_status_sensor(binary_sensor::BinarySensor *s) { this->node_status_sensor_ = s; }
   void set_ota_status_sensor(text_sensor::TextSensor *s) { this->ota_status_sensor_ = s; }
   void set_ota_hex_url(const std::string &url) { this->ota_hex_url_ = url; }
@@ -651,9 +661,36 @@ class Rfm69Gateway : public Component {
     const bool parsed = json::parse_json(std::string(payload), [this](JsonObject root) -> bool {
       // The node sends "distance_mm": null when its Modbus read fails. Publish NAN for that
       // so the reading shows as unknown in HA instead of a plausible-looking zero.
+      auto distance = root["distance_mm"];
       if (this->distance_sensor_ != nullptr) {
-        auto distance = root["distance_mm"];
         this->distance_sensor_->publish_state(distance.isNull() ? NAN : distance.as<float>());
+      }
+
+      // A packet that arrived carrying no reading is the radar's problem, not the radio's --
+      // the link plainly works, or this packet would not be here. That distinction is the
+      // whole point of flagging it separately from the link going quiet.
+      //
+      // EXCEPT during a diagnostic hold, where a null distance is the firmware doing exactly
+      // what it was told (open question #17). Counting those would raise a radar fault every
+      // time the diagnostic ran, which is both wrong and the kind of false alarm that teaches
+      // people to ignore the real one.
+      const bool held = [&root]() {
+        auto d = root["diag"];
+        return !d.isNull() && d.as<int>() != 0;
+      }();
+      if (!held) {
+        if (distance.isNull()) {
+          if (this->radar_failures_ < 255) this->radar_failures_++;
+        } else {
+          this->radar_failures_ = 0;
+        }
+        if (this->radar_failures_sensor_ != nullptr) {
+          this->radar_failures_sensor_->publish_state(this->radar_failures_);
+        }
+        if (this->radar_fault_sensor_ != nullptr) {
+          this->radar_fault_sensor_->publish_state(
+              this->radar_failures_ >= RADAR_FAULT_CONSECUTIVE);
+        }
       }
       if (this->battery_sensor_ != nullptr) {
         auto battery = root["battery_mv"];
@@ -1123,6 +1160,12 @@ class Rfm69Gateway : public Component {
   sensor::Sensor *packet_count_sensor_{nullptr};
   binary_sensor::BinarySensor *fast_mode_sensor_{nullptr};
   binary_sensor::BinarySensor *diag_active_sensor_{nullptr};
+  binary_sensor::BinarySensor *radar_fault_sensor_{nullptr};
+  sensor::Sensor *radar_failures_sensor_{nullptr};
+  // Consecutive failed radar reads. Saturates rather than wrapping: past the threshold the
+  // exact count stops mattering, and a wrap to 0 would clear the fault flag on a radar that
+  // has been dead for four hours.
+  uint8_t radar_failures_{0};
   binary_sensor::BinarySensor *node_status_sensor_{nullptr};
   text_sensor::TextSensor *ota_status_sensor_{nullptr};
 

@@ -239,6 +239,10 @@ rfm69_gateway:
     name: Creek Node Fast Sampling
   diag_active:
     name: Creek Node Diagnostic Active
+  radar_fault:
+    name: Creek Node Radar Fault
+  radar_failures:
+    name: Creek Node Radar Failures
   node_status:
     name: Creek Node Status
   ota_status:

@@ -1,0 +1,152 @@
+# Creek node & gateway health flags
+# =====================================================================================
+# Three ways the creek gauge can stop working, and how each is noticed.
+#
+#   radar fault  -> packets arrive carrying no reading. The link is fine; the sensor on
+#                   the end of it is not. Detected ON THE GATEWAY (it has the packets) and
+#                   published as binary_sensor.*_creek_node_radar_fault.
+#   link down    -> no packets at all. The gateway already publishes
+#                   binary_sensor.*_creek_node_status for this, off after 5 min of silence.
+#   gateway down -> the gateway itself stops. THIS FILE. See below for why it cannot live
+#                   anywhere else.
+#
+# WHY THE STALENESS CHECK IS HERE AND NOT IN THE FIRMWARE.
+# A device cannot report its own death. On 2026-09-23 the gateway wedged: it answered pings,
+# held TCP/6053 open, and published nothing for 25 hours. Home Assistant never marked a
+# single entity unavailable, because from its side the connection never dropped. Every value
+# simply froze -- including binary_sensor.creek_gateway_creek_node_status, which sat at `on`
+# from the previous day and told the add-on's link check that everything was fine. A
+# flood-warning system was blind for a day and nothing anywhere said so.
+#
+# The only place that outage is visible is outside the gateway, by noticing that a value
+# which should keep changing has stopped.
+#
+# WHY THE PACKET COUNTER IS THE BEACON.
+# It is monotonic, so it changes on every single packet and HA's recorder can never dedup it
+# into silence. Battery voltage can legitimately hold the same value for many minutes (6.45 mV
+# ADC quantum), and node_status only writes on transition -- both can look frozen while
+# healthy. A counter that stops incrementing has genuinely stopped.
+#
+# It also covers all three failure modes at once: node silent, radio dead, or gateway wedged
+# all present identically as "the counter stopped moving", which is exactly the question
+# worth alerting on.
+#
+# ENTITY IDS ARE NOT WHAT THE REPO IMPLIES. The gateway device was renamed in HA at some
+# point, and HA does not retroactively rename existing entity_ids -- so entities created
+# before the rename kept `creek_gateway_` and everything created after got
+# `outside_creek_gateway_`. Both prefixes are live and correct. Verify against the entity
+# list before changing either; do not "tidy" them to match.
+#
+# INSTALL: save to /config/ha-packages/ (alongside creek_warning.yaml) and restart HA.
+# `homeassistant: packages: !include_dir_named ha-packages` is already in configuration.yaml.
+# =====================================================================================
+
+template:
+  - binary_sensor:
+      # ON when the creek telemetry has stopped arriving, for any reason.
+      #
+      # `now()` is load-bearing: HA re-renders any template containing it at the top of every
+      # minute, which is what makes a time-since-last-update test work at all. Without it this
+      # would only re-evaluate when the source entity changed -- and the whole point is to fire
+      # when the source entity has STOPPED changing.
+      - name: "Creek Telemetry Stale"
+        unique_id: creek_telemetry_stale
+        device_class: problem
+        icon: mdi:link-variant-off
+        state: >
+          {% set e = 'sensor.outside_creek_gateway_creek_node_packets' %}
+          {% if states(e) in ['unknown', 'unavailable', 'none'] %}
+            true
+          {% else %}
+            {{ (now() - states[e].last_updated).total_seconds() > 300 }}
+          {% endif %}
+        attributes:
+          # Surfaced so a notification can say how long, and so the dashboard shows the
+          # number climbing rather than only a binary that flips at 5 minutes.
+          seconds_since_packet: >
+            {% set e = 'sensor.outside_creek_gateway_creek_node_packets' %}
+            {% if states(e) in ['unknown', 'unavailable', 'none'] %}
+              -1
+            {% else %}
+              {{ (now() - states[e].last_updated).total_seconds() | round(0) }}
+            {% endif %}
+
+      # Rolls the three faults into one thing to put on a dashboard or drive a single alert.
+      # Deliberately does NOT include the diagnostic-active flag: a held radar rail is the
+      # system doing what it was told, not a fault.
+      - name: "Creek Gauge Unhealthy"
+        unique_id: creek_gauge_unhealthy
+        device_class: problem
+        icon: mdi:alert-circle-outline
+        state: >
+          {{ is_state('binary_sensor.creek_telemetry_stale', 'on')
+             or is_state('binary_sensor.outside_creek_gateway_creek_node_radar_fault', 'on')
+             or is_state('binary_sensor.creek_gateway_creek_node_status', 'off') }}
+
+automation:
+  # 5 minutes of silence is five missed reports at the 60 s cadence, matching the gateway's
+  # own node timeout. `for:` rather than a bare trigger so a single slow packet or an HA
+  # restart does not page anyone.
+  - id: creek_telemetry_stale_alert
+    alias: "Creek: telemetry stopped"
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.creek_telemetry_stale
+        to: "on"
+        for: "00:05:00"
+    action:
+      - service: persistent_notification.create
+        data:
+          notification_id: creek_telemetry_stale
+          title: "Creek gauge is not reporting"
+          message: >
+            No packets for
+            {{ state_attr('binary_sensor.creek_telemetry_stale', 'seconds_since_packet')
+               | int // 60 }} minutes.
+            The node, the radio link, or the gateway has stopped. If the gateway pings but
+            publishes nothing it is wedged -- use the Restart switch on the gateway device.
+
+  - id: creek_telemetry_recovered
+    alias: "Creek: telemetry recovered"
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.creek_telemetry_stale
+        to: "off"
+    action:
+      - service: persistent_notification.dismiss
+        data:
+          notification_id: creek_telemetry_stale
+
+  # Separate from the staleness alert on purpose. This one means packets ARE arriving and the
+  # radar is not answering, which is a different repair -- the pole, not the radio.
+  - id: creek_radar_fault_alert
+    alias: "Creek: radar not responding"
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.outside_creek_gateway_creek_node_radar_fault
+        to: "on"
+        for: "00:02:00"
+    action:
+      - service: persistent_notification.create
+        data:
+          notification_id: creek_radar_fault
+          title: "Creek radar not responding"
+          message: >
+            Packets are arriving but carry no distance reading
+            ({{ states('sensor.outside_creek_gateway_creek_node_radar_failures') }}
+            consecutive failures). The radio link is fine; the SEN0676 or its 5 V rail is not.
+
+  - id: creek_radar_recovered
+    alias: "Creek: radar recovered"
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.outside_creek_gateway_creek_node_radar_fault
+        to: "off"
+    action:
+      - service: persistent_notification.dismiss
+        data:
+          notification_id: creek_radar_fault

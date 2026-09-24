@@ -18,6 +18,7 @@ from esphome.const import (
     CONF_TIMEOUT,
     DEVICE_CLASS_CONNECTIVITY,
     DEVICE_CLASS_DISTANCE,
+    DEVICE_CLASS_PROBLEM,
     DEVICE_CLASS_SIGNAL_STRENGTH,
     DEVICE_CLASS_VOLTAGE,
     ENTITY_CATEGORY_DIAGNOSTIC,
@@ -54,6 +55,8 @@ CONF_RSSI = "rssi"
 CONF_PACKET_COUNT = "packet_count"
 CONF_FAST_MODE = "fast_mode"
 CONF_DIAG_ACTIVE = "diag_active"
+CONF_RADAR_FAULT = "radar_fault"
+CONF_RADAR_FAILURES = "radar_failures"
 CONF_NODE_STATUS = "node_status"
 CONF_OTA_STATUS = "ota_status"
 CONF_OTA_HEX_URL = "ota_hex_url"
@@ -136,6 +139,21 @@ CONFIG_SCHEMA = cv.Schema(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             icon="mdi:flask-outline",
         ),
+        # PROBLEM is the right device_class here and CONNECTIVITY is not: the link is fine
+        # (the packet arrived), the sensor on the end of it is not.
+        cv.Optional(CONF_RADAR_FAULT): binary_sensor.binary_sensor_schema(
+            device_class=DEVICE_CLASS_PROBLEM,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:radar",
+        ),
+        # The raw streak behind the flag, so a dashboard can show "2 misses" before it trips
+        # and so a near-miss pattern is visible rather than only the binary outcome.
+        cv.Optional(CONF_RADAR_FAILURES): sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_MEASUREMENT,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:radar",
+        ),
         cv.Optional(CONF_NODE_STATUS): binary_sensor.binary_sensor_schema(
             device_class=DEVICE_CLASS_CONNECTIVITY,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
@@ -184,6 +202,10 @@ async def to_code(config):
         cg.add(var.set_fast_mode_sensor(await binary_sensor.new_binary_sensor(conf)))
     if conf := config.get(CONF_DIAG_ACTIVE):
         cg.add(var.set_diag_active_sensor(await binary_sensor.new_binary_sensor(conf)))
+    if conf := config.get(CONF_RADAR_FAULT):
+        cg.add(var.set_radar_fault_sensor(await binary_sensor.new_binary_sensor(conf)))
+    if conf := config.get(CONF_RADAR_FAILURES):
+        cg.add(var.set_radar_failures_sensor(await sensor.new_sensor(conf)))
     if conf := config.get(CONF_NODE_STATUS):
         cg.add(var.set_node_status_sensor(await binary_sensor.new_binary_sensor(conf)))
     if conf := config.get(CONF_OTA_STATUS):
