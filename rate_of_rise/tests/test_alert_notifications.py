@@ -69,7 +69,8 @@ def script_steps():
     return steps
 
 
-def render_variables(to_state=None, live=None):
+def render_variables(to_state=None, live=None, from_state="0", last_notified=None,
+                     removed=False):
     """Render the automation's `variables:` block the way Home Assistant does -- in
     order, each template able to see the ones defined before it.
 
@@ -83,15 +84,22 @@ def render_variables(to_state=None, live=None):
     being guarded against.
     """
     live = live or {"state": "0", "label": "All-clear", "why": "nothing elevated"}
+    if last_notified is None:
+        last_notified = live["state"]
     env = jinja2.Environment()
     ctx = {
-        "states": lambda _e: live["state"],
+        "states": lambda e: (str(last_notified) if e == "input_number.creek_last_notified_tier"
+                             else live["state"]),
         "state_attr": lambda _e, attr: live.get(attr),
     }
-    if to_state is not None:
+    if removed:
+        # The entity was deleted: HA fires the trigger with to_state None.
+        ctx["trigger"] = SimpleNamespace(
+            to_state=None, from_state=SimpleNamespace(state="0", attributes={}))
+    elif to_state is not None:
         ctx["trigger"] = SimpleNamespace(
             to_state=SimpleNamespace(state=str(to_state["state"]), attributes=to_state),
-            from_state=SimpleNamespace(state="0", attributes={}),
+            from_state=SimpleNamespace(state=from_state, attributes={}),
         )
 
     for key, raw in automation()["variables"].items():
@@ -300,6 +308,175 @@ def test_an_all_clear_renders_without_the_alarm():
                                    "why": "nothing elevated"})
     assert v["is_critical"] is False
     assert v["push_title"] == "Creek all-clear"
+
+
+def condition_passes(**render_kw):
+    """Render the automation's condition against rendered variables, as HA would."""
+    ctx = render_variables(**render_kw)
+    tmpl = automation()["conditions"][0]["value_template"]
+    out = jinja2.Environment().from_string(tmpl).render(**ctx).strip()
+    return out == "True"
+
+
+def test_an_escalation_across_a_restart_is_announced():
+    """Watch -> (restart: unknown) -> Emergency used to send nothing: the old condition
+    dropped every transition *from* unknown/unavailable. The comparison is now with the
+    last tier actually announced."""
+    assert condition_passes(to_state={"state": "4", "label": "Emergency", "why": "x"},
+                            from_state="unknown", last_notified=2)
+
+
+def test_a_restart_that_comes_back_at_the_same_tier_stays_quiet():
+    assert not condition_passes(to_state={"state": "2", "label": "Watch", "why": "x"},
+                                from_state="unknown", last_notified=2)
+
+
+def test_the_entity_going_unavailable_is_never_announced():
+    assert not condition_passes(to_state={"state": "unavailable"}, last_notified=2)
+
+
+def test_a_removed_entity_does_not_crash_the_automation():
+    """2026-09-22 21:37: the old Creek Modeling device was deleted while this automation
+    still watched its tier entity. to_state was None and `trigger.to_state.state` raised
+    "'None' has no attribute 'state'" — then it watched a dead entity for two days."""
+    v = render_variables(removed=True, live={"state": "0", "label": "All-clear",
+                                             "why": "nothing elevated"})
+    assert v["from_trigger"] is False
+    assert v["tier"] == 0
+
+
+def test_a_drop_is_held_and_a_rise_is_not():
+    drop = render_variables(to_state={"state": "0", "label": "All-clear", "why": ""},
+                            last_notified=3)
+    assert drop["hold_drop"] is True
+    rise = render_variables(to_state={"state": "3", "label": "Warning", "why": ""},
+                            last_notified=0)
+    assert rise["hold_drop"] is False
+    manual = render_variables(to_state=None, live={"state": "0", "label": "All-clear",
+                                                   "why": ""}, last_notified=3)
+    assert manual["hold_drop"] is False, "a dry run must never sit in a 15 min delay"
+
+
+def test_the_hold_is_the_first_action_and_the_state_is_reread_after_it():
+    actions = automation()["actions"]
+    assert "delay" in actions[0] and "hold_drop" in actions[0]["delay"]
+    assert "variables" in actions[1] and "states(alert_entity)" in actions[1]["variables"]["tier"]
+
+
+def test_it_always_comes_back_armed_and_a_new_tier_cancels_a_held_drop():
+    a = automation()
+    assert a["initial_state"] is True, "a restart must re-arm the alert"
+    assert a["mode"] == "restart", "single drops, queued delays, a change behind a hold"
+
+
+def test_pausing_spares_the_phones_but_not_the_record():
+    """The pause condition must sit after the last-notified update and the persistent
+    notification, and before every phone push."""
+    actions = automation()["actions"]
+    pause = next(i for i, a in enumerate(actions)
+                 if a.get("condition") == "template" and "paused" in a["value_template"])
+    setter = next(i for i, a in enumerate(actions)
+                  if a.get("action") == "input_number.set_value")
+    pushes = [i for i, a in enumerate(actions) if "device_id" in a]
+    assert setter < pause < min(pushes)
+
+
+def test_the_end_of_a_pause_re_announces_the_current_tier():
+    trig = [t for t in automation()["triggers"] if t.get("trigger") == "event"]
+    assert trig and trig[0]["event_type"] == "timer.finished"
+    assert trig[0]["event_data"]["entity_id"] == "timer.creek_alerts_paused"
+    doc = yaml.safe_load(PACKAGE.read_text(encoding="utf-8"))
+    assert "creek_alerts_paused" in doc["timer"]
+    assert doc["timer"]["creek_alerts_paused"]["restore"] is True
+    assert "creek_pause_alerts" in doc["script"] and "creek_resume_alerts" in doc["script"]
+
+
+def test_an_alert_left_off_is_re_armed():
+    doc = yaml.safe_load(PACKAGE.read_text(encoding="utf-8"))
+    rearm = next(a for a in doc["automation"] if a.get("id") == "creek_alert_rearm")
+    trig = rearm["triggers"][0]
+    assert trig["to"] == "off" and trig["entity_id"].startswith("automation.creek_alert")
+    assert rearm["actions"][0]["action"] == "automation.turn_on"
+    assert rearm["actions"][0]["target"]["entity_id"] == trig["entity_id"]
+
+
+def test_every_phone_id_is_one_the_live_install_knows():
+    """The repo copy once carried a second-phone id that was not in HA's device registry.
+    Copying it over the live file would have failed the whole automation at load — both
+    phones silent, not just one. The ids here must match across every package."""
+    ids = {s["device_id"] for s in push_steps()}
+    health = yaml.safe_load((ROOT / "ha-packages" / "creek_node_health.yaml")
+                            .read_text(encoding="utf-8"))
+    for auto in health["automation"]:
+        steps = {a["device_id"] for a in auto["actions"] if "device_id" in a}
+        if steps:
+            assert steps == ids, (auto["id"], steps, ids)
+
+
+def _health_automation(auto_id):
+    doc = yaml.safe_load((ROOT / "ha-packages" / "creek_node_health.yaml")
+                         .read_text(encoding="utf-8"))
+    return next(a for a in doc["automation"] if a["id"] == auto_id)
+
+
+def test_data_problems_reach_a_phone_not_just_the_dashboard():
+    push = _health_automation("creek_data_watchdog_push")
+    steps = [a for a in push["actions"] if "device_id" in a]
+    assert len(steps) >= 2 and all(s["continue_on_error"] is True for s in steps)
+    watched = set()
+    for t in push["triggers"]:
+        ids = t["entity_id"] if isinstance(t["entity_id"], list) else [t["entity_id"]]
+        watched.update(ids)
+    for must in ("binary_sensor.creek_telemetry_stale",
+                 "binary_sensor.rate_of_rise_creek_stage_frozen",
+                 "binary_sensor.rate_of_rise_creek_stage_implausible",
+                 "binary_sensor.creek_modeling_service_stale",
+                 "binary_sensor.rate_of_rise_creek_upstream_data_missing"):
+        assert must in watched, must
+    # Every watched entity has its own advice text.
+    assert watched <= set(push["variables"]["advice"]), watched - set(push["variables"]["advice"])
+
+
+def test_a_data_problem_is_critical_only_for_a_blind_gauge_during_a_storm():
+    push = _health_automation("creek_data_watchdog_push")
+    tmpl = push["variables"]["is_critical"]
+    env = jinja2.Environment()
+
+    def render(storm, trig_id):
+        return env.from_string(tmpl).render(storm=storm,
+                                            trigger=SimpleNamespace(id=trig_id)).strip()
+    assert render(True, "gauge") == "True"
+    assert render(False, "gauge") == "False"
+    assert render(True, "rain") == "False"
+    for step in (a for a in push["actions"] if "device_id" in a):
+        assert "alarm_stream" in step["data"]["channel"]
+        assert "Creek Watch" in step["data"]["channel"], "no new channel names"
+
+
+def test_data_problem_pushes_respect_the_pause():
+    push = _health_automation("creek_data_watchdog_push")
+    assert any("creek_alerts_paused" in c.get("value_template", "")
+               for c in push["conditions"])
+
+
+def test_every_watchdog_the_pushes_name_exists():
+    """A trigger on an entity nothing creates never fires — the silent version of the
+    dashboard's "Entity not found"."""
+    sys.path.insert(0, str(ROOT / "rate_of_rise"))
+    from app.discovery import DiscoveryPublisher
+    addon = set(DiscoveryPublisher(lambda *a: None, "creek").entity_ids().values())
+    templates = set()
+    for path in (ROOT / "ha-packages").glob("*.yaml"):
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for block in doc.get("template") or []:
+            for domain, entries in block.items():
+                templates.update(f"{domain}.{e['unique_id']}" for e in entries)
+    gateway = {"binary_sensor.outside_creek_gateway_creek_node_radar_fault"}
+    for auto_id in ("creek_data_watchdog_push", "creek_data_watchdog_clear"):
+        for t in _health_automation(auto_id)["triggers"]:
+            ids = t["entity_id"] if isinstance(t["entity_id"], list) else [t["entity_id"]]
+            for e in ids:
+                assert e in addon | templates | gateway, e
 
 
 def main():

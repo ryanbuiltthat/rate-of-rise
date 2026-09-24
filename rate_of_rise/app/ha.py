@@ -48,15 +48,18 @@ class HAClient:
             return None
 
     def get_float_with_age(self, entity_id: str) -> tuple[float | None, float | None]:
-        """(value, seconds since the state was last written), or (None, None).
+        """(value, seconds since `last_updated`), or (None, None).
 
-        The age is what tells a *fresh* reading apart from the last one the sensor
-        managed to send before it went quiet. Home Assistant keeps serving the latter
-        indefinitely — the ESPHome gateway does not blank `stage` when the creek node
-        stops answering, it simply stops updating it — so the value alone cannot say
-        whether the creek is being measured right now. `last_updated` moves on every
-        state write, including a write of the same number; `last_changed` only moves when
-        the value differs, which would read as stale on a creek that is merely steady.
+        What that age measures matters. Since HA 2024.3 a write of the *same* value moves
+        only `last_reported`; `last_updated` moves when the state or its attributes change.
+        So for the stage this is "time since the reading last changed", not "time since the
+        node last reported" — a still creek at 1 mm resolution can legitimately hold one
+        value for many minutes while the node reports every 60 s. That is why callers
+        treat a live link (packet counter / node status) as the authority on freshness and
+        use this age only as a fallback, and why an age that keeps climbing *with* the
+        link up is the signature of a radar that has stopped re-measuring (health.py,
+        `stage_frozen`). For a monotonic counter every report is a change, so there it is
+        exactly the time since the last packet.
         """
         state = self.get_state(entity_id)
         if not state:

@@ -11,9 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.registry import THRESHOLD_LABEL, ModelRegistry, RegistryError  # noqa: E402
 
-# Stands in for a candidate a held-out split could actually score, so the pointer
-# tests below promote without tripping the unvalidated-model warning.
-VALIDATED = {"roc_auc": 0.8}
+# Stands in for a candidate a held-out split could actually score — and that caught some
+# of it — so the pointer tests below promote without tripping the unvalidated warning.
+VALIDATED = {"roc_auc": 0.8, "hit_rate": 0.6}
 
 
 def fresh_registry():
@@ -172,6 +172,27 @@ def test_persistence_round_trip():
     reloaded = ModelRegistry(tmp)
     assert reloaded.active_version == "v1"
     assert reloaded.event_count == 7
+
+
+def test_an_auc_that_caught_nothing_is_not_validated():
+    """gbm-20260924T030456Z, from the field: AUC 0.608, hit rate 0.0 — it missed all 49
+    held-out positives — and `active_validated: true` on the dashboard, because the old
+    check only asked whether an AUC existed."""
+    reg, _ = fresh_registry()
+    reg.set_candidate("gbm-20260924T030456Z", {
+        "test_rows": 595, "test_positives": 49, "hit_rate": 0.0,
+        "false_alarm_rate": None, "roc_auc": 0.608, "true_positives": 0})
+    reg.promote()
+    caveat = reg.warning()
+    assert caveat is not None and "none of the 49" in caveat, caveat
+    assert reg.snapshot()["active_validated"] is False
+
+
+def test_candidate_version_is_readable():
+    reg, _ = fresh_registry()
+    assert reg.candidate_version is None
+    reg.set_candidate("v1", VALIDATED)
+    assert reg.candidate_version == "v1"
 
 
 def main():

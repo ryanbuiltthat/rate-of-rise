@@ -85,6 +85,28 @@ def test_error_source_does_not_break_features():
     assert all(v is None for v in out.values())
 
 
+def test_a_poll_that_returns_values_but_reports_failure_is_not_alive():
+    """WU when no station answers: it still hands back its rolled-forward totals, but the
+    source is not alive, and the watchdog must be able to say so."""
+    class Degraded:
+        name = "wu"
+        refresh_seconds = 0
+        last_poll_ok = False
+
+        def poll(self):
+            return {"upstream_rain_1h_in": None}
+
+    c = make_empty_coordinator()
+    src = Degraded()
+    c._sources.append(src)
+    c.features()
+    assert c.health()["wu"]["age"] is None, "a failed poll counted as a success"
+    src.last_poll_ok = True
+    c._next_poll["wu"] = 0.0
+    c.features()
+    assert c.health()["wu"]["age"] is not None
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

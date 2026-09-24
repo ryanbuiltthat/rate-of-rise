@@ -3,6 +3,105 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.23.0
+
+Pre-storm hardening, from an audit of the live record (HA recorder, storm log, registry)
+before the first storm with the ML path active. Every item below was found in the data,
+not reasoned about. **This release also changes the HA packages, the dashboard and the node
+firmware, none of which arrive with the Update button** — see *Deploying*, at the end.
+
+- **Fix: normal sensor jitter could raise a Tier 3 Warning.** Rate of rise was the
+  difference between the last value change before each poll, and those two changes could be
+  one node report (~63 s) apart. At the node's 1 mm resolution a still creek's 2 mm flicker
+  read as 0.075 in/min, over the 0.05 Warning; it happened twice on 2026-09-21 and both
+  happened to be falls. The rate is now measured across `rate_of_rise_window_minutes`
+  (default 10) against the newest reading at least that old. Same flicker: 0.008 in/min.
+- **Fix: a radar fault raised a Tier 4 Emergency.** On 2026-09-17 a cold radar answered 0,
+  the gateway clamped it to the 37.6 in range ceiling, and stage alone raised Emergency on a
+  dry creek — on the first reading after a 24-minute dropout. A rise faster than
+  `max_stage_rise_in_min` (default 2.0 in/min) from the last good reading is now withheld
+  from the tiers as a sensor fault, and the new **Creek Stage Implausible** watchdog turns
+  on. The baseline survives dropouts; a jump that holds for 30 minutes is believed, so a
+  real rise during an outage cannot be locked out. Node side, see *Firmware*.
+- **Fix: a frozen node-status sensor vouched for a dead link.** The status sensor only
+  writes on a transition, so a gateway that stops publishing leaves it at `on`, and the
+  add-on trusted it unconditionally. The new `creek_node_packets_entity` (the gateway's
+  packet counter) overrules it when it stops moving.
+- **New: Creek Stage Frozen watchdog.** On 2026-09-23 the reading sat on one value for
+  3 h 11 min while packets kept arriving, and Stage Stale took an hour to notice. Frozen
+  fires when the value has not changed in 30 min while the link is up.
+- **ML runs in shadow unless `ml_drives_alerts` is on (default off).** The active model
+  (or, with none active, the newest candidate) is evaluated every loop and published as
+  **Creek ML Shadow Probability**; the tiers use the threshold estimate. Why: every positive
+  label the September models trained on was an artifact — the 9/13 reconnect spike and the
+  9/17 clamp — and the first promoted model took a dry evening to 93 % (Emergency).
+- **Training ignores those artifacts.** Labels and features skip stage readings the creek
+  could not have reached, and rates without a confirmed gap-free sample count (which is
+  every row before the dropout guard, including the 9/13 spike).
+- **"Validated" now means it caught something.** `gbm-20260924T030456Z` had AUC 0.608 and
+  caught 0 of 49 held-out positives, and the dashboard called it validated. A model now also
+  needs a hit rate above 0. `false_alarm_rate` is undefined (not 0.0) for a model that
+  flagged nothing.
+- **Probabilities are no longer inflated by class weighting.** Training up-weights the rare
+  positives (~34x on the current record), which multiplies the odds by the same factor —
+  harmless for AUC, not for fixed 20/50/80 % tier cut-offs. The weight is now recorded in
+  the artifact's meta and undone at inference. Older artifacts are read as unweighted.
+- **Model Health refreshes on Promote/Rollback**, and **Active Model reads `threshold`**
+  instead of `none` when nothing is active — after a rollback the dashboard kept naming the
+  removed model until the nightly run.
+- **On-site rain from the station's own counter.** `onsite_rain_total_entity` (the Ecowitt
+  rain total) is differenced instead of integrating the rain rate sampled once per loop,
+  which read 5-10 % low against the station in steady rain and worse in bursts. Rate stays
+  the fallback; the counter baseline survives restarts.
+- **Upstream rain from each station's own total, and a watchdog that can fire.** WU
+  `precipTotal` deltas per station replace `precipRate` sampled every 10 minutes (12-17 %
+  low). And a poll where no station answers now counts as failed: previously every
+  per-station error was swallowed and `upstream_data_missing` could never fire.
+- **High-resolution stage record outside HA's recorder.** Every stage reading, at ~10 s,
+  to `/share/rate_of_rise/stage/YYYY-MM-DD.csv`. HA's recorder stopped writing for 25 h on
+  2026-09-23 (while HA kept running) and keeps 10 days by default; it was the only place
+  the 60 s record lived.
+- **Every dataset row records the alert tier, the probability that drove it and the ML
+  shadow probability**, so a storm can be replayed afterwards.
+- **Radar-cell ETA counts from now, not from the scan**, which is minutes old by the time
+  it is read; the 20-minute "imminent" bar was being reached late.
+- **"No risk" no longer shows as unknown.** WPC ERO and Google flash-flood entities
+  rendered the string "None", which HA's MQTT sensor treats as a null state.
+- New options: `rate_of_rise_window_minutes`, `max_stage_rise_in_min`, `ml_drives_alerts`,
+  `creek_node_packets_entity`, `onsite_rain_total_entity`. A numeric option missing from an
+  older install's options falls back to its default instead of failing at startup.
+
+**HA packages (re-copy both `ha-packages/*.yaml`):**
+
+- **Creek Alert** re-arms itself: `initial_state: true`, plus a companion automation that
+  turns it back on after 2 h off. It had been switched off during node work and stayed off.
+- **Escalations across a restart are announced.** It now compares with the last tier
+  actually notified (`input_number.creek_last_notified_tier`) instead of ignoring every
+  transition from `unknown`, which silently dropped Watch -> (restart) -> Emergency.
+- **A removed entity no longer crashes it.** `to_state` is None when an entity is deleted;
+  that raised on 2026-09-22 when the old Creek Modeling device was deleted.
+- **Drops are held 15 minutes** before being announced, so a one-poll blip is one alarm,
+  not an alarm and then an all-clear. Rises are never held.
+- **Pause, don't disable.** `script.creek_pause_alerts` silences the phones for 2 h and
+  re-announces the current tier when it ends (`script.creek_resume_alerts` ends it early).
+- **Data problems reach the phones.** Telemetry stale, radar fault, service stale, stage
+  stale/frozen/implausible and the rain-source watchdogs push to both phones (critical only
+  for a blind gauge during an open storm), and clear on recovery. Before, all of them ended
+  on the dashboard.
+- The repo copy now matches the live install: the second phone's device id and the
+  service-stale unique_id (a re-copy of the old repo file would have failed the whole
+  automation at load).
+
+**Firmware (node — press "Push Node Firmware" once CI has published it):** an unsettled
+radar now reports no reading (a radar fault the gateway already counts) unless the creek
+was already within ~12 in of the range ceiling, instead of reporting its last answer —
+a 0 the gateway clamps to 37.6 in.
+
+**Deploying:** Update the add-on. Copy `ha-packages/creek_warning.yaml`,
+`ha-packages/creek_node_health.yaml` and `dashboards/creek_flood_watch.yaml` to `/config`,
+then Developer tools -> YAML -> reload all, and run `script.creek_alert_test`. Push the node
+firmware while the creek is quiet.
+
 ## 0.22.1
 
 - **Fix: with `google_floods_api_key` left blank, the Google Flood source started anyway

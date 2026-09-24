@@ -49,20 +49,40 @@ class RollingAccumulator:
     def update(self, rate_in_per_hr: float | None) -> dict[int, float]:
         """Integrate the latest rate sample and return {window_hours: inches}."""
         now = self._now()
-        self.last_increment = 0.0
+        inches = 0.0
         if rate_in_per_hr is not None and self._last_ts is not None:
             dt_s = now - self._last_ts
             if 0 < dt_s <= self._max_gap:
                 inches = max(0.0, rate_in_per_hr) * (dt_s / 3600.0)
-                if inches > 0:
-                    self._increments.append([now, inches])
-                    self.last_increment = inches
         self._last_ts = now
+        return self._record(now, inches)
+
+    def add(self, inches: float | None) -> dict[int, float]:
+        """Record rain already measured as an amount — the difference between two readings
+        of a gauge's own counter — and return {window_hours: inches}.
+
+        Exact where `update` is an estimate: a rate sampled once per loop misses every
+        burst that starts and stops between samples, and read 5-17 % low against the
+        gauges' own totals on this site. Callers own gap handling, since only they know
+        whether a counter delta spans a gap they can trust.
+        """
+        now = self._now()
+        self._last_ts = now
+        return self._record(now, max(0.0, inches or 0.0))
+
+    def _record(self, now: float, inches: float) -> dict[int, float]:
+        self.last_increment = 0.0
+        if inches > 0:
+            self._increments.append([now, inches])
+            self.last_increment = inches
 
         cutoff = now - self._retain
         self._increments = [x for x in self._increments if x[0] >= cutoff]
         self._save()
+        return self.sums(now)
 
+    def sums(self, now: float | None = None) -> dict[int, float]:
+        now = self._now() if now is None else now
         return {
             w: round(sum(inc for ts, inc in self._increments if ts >= now - w * 3600), 3)
             for w in self._windows

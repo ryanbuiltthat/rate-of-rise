@@ -34,8 +34,10 @@ def _series(n, stage=None, ror=None):
 
 
 def test_label_forward_matches_a_hand_computed_window():
-    # Danger (stage >= WARNING_STAGE_FT) at rows 10-12 only.
-    stage = [0.5] * 10 + [WARNING_STAGE_FT + 0.5] * 3 + [0.5] * 7
+    # Danger (stage >= WARNING_STAGE_FT) at rows 10-12 only. The baseline sits within a
+    # physically possible rise of the danger level — the steps are 30 min apart and the
+    # label now ignores readings the creek could not have reached (implausible_stage_mask).
+    stage = [1.5] * 10 + [WARNING_STAGE_FT + 0.5] * 3 + [1.5] * 7
     df = _series(20, stage=stage)
     y = t.label_forward(df, horizon_minutes=180)   # 6 steps of 30 min
     expected = [int(any(10 <= j <= 12 for j in range(i + 1, i + 7))) for i in range(20)]
@@ -45,7 +47,7 @@ def test_label_forward_matches_a_hand_computed_window():
 def test_label_forward_excludes_the_current_row():
     # Danger right now, at row 5, must not make row 5 itself positive — only rows
     # strictly before it whose forward window reaches row 5.
-    stage = [0.5] * 5 + [WARNING_STAGE_FT + 1] + [0.5] * 4
+    stage = [1.5] * 5 + [WARNING_STAGE_FT + 0.5] + [1.5] * 4
     df = _series(10, stage=stage)
     y = t.label_forward(df, horizon_minutes=60)   # 2 steps
     assert y[5] == 0
@@ -59,10 +61,54 @@ def test_label_forward_all_calm_is_all_zero():
 
 
 def test_danger_now_checks_both_stage_and_rate_of_rise():
-    df = _series(3, stage=[0.5, WARNING_STAGE_FT + 1, 0.5],
+    # A rise the creek can make between rows (the plausibility cap is 20 in), so this
+    # stays a test of the two conditions rather than of the artifact filter.
+    df = _series(3, stage=[1.5, WARNING_STAGE_FT + 0.5, 1.5],
                     ror=[WARNING_RATE_OF_RISE_IN_MIN + 0.1, 0.0, 0.0])
+    df["rate_of_rise_sample_count"] = [10.0, 10.0, 10.0]
     danger = t._danger_now(df)
     assert danger.tolist() == [True, True, False]
+
+
+def test_a_rate_without_a_confirmed_sample_count_is_not_evidence_of_danger():
+    """The 2026-09-13 11:41 reconnect spike (0.177 in/min) predates the sample-count
+    guard, so its row carries no count — and it was half of every positive label the
+    September models trained on. Tiers still trust a count-less rate; labels must not."""
+    df = _series(4, stage=[0.9] * 4, ror=[0.177, 0.177, 0.177, 0.177])
+    df["rate_of_rise_sample_count"] = [np.nan, 0.0, 1.0, 2.0]
+    assert t._danger_now(df).tolist() == [False, False, False, True]
+
+
+def test_a_radar_fault_clamp_is_not_a_label_or_a_feature():
+    """The 2026-09-17 artifact: 0.93 ft, a node dropout, then the 3.13 ft blanking clamp
+    as the first reading back. The other half of the September positives."""
+    ts = TS0 + np.arange(8) * 300.0
+    df = pd.DataFrame({"ts": ts,
+                       "stage_ft": [0.93, 0.93, 0.93, 0.93, 0.93, 3.133, 0.93, 0.93],
+                       "creek_node_online": [True, True, False, False, False, True, True,
+                                             True]})
+    assert t.implausible_stage_mask(df).tolist() == [False] * 5 + [True, False, False]
+    assert not t._danger_now(df).any()
+    x, _, _ = t.build_matrix(df)
+    assert np.isnan(x["stage_ft"].iloc[5])
+    assert x["stage_ft"].iloc[6] == 0.93
+
+
+def test_a_stage_that_climbs_there_is_still_danger():
+    ts = TS0 + np.arange(8) * 300.0
+    stage = [0.9, 1.1, 1.4, 1.7, 2.0, 2.3, 2.5, 2.6]      # <= 3.6 in per 5 min
+    df = pd.DataFrame({"ts": ts, "stage_ft": stage})
+    assert not t.implausible_stage_mask(df).any()
+    assert t._danger_now(df).tolist() == [False] * 4 + [True] * 4
+
+
+def test_class_weight_correction_restores_honest_odds():
+    # w times the positives means w times the odds: 50 % at w=34 is really ~2.9 %.
+    assert abs(t.correct_for_class_weight(0.5, 34.0) - 1 / 35) < 1e-9
+    assert t.correct_for_class_weight(0.5, 1.0) == 0.5
+    assert t.correct_for_class_weight(0.7, None) == 0.7
+    arr = t.correct_for_class_weight(np.array([0.0, 0.5, 1.0]), 4.0)
+    assert np.allclose(arr, [0.0, 0.2, 1.0])
 
 
 def test_danger_now_survives_missing_columns_entirely():
@@ -163,7 +209,8 @@ def test_train_end_to_end_produces_a_loadable_artifact_with_sane_metrics():
         # metric look perfect (>=0.99, usually a leak) or worthless (~0.5, no signal).
         assert 0.6 < m["roc_auc"] < 0.999
         assert 0.0 <= m["hit_rate"] <= 1.0
-        assert 0.0 <= m["false_alarm_rate"] <= 1.0
+        # Undefined (None) when the model flagged nothing — never a flattering 0.0.
+        assert m["false_alarm_rate"] is None or 0.0 <= m["false_alarm_rate"] <= 1.0
         # Lead time must be positive and within the horizon — a negative or
         # over-horizon value would mean the lookup is finding the wrong sample.
         if m["lead_time_minutes"] is not None:
@@ -173,6 +220,7 @@ def test_train_end_to_end_produces_a_loadable_artifact_with_sane_metrics():
         assert booster is not None
         assert meta["feature_columns"] == list(t.FEATURE_COLUMNS)
         assert meta["horizon_minutes"] == t.HORIZON_MINUTES
+        assert meta["scale_pos_weight"] > 1.0, "inference needs it to undo the weighting"
 
 
 def test_train_test_split_has_no_rows_inside_the_embargo():
@@ -189,6 +237,20 @@ def test_train_test_split_has_no_rows_inside_the_embargo():
     # split, every test ts well after it, with nothing in between.
     assert (np.sort(ts)[:len(x_train)] < split_ts - t.SPLIT_EMBARGO_SECONDS + 1).all()
     assert (np.sort(ts)[-len(x_test):] >= split_ts + t.SPLIT_EMBARGO_SECONDS).all()
+
+
+def test_a_model_that_flags_nothing_reports_an_undefined_false_alarm_rate():
+    """gbm-20260924T030456Z: 0 of 49 caught, and "false_alarm_rate": 0.0 beside it."""
+    class Never:
+        def predict(self, _dm):
+            return np.zeros(4)
+    x = pd.DataFrame({c: [0.0] * 4 for c in t.FEATURE_COLUMNS})
+    y = np.array([0, 1, 0, 1])
+    m = t._skill_metrics(Never(), x, y, TS0 + np.arange(4) * 300.0,
+                         pd.Series([False] * 4))
+    assert m["hit_rate"] == 0.0
+    assert m["false_alarm_rate"] is None
+    assert "flagged no" in m["note"]
 
 
 def test_load_artifact_missing_version_fails_open():

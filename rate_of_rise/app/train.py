@@ -72,7 +72,9 @@ import pandas as pd
 import xgboost as xgb
 from sklearn.metrics import precision_score, recall_score, roc_auc_score
 
-from .tiers import WARNING_RATE_OF_RISE_IN_MIN, WARNING_STAGE_FT
+from .config import Config
+from .tiers import (WARNING_RATE_OF_RISE_CONFIRM_SAMPLES, WARNING_RATE_OF_RISE_IN_MIN,
+                    WARNING_STAGE_FT)
 
 log = logging.getLogger("app.train")
 
@@ -143,21 +145,97 @@ class TrainResult:
     meta_path: Path
 
 
+def correct_for_class_weight(p: float, weight: float | None):
+    """Undo `scale_pos_weight`'s inflation of a predicted probability.
+
+    Weighting positives by w during training is equivalent to having w times as many of
+    them, so the booster's odds come out w times too high. That is harmless for ranking
+    (AUC) and disastrous for fixed cut-offs: the alert tiers compare the probability with
+    20/50/80 %, and at the September 2026 record's w ≈ 34 an honest 3 % reads as 51 %.
+    Dividing the odds by w restores them. Works on scalars and numpy arrays alike.
+    """
+    w = float(weight or 1.0)
+    if w == 1.0:
+        return p
+    return p / (p + w * (1.0 - p))
+
+
+def _num(df, col):
+    return pd.to_numeric(df[col], errors="coerce") if col in df else None
+
+
+def implausible_stage_mask(df):
+    """Rows whose stage is a rise the creek could not have made — the dataset twin of
+    FeatureBuilder._plausible_stage, so readings recorded before that guard existed are
+    judged by it too. `df` must be sorted by ts.
+
+    The two that matter today: the 2026-09-17 12:57 reading of 3.13 ft (a cold radar's 0,
+    clamped to the range ceiling by the gateway, 26 in above the creek) and its 09-18
+    sibling. Each made roughly 36 rows of "danger in the next 3 h" labels out of nothing.
+    Rows the add-on already flagged (`stage_implausible`) are taken as flagged; offline
+    rows neither count nor move the baseline, as in the live check.
+    """
+    mask = np.zeros(len(df), dtype=bool)
+    stage = _num(df, "stage_ft")
+    if stage is None:
+        return pd.Series(mask, index=df.index)
+    flagged = (df["stage_implausible"].astype("boolean").fillna(False).to_numpy(dtype=bool)
+               if "stage_implausible" in df else np.zeros(len(df), dtype=bool))
+    offline = (df["creek_node_online"].astype("boolean").eq(False).fillna(False)
+               .to_numpy(dtype=bool) if "creek_node_online" in df
+               else np.zeros(len(df), dtype=bool))
+    max_rise = Config.max_stage_rise_in_min
+    cap_min = Config.rate_of_rise_max_gap_minutes
+    good = None
+    for i, (ts, s) in enumerate(zip(df["ts"].to_numpy(dtype=float), stage.to_numpy())):
+        if np.isnan(s) or offline[i]:
+            continue
+        if flagged[i]:
+            mask[i] = True
+            continue
+        if good is not None:
+            minutes = min(max((ts - good[0]) / 60.0, 1.0), cap_min)
+            if (s - good[1]) * 12.0 > max_rise * minutes:
+                mask[i] = True
+                continue
+        good = (ts, s)
+    return pd.Series(mask, index=df.index)
+
+
 def _danger_now(df):
     """Row-wise Warning condition — the un-shifted signal `label_forward` looks ahead
     over. Matches tiers.py's own Warning rule so a tuned threshold and a retrained
     model never quietly disagree about what "dangerous" means.
+
+    Stricter than tiers.py about *evidence*, because a label is permanent. Every positive
+    the September 2026 models trained on was an artifact — a rate charged across a 2 h
+    radio dropout, and a radar-fault stage reading — so:
+
+      * stage counts only where the creek node was reporting and the reading is physically
+        plausible (implausible_stage_mask);
+      * rate of rise counts only where the row carries a confirmed gap-free sample count.
+        The tiers trust a rate with no count (absence of evidence of a dropout), but rows
+        without one predate the dropout guard — which is exactly where the reconnect spike
+        lives — so for labels they are not evidence of danger.
 
     Always returns a boolean Series aligned to `df.index`, even if stage_ft and
     rate_of_rise_in_min are both absent (not just all-NaN) — a synthetic fixture or a
     dataset predating one of these columns must get "never dangerous", not a crash.
     """
     danger = pd.Series(False, index=df.index)
-    if "stage_ft" in df:
-        danger = danger | (df["stage_ft"] >= WARNING_STAGE_FT).fillna(False)
-    if "rate_of_rise_in_min" in df:
-        danger = danger | (df["rate_of_rise_in_min"] >= WARNING_RATE_OF_RISE_IN_MIN).fillna(False)
-    return danger
+    stage = _num(df, "stage_ft")
+    if stage is not None:
+        ok = ~implausible_stage_mask(df)
+        if "creek_node_online" in df:
+            ok &= ~df["creek_node_online"].astype("boolean").eq(False).fillna(False)
+        danger = danger | ((stage >= WARNING_STAGE_FT) & ok).fillna(False)
+    rate = _num(df, "rate_of_rise_in_min")
+    if rate is not None:
+        count = _num(df, "rate_of_rise_sample_count")
+        confirmed = ((count >= WARNING_RATE_OF_RISE_CONFIRM_SAMPLES).fillna(False)
+                     if count is not None else pd.Series(False, index=df.index))
+        danger = danger | ((rate >= WARNING_RATE_OF_RISE_IN_MIN) & confirmed).fillna(False)
+    return danger.astype(bool)
 
 
 def label_forward(df, horizon_minutes: int = HORIZON_MINUTES):
@@ -202,6 +280,11 @@ def build_matrix(df):
         x[col] = pd.to_numeric(x[col], errors="coerce")
     for col in BOOL_COLUMNS:
         x[col] = x[col].astype("boolean").astype("Int8")  # nullable -> xgboost sees NaN
+    # A radar-fault reading is no more a feature than it is a label: blank it (and the
+    # rate built from it) so the model does not learn "3.13 ft" as a thing the creek does.
+    bad = implausible_stage_mask(df).to_numpy()
+    x.loc[bad, "stage_ft"] = np.nan
+    x.loc[bad, "rate_of_rise_in_min"] = np.nan
     y = label_forward(df)
     return x, y, df["ts"].to_numpy()
 
@@ -222,17 +305,21 @@ def _chronological_split(x, y, ts):
     return x[train_mask], y[train_mask], x[test_mask], y[test_mask]
 
 
-def _skill_metrics(booster, x_test, y_test, ts_test, danger_test) -> dict:
+def _skill_metrics(booster, x_test, y_test, ts_test, danger_test,
+                   scale_pos_weight: float = 1.0) -> dict:
     """Hit rate, false-alarm rate, and mean lead time on the held-out split.
 
     Every metric is None rather than a misleading 0.0 when the test split cannot
     support it — most commonly because it landed single-class, which is the norm
     rather than the exception when positives are as rare as flood events are.
+
+    Scored on class-weight-corrected probabilities (correct_for_class_weight), because
+    those are what inference now emits and what the 50 % cut-off below should see.
     """
     if len(y_test) == 0:
         return {"note": "test split empty after embargo"}
 
-    proba = booster.predict(xgb.DMatrix(x_test))
+    proba = correct_for_class_weight(booster.predict(xgb.DMatrix(x_test)), scale_pos_weight)
     pred = (proba >= 0.5).astype(int)
 
     metrics: dict = {"test_rows": int(len(y_test)), "test_positives": int(y_test.sum())}
@@ -241,8 +328,14 @@ def _skill_metrics(booster, x_test, y_test, ts_test, danger_test) -> dict:
         return metrics
 
     metrics["hit_rate"] = round(float(recall_score(y_test, pred, zero_division=0)), 3)
-    metrics["false_alarm_rate"] = round(
-        float(1 - precision_score(y_test, pred, zero_division=0)) if pred.sum() else 0.0, 3)
+    # Undefined, not 0.0, when the model flagged nothing: "no false alarms" from a model
+    # that never alarmed read as a clean bill of health on a model that caught 0 of 49.
+    if pred.sum():
+        metrics["false_alarm_rate"] = round(
+            float(1 - precision_score(y_test, pred, zero_division=0)), 3)
+    else:
+        metrics["false_alarm_rate"] = None
+        metrics["note"] = "the model flagged no held-out row; false-alarm rate undefined"
     metrics["roc_auc"] = round(float(roc_auc_score(y_test, proba)), 3)
 
     # Lead time: for each row correctly flagged positive, how far ahead of the actual
@@ -301,14 +394,15 @@ def train(frame, data_dir: Path) -> TrainResult | None:
     # the whole reason storms take months to accumulate), and up-weighting the minority
     # class costs nothing extra to compute or store, unlike synthesizing rows.
     n_pos, n_neg = int(y_train.sum()), int(len(y_train) - y_train.sum())
+    weight = (n_neg / n_pos) if n_pos else 1.0
     booster = xgb.train(
         {"objective": "binary:logistic", "eval_metric": "logloss", "max_depth": 4,
-         "eta": 0.1, "scale_pos_weight": (n_neg / n_pos) if n_pos else 1.0},
+         "eta": 0.1, "scale_pos_weight": weight},
         xgb.DMatrix(x_train, label=y_train),
         num_boost_round=100,
     )
 
-    metrics = _skill_metrics(booster, x_test, y_test, ts_test, danger_test)
+    metrics = _skill_metrics(booster, x_test, y_test, ts_test, danger_test, weight)
     metrics.update({"horizon_minutes": HORIZON_MINUTES,
                     "train_rows": int(len(x_train)), "train_positives": n_pos})
 
@@ -318,17 +412,20 @@ def train(frame, data_dir: Path) -> TrainResult | None:
     model_path = models_dir / f"model-{version}.json"
     meta_path = models_dir / f"model-{version}.meta.json"
     booster.save_model(str(model_path))
-    _write_meta(meta_path, version)
+    _write_meta(meta_path, version, weight)
 
     log.info("Trained candidate %s: %s", version, metrics)
     return TrainResult(version=version, metrics=metrics, model_path=model_path,
                        meta_path=meta_path)
 
 
-def _write_meta(path: Path, version: str) -> None:
+def _write_meta(path: Path, version: str, scale_pos_weight: float = 1.0) -> None:
     path.write_text(json.dumps({
         "version": version, "horizon_minutes": HORIZON_MINUTES,
         "feature_columns": list(FEATURE_COLUMNS),
+        # Recorded so inference can undo it (correct_for_class_weight). An artifact without
+        # it predates the correction and is read as unweighted.
+        "scale_pos_weight": float(scale_pos_weight),
         "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }), encoding="utf-8")
 

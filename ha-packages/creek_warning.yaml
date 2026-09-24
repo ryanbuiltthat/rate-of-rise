@@ -3,18 +3,28 @@
 #   homeassistant:
 #     packages: !include_dir_named ha-packages
 #
-# SCOPE: only the two things that genuinely cannot live in the add-on.
+# SCOPE: only the things that genuinely cannot live in the add-on — the service-stale
+# watchdog (a service cannot report its own death) and the alert *actions* (notifications
+# are an HA-side call).
 #
 # Everything else that used to be here — the soil-moisture mean, the ponding flag, and the
 # sensor-fault watchdogs — is now computed by the add-on and auto-provisioned via MQTT
 # discovery (spec Addendum B.1a), so it needs no file copied into the HA config directory
-# and no configuration.yaml edit. Those entities are also more accurate there: the add-on
-# can see when a source last answered and when an input entity last produced a usable
-# value, neither of which a template could observe.
+# and no configuration.yaml edit.
 #
 # ENTITY-ID CONVENTION: add-on entities carry the device-name prefix HA applies to
 # MQTT-discovery entities — `sensor.rate_of_rise_creek_*`. Entities defined in
 # THIS file, and the RFM69 gateway, do not: they are plain `sensor.creek_*`.
+#
+# ENTITY IDS THIS FILE NAMES THAT ARE PINNED BY THE LIVE INSTALL, NOT BY THE NAMES HERE:
+#   automation.creek_alert_tier_changed   the Creek Alert automation below. HA froze this id
+#                                         at first registration under an older alias; a
+#                                         fresh install would mint automation.creek_alert.
+#   binary_sensor.creek_modeling_service_stale  see the unique_id note on that sensor.
+# Change them only after checking Settings -> Entities on the live system.
+#
+# DEPLOYING: copy this file to /config/ha-packages/, then Developer tools -> YAML ->
+# "All YAML configuration" reload (or restart). Then run script.creek_alert_test.
 
 template:
   - binary_sensor:
@@ -30,8 +40,15 @@ template:
       # moment each loop, so if Home Assistant ever missed the brief `running` transition
       # its last_changed froze and the watchdog stuck at Problem forever. The timestamp
       # advances every loop by construction, whether or not any state string changes.
-      - name: "Rate of Rise Service Stale"
-        unique_id: rate_of_rise_service_stale
+      #
+      # unique_id and name stay on the pre-rename "creek_modeling" spelling ON PURPOSE. The
+      # live install registered binary_sensor.creek_modeling_service_stale under this
+      # unique_id and the dashboard names it; 0.20.3 changed the unique_id to
+      # rate_of_rise_service_stale, which on any install that already had the entity mints
+      # a second, new entity and orphans the one the dashboard shows. Matching the live
+      # registry is what makes this file safe to copy over the live one.
+      - name: "Creek Modeling Service Stale"
+        unique_id: creek_modeling_service_stale
         device_class: problem
         state: >
           {% set e = 'sensor.rate_of_rise_creek_last_inference' %}
@@ -42,6 +59,30 @@ template:
           # copy of this package, or the add-on never started) vs. loop genuinely stalled.
           last_inference: >
             {{ states('sensor.rate_of_rise_creek_last_inference') }}
+
+# The last tier a notification actually went out for. The alert compares against THIS,
+# not against the entity's previous state: a restart makes the previous state `unknown`,
+# and the old "ignore anything coming from unknown" rule meant Watch -> (restart) ->
+# Emergency sent nothing at all. Restored across restarts (no `initial:`).
+input_number:
+  creek_last_notified_tier:
+    name: Creek last notified tier
+    min: 0
+    max: 4
+    step: 1
+    mode: box
+    icon: mdi:bell-check-outline
+
+# The sanctioned way to silence the phones while working at the creek. Turning the
+# automation off is what left Creek Alert dead for a day in September 2026: it stays off
+# until someone remembers. A pause expires by itself, and the alert re-announces the
+# current tier when it does.
+timer:
+  creek_alerts_paused:
+    name: Creek alerts paused
+    duration: "02:00:00"
+    restore: true
+    icon: mdi:bell-sleep-outline
 
 automation:
   # Tier evaluation lives in the add-on (app/tiers.py) and arrives as
@@ -58,9 +99,16 @@ automation:
     alias: "Creek Alert"
     description: >-
       Posts a persistent notification and a companion-app push whenever the add-on's alert
-      tier changes, including the reason that drove it. Tiers 1-2 are forecast/rainfall
-      driven and work without the creek gauge; tiers 3-4 stay dormant until the creek
-      node (Moteino → RFM69 → gateway → MQTT) reports stage.
+      tier moves to a tier that has not already been announced, including the reason that
+      drove it. Rises are announced at once; drops are held 15 min first. Pausing alerts
+      (script.creek_pause_alerts) silences the phones for 2 h and re-announces when it ends.
+    # Always armed after a restart, whatever state it was left in. Turned off by hand, it is
+    # also turned back on after 2 h by creek_alert_rearm below.
+    initial_state: true
+    # A held drop is a 15-minute delay; any new tier change must cancel it and be handled
+    # at once. `restart` does exactly that — `single` would drop the new change while the
+    # delay ran, and `queued` would make an escalation wait behind it.
+    mode: restart
     variables:
       # ======================= CONFIGURE NOTIFICATIONS HERE =======================
       # Who gets a push is set below, in "Companion app" under actions — each phone is
@@ -73,13 +121,10 @@ automation:
       # so it sounds at alarm volume through silent and vibrate, and stays on screen until
       # dismissed. Below it, an ordinary push.
       #
-      # Default 2 (Watch) rather than 3 (Warning) for a specific reason: tiers 3-4 need
-      # the creek gauge, which is not mounted yet, so a critical floor of 3 would mean no
-      # critical alert can physically fire today. Watch — "rain is falling upstream, the
-      # creek has not answered yet" — is the most urgent tier currently reachable, and in
-      # a basin where rainfall-to-crest is tens of minutes (spec §1) it is the one worth
-      # waking up for. Raise this to 3 once the gauge is in and the thresholds are
-      # calibrated, or to 5 to disable critical pushes entirely.
+      # Default 2 (Watch) rather than 3 (Warning): Watch — "rain is falling upstream, the
+      # creek has not answered yet" — is the tier worth waking up for in a basin where
+      # rainfall-to-crest is tens of minutes (spec §1). Raise this to 3 once the stage
+      # thresholds are calibrated, or to 5 to disable critical pushes entirely.
       critical_from_tier: 2
       # ============================================================================
 
@@ -89,17 +134,15 @@ automation:
       # includes Developer tools -> Actions -> automation.trigger, which is the only way
       # to test this without waiting for a storm and is what spec §8's dry-run
       # requirement means in practice. Every field below therefore falls back to reading
-      # the entity live.
+      # the entity live. So does the pause-ended trigger, which carries no to_state.
       #
-      # Without that fallback, rendering raises "UndefinedError: 'trigger' is undefined"
-      # while the variables are still being built — before the first action, before the
-      # persistent notification, before anything reaches a phone. The automation simply
-      # does nothing and leaves almost no trace. That shipped in 0.14.1-0.14.3 and is
-      # precisely what "I tested it and nothing happened" looked like from the outside.
-      #
-      # When a trigger IS present it still wins, so a real alert describes the state that
-      # fired it rather than whatever the entity has since moved on to.
-      from_trigger: "{{ trigger is defined and trigger.to_state is defined }}"
+      # `to_state is not none` matters too: when the entity is REMOVED, to_state is None,
+      # and `trigger.to_state.state` raised "'None' has no attribute 'state'" — which is
+      # exactly how this automation died on 2026-09-22 when the old Creek Modeling device
+      # was deleted, while it was still watching that device's tier entity.
+      from_trigger: >-
+        {{ trigger is defined and trigger.to_state is defined
+           and trigger.to_state is not none }}
       tier: >-
         {{ (trigger.to_state.state if from_trigger else states(alert_entity)) | int(0) }}
       label: >-
@@ -108,6 +151,11 @@ automation:
       why: >-
         {{ (trigger.to_state.attributes.get('why') if from_trigger
             else state_attr(alert_entity, 'why')) or 'No reason reported.' }}
+      last_notified: "{{ states('input_number.creek_last_notified_tier') | int(0) }}"
+      # A DROP is held 15 min before it is announced, so a tier that blips up for one
+      # 5-minute poll and straight back down makes one alarm, not an alarm and then an
+      # all-clear a few minutes later. Rises are never held.
+      hold_drop: "{{ from_trigger and tier < last_notified }}"
       is_critical: "{{ tier >= critical_from_tier }}"
       push_title: >-
         {{ 'Creek all-clear' if tier == 0
@@ -118,19 +166,48 @@ automation:
     triggers:
       - trigger: state
         entity_id: sensor.rate_of_rise_creek_alert_tier
+      # Pause over (or ended early): say where things stand now, so a tier that rose while
+      # the phones were quiet is not left unannounced.
+      - trigger: event
+        event_type: timer.finished
+        event_data:
+          entity_id: timer.creek_alerts_paused
     conditions:
-      # Ignore startup/unavailable churn and the MQTT LWT flipping the entity. A manual
-      # run has no trigger to inspect and must never be filtered out — that is the dry
-      # run. Conditions are skipped by default on automation.trigger, but this stays
-      # correct if someone passes skip_condition: false.
+      # Announce a tier that has not been announced. Comparing with the last *notified*
+      # tier rather than the previous state is what lets an escalation across a restart
+      # (previous state `unknown`) through, while a restart that comes back at the same
+      # tier stays quiet. A manual run has no trigger to inspect and must never be
+      # filtered out — that is the dry run.
       - condition: template
         value_template: >
           {{ not from_trigger
              or (trigger.to_state.state not in ['unknown', 'unavailable']
-                 and trigger.from_state is not none
-                 and trigger.from_state.state not in ['unknown', 'unavailable']
-                 and trigger.to_state.state != trigger.from_state.state) }}
+                 and tier != last_notified) }}
     actions:
+      - delay: "{{ '00:15:00' if hold_drop else '00:00:00' }}"
+      # After a hold, describe the creek as it is NOW, not as it was 15 min ago.
+      - variables:
+          tier: "{{ (states(alert_entity) | int(0)) if hold_drop else tier }}"
+          label: >-
+            {{ (state_attr(alert_entity, 'label') or 'alert') if hold_drop else label }}
+          why: >-
+            {{ (state_attr(alert_entity, 'why') or 'No reason reported.')
+               if hold_drop else why }}
+      - variables:
+          is_critical: "{{ tier >= critical_from_tier }}"
+          push_title: >-
+            {{ 'Creek all-clear' if tier == 0
+               else 'Creek ' ~ label ~ ' (Tier ' ~ tier ~ ')' }}
+          paused: "{{ is_state('timer.creek_alerts_paused', 'active') }}"
+      # A held drop is announced only if it is still a drop.
+      - condition: template
+        value_template: "{{ not hold_drop or tier < last_notified }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.creek_last_notified_tier
+        data:
+          value: "{{ tier }}"
+
       # --- Home Assistant UI ---
       - choose:
           # Back to all-clear: replace the notification rather than leaving a stale alarm.
@@ -162,6 +239,10 @@ automation:
                 _Thresholds are not yet field-calibrated — verify before acting._
 
       # --- Companion app ---
+      # Paused: everything above still happens (the dashboard and the last-notified tier
+      # stay true), only the phones are spared. The pause ending re-runs this.
+      - condition: template
+        value_template: "{{ not paused }}"
       # One explicit action per phone, via a *device action* (device_id / domain /
       # type) rather than calling a notify.<name> service by string — there is no
       # fixed, discoverable service name per phone to template against, which is what
@@ -173,9 +254,7 @@ automation:
       # any per-iteration template rendering happens, so the literal string
       # "{{ repeat.item }}" was never evaluated as a template at all — it errored
       # "Unknown device '{{ repeat.item }}'". device_id must be a literal value; only
-      # the payload around it (title, message, data) can be templated. This is the same
-      # shape a real, working blueprint emits (e.g. SgtBatten/HA_blueprints' Frigate
-      # notifications) — always one static device_id per action, never templated.
+      # the payload around it (title, message, data) can be templated.
       #
       # TO ADD A PHONE: copy one whole block below (the `- <<: *creek_push` line and
       # its `device_id:`), paste it as a new list item, and set its device_id (Settings
@@ -202,10 +281,7 @@ automation:
             {{ 'mdi:check-circle-outline' if tier == 0 else 'mdi:home-flood' }}
           # ttl/priority get the push past Android's Doze batching; without them a
           # sleeping phone may sit on the message until the screen wakes. On their own
-          # they do NOT make a notification audible under Do Not Disturb — the companion
-          # docs are explicit that "by default they also do not override Do Not Disturb
-          # settings, if you would like to override this you will need to use
-          # notification channels".
+          # they do NOT make a notification audible under Do Not Disturb.
           ttl: 0
           priority: high
           # `alarm_stream` routes the sound through Android's alarm stream, which is what
@@ -213,14 +289,11 @@ automation:
           # DEVICE-SIDE permission that only the phone's owner can grant, once, by hand:
           #   Settings -> Apps -> Home Assistant -> Notifications -> "alarm_stream"
           #   -> allow it to override / ignore Do Not Disturb.
-          # No YAML here can set or read that back. See DOCS.md; it is step one of the
-          # dry run, not an optional confirmation.
           #
-          # The channel name is also load-bearing and must stay stable: Android fixes a
+          # The channel name is load-bearing and must stay stable: Android fixes a
           # channel's importance and sound the first time it appears and ignores every
-          # later change ("only lowering of the importance will work"). Renaming it
-          # silently starts a fresh channel with no DND permission, which reads on the
-          # phone as the alarm having stopped working.
+          # later change. Renaming it silently starts a fresh channel with no DND
+          # permission, which reads on the phone as the alarm having stopped working.
           channel: "{{ 'alarm_stream' if is_critical else 'Creek Watch' }}"
           importance: "{{ 'high' if is_critical else 'default' }}"
           # A critical alert stays put until acknowledged; lower tiers behave like any
@@ -228,20 +301,38 @@ automation:
           sticky: "{{ 'true' if is_critical else 'false' }}"
         device_id: efa8fde8c961dd7d5c23feda71661457   # primary phone
       - <<: *creek_push
-        device_id: 3b510b04ed78e8ef686a358daa0cc84d   # second phone
+        device_id: add926d1f120f4aaba2565bf982c61b1   # second phone
+
+  # The failure this exists for is not hypothetical: Creek Alert was switched off while
+  # the node was being worked on, and stayed off for about a day. With initial_state: true
+  # a restart re-arms it; this re-arms it without one. Pause instead — it expires itself.
+  - id: creek_alert_rearm
+    alias: "Creek Alert: re-arm if left off"
+    initial_state: true
     mode: single
+    triggers:
+      - trigger: state
+        entity_id: automation.creek_alert_tier_changed
+        to: "off"
+        for: "02:00:00"
+    actions:
+      - action: automation.turn_on
+        target:
+          entity_id: automation.creek_alert_tier_changed
+      - action: persistent_notification.create
+        data:
+          notification_id: creek_alert_rearmed
+          title: "Creek Alert turned back on"
+          message: >-
+            Creek Alert had been off for 2 hours, so it has been re-armed. To silence the
+            phones while working at the creek, use "Pause creek alerts (2 h)" instead —
+            it resumes by itself.
 
 script:
-  # Spec §8's dry run, as one action instead of a procedure. The previous instructions
-  # said to temporarily set critical_from_tier to 0, reload, test, and set it back —
-  # four steps around the thing being tested, and skipping the first silently turns the
-  # test into a *non*-critical all-clear that proves nothing while looking like a
-  # failure. This sends the real critical payload directly.
-  #
-  # It reuses the same *creek_push anchor as the automation above, so what this sends is
-  # by construction what a real Tier 4 sends — a test that drifted from the alert it is
-  # meant to validate would be worse than none. Only the tag differs, so a test never
-  # replaces a live alert on the phone.
+  # Spec §8's dry run, as one action instead of a procedure. It sends the real critical
+  # payload directly, reusing the same *creek_push anchor as the automation above, so
+  # what this sends is by construction what a real Tier 4 sends. Only the tag differs, so
+  # a test never replaces a live alert on the phone.
   creek_alert_test:
     alias: "Creek alert TEST (critical dry run)"
     icon: mdi:alarm-light
@@ -263,4 +354,32 @@ script:
       - <<: *creek_push
         device_id: efa8fde8c961dd7d5c23feda71661457   # primary phone
       - <<: *creek_push
-        device_id: 3b510b04ed78e8ef686a358daa0cc84d   # second phone
+        device_id: add926d1f120f4aaba2565bf982c61b1   # second phone
+
+  creek_pause_alerts:
+    alias: "Pause creek alerts (2 h)"
+    icon: mdi:bell-sleep
+    mode: single
+    description: >-
+      Silences creek phone pushes for 2 hours — for work at the creek or on the node.
+      Dashboard and persistent notifications keep updating. Resumes by itself and
+      re-announces the current tier; run it again to restart the 2 hours.
+    sequence:
+      - action: timer.start
+        target:
+          entity_id: timer.creek_alerts_paused
+
+  creek_resume_alerts:
+    alias: "Resume creek alerts now"
+    icon: mdi:bell-ring
+    mode: single
+    sequence:
+      # Finishing a timer that is not running is an error, and there is nothing to resume.
+      - condition: state
+        entity_id: timer.creek_alerts_paused
+        state: active
+      # finish, not cancel: finishing fires timer.finished, which is what makes Creek
+      # Alert re-announce the current tier.
+      - action: timer.finish
+        target:
+          entity_id: timer.creek_alerts_paused

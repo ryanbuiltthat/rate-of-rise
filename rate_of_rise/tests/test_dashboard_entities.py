@@ -140,6 +140,9 @@ def package_entity_ids():
                 for entry in entries:
                     if isinstance(entry, dict) and "unique_id" in entry:
                         ids.add(f"{domain}.{entry['unique_id']}")
+        # Keyed helpers and scripts: their object id is the key itself.
+        for domain in ("script", "timer", "input_number", "input_boolean"):
+            ids.update(f"{domain}.{key}" for key in (doc.get(domain) or {}))
     return ids
 
 

@@ -116,6 +116,36 @@ def test_snodas_gets_its_longer_window():
     assert h.evaluate(row(), sources, ALL_SOURCES)["snowpack_data_missing"] is False
 
 
+def test_a_frozen_reading_on_a_live_link_is_flagged_at_thirty_minutes():
+    """2026-09-23: one value for 3 h 11 min while packets kept arriving, and stage_stale
+    took an hour to say anything."""
+    clock = Clock()
+    h = HealthTracker(now_fn=clock)
+    live = dict(stage_ft=0.935, stage_raw_ft=0.935, creek_node_online=True)
+    assert h.evaluate(row(stage_age_min=12.0, **live), healthy_sources(),
+                      ALL_SOURCES)["stage_frozen"] is False
+    assert h.evaluate(row(stage_age_min=31.0, **live), healthy_sources(),
+                      ALL_SOURCES)["stage_frozen"] is True
+
+
+def test_an_old_reading_with_the_link_down_is_stale_not_frozen():
+    clock = Clock()
+    h = HealthTracker(now_fn=clock)
+    flags = h.evaluate(row(stage_ft=0.9, stage_raw_ft=0.9, creek_node_online=False,
+                           stage_age_min=90.0), healthy_sources(), ALL_SOURCES)
+    assert flags["stage_frozen"] is False
+
+
+def test_a_withheld_implausible_reading_is_flagged_immediately():
+    clock = Clock()
+    h = HealthTracker(now_fn=clock)
+    flags = h.evaluate(row(stage_ft=None, stage_raw_ft=3.13, stage_implausible=True,
+                           creek_node_online=True, stage_age_min=0.5),
+                       healthy_sources(), ALL_SOURCES)
+    assert flags["stage_implausible"] is True
+    assert flags["stage_frozen"] is False
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

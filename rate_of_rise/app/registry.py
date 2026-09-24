@@ -61,8 +61,25 @@ VALIDATION_METRIC = "roc_auc"
 
 
 def is_validated(metrics: dict | None) -> bool:
-    """Whether a candidate's metrics show it was scored against a held-out split."""
-    return bool(metrics) and metrics.get(VALIDATION_METRIC) is not None
+    """Whether a candidate's metrics show it was scored against a held-out split *and*
+    caught something there.
+
+    An AUC alone is not enough. gbm-20260924T030456Z had roc_auc 0.608 and hit_rate 0.0 —
+    it missed all 49 held-out positives — and "roc_auc is present" called that validated,
+    so the dashboard said so while the model was driving Tier 3/4. A model that flags none
+    of the rises it is tested on has been scored, and failed.
+    """
+    if not metrics or metrics.get(VALIDATION_METRIC) is None:
+        return False
+    return (metrics.get("hit_rate") or 0.0) > 0.0
+
+
+def _validation_caveat(metrics: dict) -> str:
+    """Why a model is not validated, in words the operator can act on."""
+    if metrics.get(VALIDATION_METRIC) is None:
+        return metrics.get("note") or f"no {VALIDATION_METRIC} in its metrics"
+    return (f"it caught none of the {metrics.get('test_positives', '?')} held-out "
+            f"positives it was tested on (hit rate 0)")
 
 
 class ModelRegistry:
@@ -102,6 +119,11 @@ class ModelRegistry:
     def active_version(self) -> str | None:
         active = self._data.get("active")
         return active.get("version") if active else None
+
+    @property
+    def candidate_version(self) -> str | None:
+        candidate = self._data.get("candidate")
+        return candidate.get("version") if candidate else None
 
     def snapshot(self) -> dict:
         """Compact, JSON-serializable view for the `creek/status/registry` topic."""
@@ -191,9 +213,10 @@ class ModelRegistry:
         active = self._data.get("active")
         if not active or is_validated(active.get("metrics")):
             return None
-        note = active.get("metrics", {}).get("note") or f"no {VALIDATION_METRIC} in its metrics"
+        note = _validation_caveat(active.get("metrics") or {})
         return (f"{active['version']} was never validated ({note}); its probability alone "
-                f"can raise Tier 3/4, so watch the first tiers it produces")
+                f"can raise Tier 3/4 if ml_drives_alerts is on, so watch the first tiers "
+                f"it produces")
 
     def rollback(self) -> str | None:
         """Undo a promote: restore the previous active, or the threshold estimate.

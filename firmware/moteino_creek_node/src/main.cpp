@@ -77,12 +77,23 @@
 #define SENSOR_FIRST_POLL_MS     300   // first Modbus attempt after power-up
 #define SENSOR_POLL_MS           250   // between warm-up polls
 #define SENSOR_STABLE_MM         10
-// If the filter never settles, give up and report the last answer -- even a 0. Reporting
-// null instead would be the tidier choice for a flaky radar, but the gateway's clamp
-// exists so that a radar reading "too close" keeps the alarm up as the creek nears the
-// bank, and a null would drop it. Erring high here only costs battery when the radar is
-// misbehaving; erring low costs the alarm.
+// If the filter never settles, what to report depends on where the creek last was.
+//
+// Near the sensor, report the last answer -- even a 0. The gateway clamps anything inside
+// the blanking zone to the range ceiling so that a radar reading "too close" keeps the
+// alarm up as the creek nears the bank, and a null would drop it there.
+//
+// Anywhere else, report null. The old rule ("erring high only costs battery") was wrong:
+// a cold radar's 0 on a creek sitting at 11 in was clamped to 37.6 in by the gateway, and
+// that raised a Tier 4 Emergency on a dry 2026-09-17. Water cannot reach the blanking zone
+// from far below it within one report, so an unsettled answer there is a sensor fault, and
+// null is what the gateway's radar-fault flag is built to count.
 #define SENSOR_READY_TIMEOUT_MS  10000
+// Must match the gateway's `blanking_mm` (gateway.base.yaml) -- a test checks it.
+#define SENSOR_BLANKING_MM       150
+// An unsettled answer is trusted only if the last good reading was within this distance of
+// the blanking zone (~12 in of water below the range ceiling).
+#define UNSETTLED_TRUST_WITHIN_MM 300
 #define OTA_LISTEN_MS       1500      // post-TX window to catch a wireless firmware push
 
 // ─── Adaptive crest sampling (open question #15) ─────────────────────────────
@@ -429,9 +440,19 @@ static int32_t readRadarDistance() {
     if (millis() - poweredAt >= SENSOR_READY_TIMEOUT_MS) break;
     delay(SENSOR_POLL_MS);
   }
-  Serial.print(F("radar did not settle; reporting last answer "));
-  Serial.println(last);
-  return last;
+  // See SENSOR_READY_TIMEOUT_MS for why the answer depends on where the creek last was.
+  // lastDistanceMm is the last *good* reading (updateRateOfRise leaves it alone on a -1).
+  const bool nearCeiling = lastDistanceMm >= 0 &&
+      lastDistanceMm <= (int32_t)(SENSOR_BLANKING_MM + UNSETTLED_TRUST_WITHIN_MM);
+  if (nearCeiling && last >= 0) {
+    Serial.print(F("radar did not settle near the ceiling; reporting last answer "));
+    Serial.println(last);
+    return last;
+  }
+  Serial.print(F("radar did not settle (last answer "));
+  Serial.print(last);
+  Serial.println(F("); reporting no reading"));
+  return -1;
 }
 
 static void radarPowerDown() {

@@ -25,10 +25,11 @@ def test_topics_and_counts():
     # + 8 (2a incl. API index) + 8 (2b) + 6 (2c) + 1 (2d) + 2 (2e) + 4 (2g radar cells)
     # + 3 (2h WPC ERO) + 1 soil mean (migrated out of the HA package)
     # + 1 storm-to-annotate (dashboard annotation)
-    # + 2 (2j Google flash flood)
-    assert len(sensors) == 58, len(sensors)
+    # + 2 (2j Google flash flood) + 1 ML shadow probability
+    assert len(sensors) == 59, len(sensors)
     # 3 NWS flags + rain-on-snow + ponding + storm-in-progress + 11 watchdogs
-    assert len(binaries) == 18, len(binaries)
+    # + 2 gauge-fault watchdogs (stage frozen, stage implausible)
+    assert len(binaries) == 20, len(binaries)
     assert len(buttons) == 4, len(buttons)
     assert len(texts) == 1, len(texts)   # annotate-latest-storm
     for topic, _ in pairs:
@@ -135,7 +136,7 @@ def test_local_gauge_rate_of_rise_sensor_present():
 def test_publish_all_emits_retained_json():
     pub, published = build()
     pub.publish_all()
-    assert len(published) == 81
+    assert len(published) == 84
     for topic, payload, retain in published:
         assert retain is True
         json.loads(payload)  # valid JSON
@@ -158,6 +159,7 @@ def test_every_value_template_resolves_against_a_published_payload():
         "status/storms": {"event_count", "open", "latest", "latest_closed"},
         "status/lag": {"lag_minutes", "correlation", "response", "rain_series",
                        "samples", "reason"},
+        "flood_probability": {"value", "method", "ml_value", "ml_version"},
     }
     pub, _ = build()
     missing = []
@@ -169,6 +171,42 @@ def test_every_value_template_resolves_against_a_published_payload():
             if ref not in payloads[topic]:
                 missing.append((cfg["object_id"], topic, ref))
     assert not missing, missing
+
+
+def _render(slug, payload):
+    import jinja2
+    pub, _ = build()
+    cfg = dict(pub.configs())[f"homeassistant/{_component(slug)}/rate_of_rise/{slug}/config"]
+    return jinja2.Environment().from_string(cfg["value_template"]).render(value_json=payload)
+
+
+def _component(slug):
+    pub, _ = build()
+    return next(c for c, s, _ in pub._specs() if s == slug)
+
+
+def test_no_active_model_reads_as_the_threshold_estimate_not_none():
+    """After a Rollback the dashboard showed `none`, which the operator could not tell
+    apart from "nothing is running". No active model means the threshold estimate is."""
+    assert _render("creek_active_model", {"active_version": None}) == "threshold"
+    assert _render("creek_active_model", {"active_version": "gbm-x"}) == "gbm-x"
+
+
+def test_no_risk_never_renders_as_the_string_none():
+    """Home Assistant's MQTT sensor turns a rendered "None" into a null state, so WPC's
+    real "no risk area" read as unknown — the same as a dead feed."""
+    assert _render("creek_wpc_ero_day1", {"wpc_ero_day1_risk": 0.0}) == "No risk"
+    assert _render("creek_wpc_ero_day1", {"wpc_ero_day1_risk": None}) == "unknown"
+    flash = {"google_flash_flood_likely": 0.0, "google_flash_flood_highly_likely": 0.0}
+    assert _render("creek_google_flash_flood_status", flash) == "Not forecast"
+    for slug, payload in (("creek_wpc_ero_day2", {"wpc_ero_day2_risk": 0.0}),
+                          ("creek_google_flash_flood_status", flash)):
+        assert _render(slug, payload) != "None"
+
+
+def test_shadow_probability_renders_a_percentage_or_nothing():
+    assert _render("creek_ml_shadow_probability", {"ml_value": 0.123}) == "12.0"
+    assert _render("creek_ml_shadow_probability", {"ml_value": None}) == "None"
 
 
 def main():

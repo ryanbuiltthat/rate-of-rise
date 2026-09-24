@@ -4,6 +4,9 @@ ever touches ModelRegistry (see __main__.py's `_promote`/`_rollback`) — Model 
 notice that on its own rather than requiring the add-on to restart before a
 promotion takes effect.
 
+Since 0.23.0 a promoted model only drives the alert tiers when `ml_drives_alerts` is on;
+otherwise it runs in shadow. Tests about the ML *driving* path opt in with DRIVES.
+
 Run: python rate_of_rise/tests/test_model.py
 """
 import sys
@@ -20,6 +23,8 @@ from app import train as t  # noqa: E402
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+
+DRIVES = Config(ml_drives_alerts=True)
 
 
 def row(**overrides):
@@ -77,7 +82,7 @@ def test_event_gate_holds_even_with_a_real_artifact_promoted():
     registry.set_candidate(result.version, result.metrics)
     registry.promote()
     registry.set_event_count(Config().min_events_for_ml - 1)   # below the gate
-    model = Model(Config(), registry, d)
+    model = Model(DRIVES, registry, d)
     assert model.active_method == "threshold"
 
 
@@ -88,7 +93,7 @@ def test_uses_the_promoted_artifact_once_both_gates_are_clear():
     registry.set_candidate(result.version, result.metrics)
     registry.promote()
     registry.set_event_count(Config().min_events_for_ml)
-    model = Model(Config(), registry, d)
+    model = Model(DRIVES, registry, d)
     assert model.active_method == f"ml:{result.version}"
     pred = model.predict(row(stage_ft=2.8, rate_of_rise_in_min=0.08))
     assert pred.method == f"ml:{result.version}"
@@ -103,7 +108,7 @@ def test_promote_takes_effect_without_reconstructing_model():
     d = Path(tempfile.mkdtemp())
     registry = ModelRegistry(d)
     registry.set_event_count(Config().min_events_for_ml)
-    model = Model(Config(), registry, d)
+    model = Model(DRIVES, registry, d)
     assert model.active_method == "threshold"   # nothing active yet
 
     result = _trained_artifact(d)
@@ -129,11 +134,80 @@ def test_rollback_also_takes_effect_live():
     registry.set_candidate(result.version, result.metrics)
     registry.promote()      # pushes placeholder-v0 into history
 
-    model = Model(Config(), registry, d)
+    model = Model(DRIVES, registry, d)
     assert model.active_method == f"ml:{result.version}"
 
     registry.rollback()     # restores placeholder-v0 — no artifact on disk
     assert model.active_method == "threshold"
+
+
+def test_a_promoted_model_runs_in_shadow_unless_it_is_allowed_to_drive():
+    """The default. A promoted, gate-clearing model is computed and reported, but the
+    tiers get the threshold estimate — the 2026-09-13 model took a dry evening to 93 %."""
+    d = Path(tempfile.mkdtemp())
+    registry = ModelRegistry(d)
+    result = _trained_artifact(d)
+    registry.set_candidate(result.version, result.metrics)
+    registry.promote()
+    registry.set_event_count(Config().min_events_for_ml)
+    model = Model(Config(), registry, d)
+    assert model.active_method == "threshold"
+    assert model.predict(row(stage_ft=2.8)).method == "threshold"
+    shadow = model.shadow(row(stage_ft=2.8))
+    assert shadow is not None and shadow[1] == result.version
+    assert 0.0 <= shadow[0] <= 1.0
+    assert model.shadow_version == result.version
+
+
+def test_with_nothing_active_the_shadow_is_the_newest_candidate():
+    """After a Rollback to the threshold estimate there is still something to watch."""
+    d = Path(tempfile.mkdtemp())
+    registry = ModelRegistry(d)
+    result = _trained_artifact(d)
+    registry.set_candidate(result.version, result.metrics)
+    model = Model(DRIVES, registry, d)
+    assert model.active_method == "threshold"
+    assert model.shadow(row())[1] == result.version
+
+
+def test_no_model_at_all_means_no_shadow():
+    d = Path(tempfile.mkdtemp())
+    model = Model(Config(), ModelRegistry(d), d)
+    assert model.shadow(row()) is None and model.shadow_version is None
+
+
+def test_a_model_that_raises_falls_back_to_the_threshold_estimate():
+    """A broken model must not take the tiers down: every rain, radar and stage rule
+    still has to run this loop."""
+    d = Path(tempfile.mkdtemp())
+    registry = ModelRegistry(d)
+    result = _trained_artifact(d)
+    registry.set_candidate(result.version, result.metrics)
+    registry.promote()
+    registry.set_event_count(Config().min_events_for_ml)
+    model = Model(DRIVES, registry, d)
+    model._active.meta = {"feature_columns": ["no_such_column"]}   # wrong shape
+    assert model.predict(row()).method == "threshold"
+    model._shadow.meta = {"feature_columns": ["no_such_column"]}
+    assert model.shadow(row()) is None
+
+
+def test_inference_undoes_the_class_weighting():
+    """Raw booster output is inflated by scale_pos_weight's odds ratio; what the tiers
+    compare with 20/50/80 % has to be the corrected probability."""
+    d = Path(tempfile.mkdtemp())
+    registry = ModelRegistry(d)
+    result = _trained_artifact(d)
+    registry.set_candidate(result.version, result.metrics)
+    model = Model(Config(), registry, d)
+    art = model._shadow
+    x = pd.DataFrame([{c: np.nan for c in art.meta["feature_columns"]}]).astype("float64")
+    import xgboost as xgb
+    raw = float(art.booster.predict(xgb.DMatrix(x))[0])
+    w = art.meta["scale_pos_weight"]
+    assert w > 1.0
+    got = art.probability(row(stage_ft=None))
+    assert abs(got - raw / (raw + w * (1 - raw))) < 1e-9 and got < raw
 
 
 def main():

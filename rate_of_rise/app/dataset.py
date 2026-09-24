@@ -37,11 +37,20 @@ class DatasetWriter:
         day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
         return self._parts / f"{day}.jsonl"
 
-    def append_row(self, row: FeatureRow) -> None:
-        """Append one row to today's part file."""
+    def append_row(self, row: FeatureRow, outputs: dict | None = None) -> None:
+        """Append one row to today's part file.
+
+        `outputs` rides along beside the features — the alert tier, the probability that
+        drove it, and what the shadow ML model said. None of these are model inputs
+        (train.FEATURE_COLUMNS is an allowlist), but without them a storm cannot be
+        replayed afterwards to ask what each path would have done at each minute.
+        """
+        record = row.as_dict()
+        if outputs:
+            record.update(outputs)
         try:
             with self._part_path(row.ts).open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(row.as_dict()) + "\n")
+                fh.write(json.dumps(record) + "\n")
         except OSError as exc:
             log.error("could not append feature row: %s", exc)
 

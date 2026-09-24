@@ -39,14 +39,15 @@ def build(rows, radar="KXXX"):
 def test_drct_is_direction_from_a_cell_due_west_coming_from_270_hits_us():
     """Pins the empirically-verified wind convention (see the module docstring): a cell
     10 nm due west with DRCT=270 is coming FROM the west, i.e. moving east, straight at
-    the site. 10 nm at 20 kt is exactly 30 minutes out. If someone 'fixes' the heading
-    to the toward-convention, this cell points away and the test fails."""
+    the site. 10 nm at 20 kt is exactly 30 minutes out at the scan, and the scan is two
+    minutes old at NOW, so 28 from now. If someone 'fixes' the heading to the
+    toward-convention, this cell points away and the test fails."""
     lat, lon = west_of_site(10.0)
     src, _ = build([("202607292128", "A1", 270, 20, 50, lat, lon)])
     out = src.poll()
     assert out["radar_cells_tracked"] == 1.0
     assert out["radar_threat_cells"] == 1.0
-    assert abs(out["radar_threat_eta_min"] - 30.0) < 0.5, out["radar_threat_eta_min"]
+    assert abs(out["radar_threat_eta_min"] - 28.0) < 0.5, out["radar_threat_eta_min"]
     assert out["radar_threat_max_dbz"] == 50.0
 
 
@@ -98,15 +99,15 @@ def test_a_cell_beyond_the_eta_horizon_is_not_yet_a_threat():
 
 
 def test_eta_is_the_soonest_of_several_threats():
-    far = west_of_site(10.0)          # 30 min out
-    near = west_of_site(5.0)          # 15 min out
+    far = west_of_site(10.0)          # 30 min out at the scan, 28 from now
+    near = west_of_site(5.0)          # 15 min out at the scan, 13 from now
     src, _ = build([
         ("202607292128", "F6", 270, 20, 45, far[0], far[1]),
         ("202607292128", "G7", 270, 20, 52, near[0], near[1]),
     ])
     out = src.poll()
     assert out["radar_threat_cells"] == 2.0
-    assert abs(out["radar_threat_eta_min"] - 15.0) < 0.5
+    assert abs(out["radar_threat_eta_min"] - 13.0) < 0.5
     assert out["radar_threat_max_dbz"] == 52.0
 
 
@@ -228,6 +229,21 @@ def test_url_uses_the_iem_site_code_and_the_fetch_window():
     assert "radar=XXX" in urls[0], urls[0]           # ICAO K prefix stripped for IEM
     assert "sts=2026-07-29T21:00Z" in urls[0]
     assert "ets=2026-07-29T21:30Z" in urls[0]
+
+
+def test_eta_counts_down_from_the_scan_not_from_when_it_was_read():
+    """A scan read 8 min late: 25 min out at the scan is 17 min out now, inside the
+    20 min imminent bar that alerts on the first scan, which the stale figure missed."""
+    lat, lon = west_of_site(25.0 / 3.0)                 # 25 min at 20 kt
+    src, _ = build([("202607292122", "L1", 270, 20, 45, lat, lon)])
+    out = src.poll()
+    assert abs(out["radar_threat_eta_min"] - 17.0) < 0.5, out["radar_threat_eta_min"]
+
+
+def test_a_cell_past_its_approach_time_is_overhead_not_negative():
+    lat, lon = west_of_site(1.0)                         # 3 min at 20 kt, scan 10 min old
+    src, _ = build([("202607292120", "O1", 270, 20, 55, lat, lon)])
+    assert src.poll()["radar_threat_eta_min"] == 0.0
 
 
 def main():

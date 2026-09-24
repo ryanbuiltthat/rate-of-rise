@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.config import Config, _optional  # noqa: E402
+from app.config import Config, _num, _optional  # noqa: E402
 
 # Optional options that arrive as environment variables through `bashio::config`, paired
 # with the Config attribute each lands in. Every one of these enables a source when it is
@@ -75,6 +75,30 @@ def test_a_configured_optional_still_arrives():
     cfg = load_with(GOOGLE_FLOODS_API_KEY="a-real-key", NWM_REACH_ID="01534000")
     assert cfg.google_floods_api_key == "a-real-key"
     assert cfg.nwm_reach_id == "01534000"
+
+
+def test_a_new_numeric_option_missing_from_an_old_install_uses_its_default():
+    """An option added in a newer version renders as "null" through bashio until
+    Supervisor merges defaults in; float("null") would stop the service at startup."""
+    assert _num({"X": "null"}, "X", 10.0) == 10.0
+    assert _num({}, "X", 2.0) == 2.0
+    assert _num({"X": "  "}, "X", 2.0) == 2.0
+    assert _num({"X": "abc"}, "X", 2.0) == 2.0
+    assert _num({"X": "12.5"}, "X", 2.0) == 12.5
+
+
+def test_the_new_gauge_options_arrive():
+    cfg = load_with(RATE_OF_RISE_WINDOW_MINUTES="15", MAX_STAGE_RISE_IN_MIN="3.5")
+    assert cfg.rate_of_rise_window_minutes == 15.0
+    assert cfg.max_stage_rise_in_min == 3.5
+    cfg = load_with(RATE_OF_RISE_WINDOW_MINUTES="null", MAX_STAGE_RISE_IN_MIN=None)
+    assert cfg.rate_of_rise_window_minutes == 10.0
+    assert cfg.max_stage_rise_in_min == 2.0
+
+
+def test_ml_does_not_drive_alerts_unless_asked():
+    assert Config().ml_drives_alerts is False
+    assert Config.load().ml_drives_alerts is False
 
 
 def main():
