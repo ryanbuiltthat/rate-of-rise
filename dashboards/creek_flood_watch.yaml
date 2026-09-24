@@ -392,6 +392,23 @@ views:
           - entity: binary_sensor.creek_telemetry_stale
             name: Telemetry stale
             secondary_info: last-changed
+            # device_class: problem rows show a check / cross instead of "OK" / "Problem".
+            # Defined once here and reused below as *ok_or_x. Needs card-mod (HACS);
+            # without it the rows just fall back to HA's own OK / Problem text.
+            # Only on/off are replaced, so "Unavailable" still reads as a word.
+            # The state text is a bare text node slotted into .value .state, so it has to be
+            # reached inside hui-generic-entity-row's shadow root (the `$`), not from outside.
+            card_mod: &ok_or_x
+              style:
+                hui-generic-entity-row $: |
+                  {% set s = states(config.entity) %}
+                  {% if s in ['on', 'off'] %}
+                  .value .state { font-size: 0; }
+                  .value .state::after {
+                    content: "{{ '❌' if s == 'on' else '✅' }}";
+                    font-size: 18px;
+                  }
+                  {% endif %}
           - entity: binary_sensor.creek_gateway_creek_node_status
             name: Creek node link
             secondary_info: last-changed
@@ -400,6 +417,7 @@ views:
           # Packets arriving but carrying no reading: the link is fine, the radar is not.
           - entity: binary_sensor.outside_creek_gateway_creek_node_radar_fault
             name: Radar fault
+            card_mod: *ok_or_x
           # On while the #17 diagnostic is deliberately holding the radar rail off, which
           # also produces null readings. Here so a held rail is never mistaken for a fault.
           - entity: binary_sensor.outside_creek_gateway_creek_node_diagnostic_active
@@ -423,31 +441,44 @@ views:
         entities:
           - entity: binary_sensor.rate_of_rise_creek_stage_stale
             name: Creek stage stale
+            card_mod: *ok_or_x
           - entity: binary_sensor.rate_of_rise_creek_soil_moisture_stale
             name: Soil moisture stale
+            card_mod: *ok_or_x
           - entity: binary_sensor.rate_of_rise_creek_rain_rate_stale
             name: Rain rate stale
+            card_mod: *ok_or_x
           # Stays HA-side: the add-on cannot report its own death.
           - entity: binary_sensor.creek_modeling_service_stale
             name: Modeling service stale
+            card_mod: *ok_or_x
           - type: divider
           # Ingest sources — ON means the source published no value, not that the value
           # is old (a legitimate 0.00 in never changes state).
           - entity: binary_sensor.rate_of_rise_creek_forecast_data_missing
             name: NWS QPF missing
+            card_mod: *ok_or_x
           - entity: binary_sensor.rate_of_rise_creek_upstream_data_missing
             name: Upstream PWS missing
+            card_mod: *ok_or_x
           - entity: binary_sensor.rate_of_rise_creek_nwm_data_missing
             name: NWM reach missing
+            card_mod: *ok_or_x
           - entity: binary_sensor.rate_of_rise_creek_downstream_gauge_missing
             name: USGS gauges missing
+            card_mod: *ok_or_x
           - entity: binary_sensor.rate_of_rise_creek_snowpack_data_missing
             name: SNODAS snowpack missing
+            card_mod: *ok_or_x
           - entity: binary_sensor.rate_of_rise_creek_nws_alert_feed_missing
             name: NWS alert feed missing
+            card_mod: *ok_or_x
           - entity: binary_sensor.rate_of_rise_creek_radar_cells_missing
             name: Radar cell feed missing
+            card_mod: *ok_or_x
           - entity: binary_sensor.rate_of_rise_creek_wpc_outlook_missing
             name: WPC outlook missing
+            card_mod: *ok_or_x
           - entity: binary_sensor.rate_of_rise_creek_google_flood_status_missing
             name: Google flood status missing
+            card_mod: *ok_or_x
