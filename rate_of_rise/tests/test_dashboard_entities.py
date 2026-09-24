@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "rate_of_rise"))
 from app.discovery import DiscoveryPublisher, _slugify  # noqa: E402
 
 DASHBOARD = ROOT / "dashboards" / "creek_flood_watch.yaml"
-PACKAGE = ROOT / "ha-packages" / "creek_warning.yaml"
+PACKAGE_DIR = ROOT / "ha-packages"
 
 # The live add-on's MQTT-discovery device is still registered under the name it had before
 # the public repo's genericized "Rate of Rise" rename (41e6caf) — HA doesn't rename entities
@@ -73,6 +73,14 @@ PRE_RENAME_SLUGS = frozenset({
 
 # Entities that legitimately come from outside the add-on.
 EXTERNAL = {
+    # Gateway entities registered AFTER the gateway device was renamed in HA. Exactly the
+    # LEGACY_DEVICE_NAME mechanism above, one device over: HA freezes an entity_id at first
+    # registration and never recomputes it, so entities that existed before the rename kept
+    # `creek_gateway_*` while everything added since registers as `outside_creek_gateway_*`.
+    # Both prefixes are live and correct. Do not "tidy" either to match the other -- the
+    # dashboard has to name each entity by the id HA actually assigned it.
+    "binary_sensor.outside_creek_gateway_creek_node_radar_fault",
+    "binary_sensor.outside_creek_gateway_creek_node_diagnostic_active",
     # RFM69 gateway (firmware/esp32_rfm69_gateway/gateway.base.yaml). test_esphome_entities.py
     # is what proves the gateway actually publishes these; here they are just "not the add-on's".
     "sensor.creek_gateway_stage",
@@ -118,12 +126,20 @@ def legacy_addon_entity_ids():
 
 
 def package_entity_ids():
-    doc = yaml.safe_load(PACKAGE.read_text(encoding="utf-8"))
+    """Template entities from every ha-packages file, not just creek_warning.yaml.
+
+    These belong to no device, so nothing else in the system proves they exist — if the
+    dashboard names one that no package defines, it renders as an "Entity not available"
+    row and the operator reads a blank where a fault indicator should be.
+    """
     ids = set()
-    for block in doc.get("template") or []:
-        for domain, entries in block.items():
-            for entry in entries:
-                ids.add(f"{domain}.{entry['unique_id']}")
+    for path in sorted(PACKAGE_DIR.glob("*.yaml")):
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for block in doc.get("template") or []:
+            for domain, entries in block.items():
+                for entry in entries:
+                    if isinstance(entry, dict) and "unique_id" in entry:
+                        ids.add(f"{domain}.{entry['unique_id']}")
     return ids
 
 

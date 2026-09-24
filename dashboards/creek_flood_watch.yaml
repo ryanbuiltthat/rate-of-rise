@@ -382,11 +382,28 @@ views:
           # will not difference a reading against one from before a dropout. These two say
           # whether that is what is happening: the link itself, and how old the stage
           # reading behind the rate is.
+          # DO NOT read the node-link row on its own. On 2026-09-23 the gateway wedged --
+          # answering pings, API port open, publishing nothing for 25 hours -- and every one
+          # of its entities froze at its last value. This one sat at "on" the whole time, and
+          # because features.py::_link_usable returns True unconditionally when it reads
+          # online=True, the frozen value actively suppressed the stage-age fallback that
+          # would otherwise have caught it. It reports the last thing the gateway said, not
+          # whether the gateway is still saying anything.
+          - entity: binary_sensor.creek_telemetry_stale
+            name: Telemetry stale
+            secondary_info: last-changed
           - entity: binary_sensor.creek_gateway_creek_node_status
             name: Creek node link
             secondary_info: last-changed
           - entity: sensor.rate_of_rise_creek_stage_age
             name: Stage reading age
+          # Packets arriving but carrying no reading: the link is fine, the radar is not.
+          - entity: binary_sensor.outside_creek_gateway_creek_node_radar_fault
+            name: Radar fault
+          # On while the #17 diagnostic is deliberately holding the radar rail off, which
+          # also produces null readings. Here so a held rail is never mistaken for a fault.
+          - entity: binary_sensor.outside_creek_gateway_creek_node_diagnostic_active
+            name: Diagnostic running
           - entity: sensor.outside_weather_station_soil_moisture_willow
             name: Soil — near house
             secondary_info: last-changed
