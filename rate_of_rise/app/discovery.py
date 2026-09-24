@@ -5,13 +5,13 @@ Publishing retained config messages under
 (and update) the `creek_*` sensors and buttons automatically — no HA package or
 `configuration.yaml` edit for them, and they refresh whenever the add-on updates.
 
-ENTITY IDs: Home Assistant mints them from the device name plus the entity **name** —
-NOT from the `object_id` published below, which is only a suggestion and is not honoured.
-So "Creek Flood Probability" on the "Rate of Rise" device becomes
-`sensor.rate_of_rise_creek_flood_probability`. Most entities here hide the
-distinction because their name slugifies to exactly their object_id; where the two differ,
-the name wins. Use `entity_ids()` rather than assuming, and the dashboard is checked
-against it in `tests/test_dashboard_entities.py`.
+ENTITY IDs: each config pins its own with `default_entity_id`, taken from `entity_ids()`
+(device name plus the entity **name**). Left to itself, Home Assistant also puts the
+device's *area* in front — once the device was assigned to "Outside", 0.23.0's new
+entities registered as `outside_rate_of_rise_*`. The pin applies only when an entity is
+first registered; an existing entity keeps whatever id it already has. The `object_id`
+published below is ignored by current Home Assistant. Use `entity_ids()` rather than
+assuming, and the dashboard is checked against it in `tests/test_dashboard_entities.py`.
 
 Only entities defined here get the device prefix. The HA-side template sensor in
 `ha-packages/creek_warning.yaml` and the RFM69 gateway keep their own IDs.
@@ -490,12 +490,12 @@ class DiscoveryPublisher:
         ]
 
     def entity_ids(self) -> dict[str, str]:
-        """{slug: entity_id Home Assistant will actually mint}.
+        """{slug: entity_id}, published as each entity's `default_entity_id`.
 
-        HA derives the entity_id from the device name plus the entity's **name**, not from
-        the `object_id` we publish — `object_id` is documented as a suggestion and is not
-        honoured here. So "Creek NWS Alert Feed Missing" on the "Rate of Rise"
-        device becomes `binary_sensor.rate_of_rise_creek_nws_alert_feed_missing`,
+        Device name plus the entity's **name**, not the `object_id` slug — the rule HA
+        applied before `default_entity_id` pinned it, kept so the 80-odd entities already
+        registered under it keep matching. So "Creek NWS Alert Feed Missing" on the
+        "Rate of Rise" device is `binary_sensor.rate_of_rise_creek_nws_alert_feed_missing`,
         regardless of its `creek_nws_alerts_missing` object_id.
 
         Most entities hide this because their name slugifies to exactly their object_id, so
@@ -513,10 +513,12 @@ class DiscoveryPublisher:
         """Build (discovery_topic, full_config) pairs — exposed for testing."""
         out = []
         device, avail = self._device(), self._availability()
+        ids = self.entity_ids()
         for component, slug, cfg in self._specs():
             full = {
                 "unique_id": f"rate_of_rise_{slug}",
                 "object_id": slug,
+                "default_entity_id": ids[slug],
                 "device": device,
                 **avail,
                 **cfg,
