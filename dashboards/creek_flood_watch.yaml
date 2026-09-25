@@ -347,7 +347,7 @@ views:
             name: Active method
           # What the ML model says every loop, whether or not it is allowed near the alarm
           # (add-on option ml_drives_alerts). Watch this through a storm before trusting it.
-          - entity: sensor.rate_of_rise_creek_ml_shadow_probability
+          - entity: sensor.outside_rate_of_rise_creek_ml_shadow_probability
             name: ML shadow probability
           - entity: sensor.rate_of_rise_creek_dataset_rows
             name: Dataset rows
@@ -472,12 +472,12 @@ views:
             card_mod: *ok_or_x
           # Same number for 30 min while packets keep arriving: the radar has stopped
           # re-measuring (the 2026-09-23 morning, 3 h 11 min on one value).
-          - entity: binary_sensor.rate_of_rise_creek_stage_frozen
+          - entity: binary_sensor.outside_rate_of_rise_creek_stage_frozen
             name: Creek stage frozen
             card_mod: *ok_or_x
           # A reading the creek could not have reached, withheld from the tiers (a cold
           # radar's 0, clamped to 37.6 in — the 2026-09-17 false Emergency).
-          - entity: binary_sensor.rate_of_rise_creek_stage_implausible
+          - entity: binary_sensor.outside_rate_of_rise_creek_stage_implausible
             name: Creek stage implausible
             card_mod: *ok_or_x
           - entity: binary_sensor.rate_of_rise_creek_soil_moisture_stale

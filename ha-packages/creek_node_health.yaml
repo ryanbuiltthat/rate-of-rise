@@ -7,10 +7,10 @@
 #                      published as binary_sensor.*_creek_node_radar_fault.
 #   stage frozen    -> packets arrive carrying a reading, but the same one for 30 min. The
 #                      2026-09-23 morning: one value for 3 h 11 min, and no null to count.
-#                      Detected in the add-on (binary_sensor.rate_of_rise_creek_stage_frozen).
+#                      Detected in the add-on (binary_sensor.outside_rate_of_rise_creek_stage_frozen).
 #   stage implausible -> a reading the creek could not have reached (a cold radar's 0,
 #                      clamped to 37.6 in by the gateway). Withheld from the tiers by the
-#                      add-on (binary_sensor.rate_of_rise_creek_stage_implausible).
+#                      add-on (binary_sensor.outside_rate_of_rise_creek_stage_implausible).
 #   link down / gateway down -> no packets at all. THIS FILE, below.
 #
 # WHY THE STALENESS CHECK IS HERE AND NOT IN THE FIRMWARE.
@@ -82,8 +82,8 @@ template:
           {{ is_state('binary_sensor.creek_telemetry_stale', 'on')
              or is_state('binary_sensor.outside_creek_gateway_creek_node_radar_fault', 'on')
              or is_state('binary_sensor.creek_gateway_creek_node_status', 'off')
-             or is_state('binary_sensor.rate_of_rise_creek_stage_frozen', 'on')
-             or is_state('binary_sensor.rate_of_rise_creek_stage_implausible', 'on') }}
+             or is_state('binary_sensor.outside_rate_of_rise_creek_stage_frozen', 'on')
+             or is_state('binary_sensor.outside_rate_of_rise_creek_stage_implausible', 'on') }}
 
 automation:
   # Every one of these used to end in a dashboard row or a persistent notification — which
@@ -108,13 +108,13 @@ automation:
           - binary_sensor.outside_creek_gateway_creek_node_radar_fault
           - binary_sensor.creek_modeling_service_stale
           - binary_sensor.rate_of_rise_creek_stage_stale
-          - binary_sensor.rate_of_rise_creek_stage_frozen
+          - binary_sensor.outside_rate_of_rise_creek_stage_frozen
         to: "on"
         for: "00:02:00"
         id: gauge
       # Withheld reading: say so at once, with the number, because the tiers are ignoring it.
       - trigger: state
-        entity_id: binary_sensor.rate_of_rise_creek_stage_implausible
+        entity_id: binary_sensor.outside_rate_of_rise_creek_stage_implausible
         to: "on"
         id: gauge
       # Rain inputs: not blinding on their own (the other gauge still reports), but a
@@ -148,11 +148,11 @@ automation:
         binary_sensor.rate_of_rise_creek_stage_stale: >-
           No usable creek stage for 30 minutes. Stage-based Warning and Emergency cannot
           fire until it returns.
-        binary_sensor.rate_of_rise_creek_stage_frozen: >-
+        binary_sensor.outside_rate_of_rise_creek_stage_frozen: >-
           The creek reading has not changed in 30 minutes although the node is reporting.
           The radar is probably returning a stale value. Rate of rise reads 0 regardless of
           the creek.
-        binary_sensor.rate_of_rise_creek_stage_implausible: >-
+        binary_sensor.outside_rate_of_rise_creek_stage_implausible: >-
           The gauge reads a rise the creek could not have made, so the alert tiers are
           ignoring it as a sensor fault. Go and look — if it holds for 30 minutes the add-on
           will believe it.
@@ -164,7 +164,7 @@ automation:
           and the Watch rules built on them are blind.
       detail: >-
         {{ advice.get(entity, 'Check the Operator tab.') }}
-        {% if entity == 'binary_sensor.rate_of_rise_creek_stage_implausible' %}
+        {% if entity == 'binary_sensor.outside_rate_of_rise_creek_stage_implausible' %}
         Reading: {{ states('sensor.creek_gateway_creek_depth') }} in.
         {% endif %}
       # A plain YAML anchor, not an action: living here under `variables:` rather than
@@ -212,8 +212,8 @@ automation:
           - binary_sensor.outside_creek_gateway_creek_node_radar_fault
           - binary_sensor.creek_modeling_service_stale
           - binary_sensor.rate_of_rise_creek_stage_stale
-          - binary_sensor.rate_of_rise_creek_stage_frozen
-          - binary_sensor.rate_of_rise_creek_stage_implausible
+          - binary_sensor.outside_rate_of_rise_creek_stage_frozen
+          - binary_sensor.outside_rate_of_rise_creek_stage_implausible
           - binary_sensor.rate_of_rise_creek_rain_rate_stale
           - binary_sensor.rate_of_rise_creek_upstream_data_missing
         from: "on"
