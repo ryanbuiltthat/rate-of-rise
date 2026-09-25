@@ -176,12 +176,16 @@ relevant area.**
 
 ### Home Assistant
 
-**Entity IDs come from the device name + entity *name*, not `object_id`.**
-`object_id` is only a suggestion and is not honoured. "Creek NWS Alert Feed Missing" on
-device "Rate of Rise" →
+**Entity IDs are pinned with `default_entity_id` = device name + entity *name*.**
+`object_id` is ignored. "Creek NWS Alert Feed Missing" on device "Rate of Rise" →
 `binary_sensor.rate_of_rise_creek_nws_alert_feed_missing`, regardless of its
-`creek_nws_alerts_missing` object_id. Use `DiscoveryPublisher.entity_ids()`;
-`test_dashboard_entities.py` checks the dashboard against it.
+`creek_nws_alerts_missing` object_id. The pin exists because HA otherwise puts the
+device's **area** in front of every entity minted after the device is placed in one:
+0.23.0's new entities came out `outside_rate_of_rise_*` (the gateway's
+`outside_creek_gateway_*` entities are the same effect, ESPHome-side). The pin only
+applies at first registration — an existing entity has to be renamed in HA. Use
+`DiscoveryPublisher.entity_ids()`; `test_dashboard_entities.py` checks the dashboard
+against it.
 
 **MQTT `text` entities cap `max` at 255.** Higher is *not* clamped — MQTT discovery
 validates against the platform schema and **silently drops the entire entity**, with no
