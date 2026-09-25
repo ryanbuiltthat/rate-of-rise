@@ -189,6 +189,7 @@ automation:
           # granted Do Not Disturb override.
           channel: "{{ 'alarm_stream' if is_critical else 'Creek Watch' }}"
           importance: "{{ 'high' if is_critical else 'default' }}"
+      - <<: *watch_push
         device_id: efa8fde8c961dd7d5c23feda71661457   # primary phone
       - <<: *watch_push
         device_id: add926d1f120f4aaba2565bf982c61b1   # second phone
@@ -226,6 +227,7 @@ automation:
         message: clear_notification
         data:
           tag: "{{ push_tag }}"
+      - <<: *watch_clear
         device_id: efa8fde8c961dd7d5c23feda71661457   # primary phone
       - <<: *watch_clear
         device_id: add926d1f120f4aaba2565bf982c61b1   # second phone
