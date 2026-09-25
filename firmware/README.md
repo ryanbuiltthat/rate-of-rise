@@ -51,7 +51,7 @@ DFRobot SEN0676 (Modbus RTU)
 | Seeed XIAO ESP32-C3 | Gateway: RFM69 RX + WiFi + ESPHome API | Plugged in at house, always-on |
 | CN3791 1S MPPT charger | Solar charge controller for creek node | ~0.5 mA idle vs. ~5 mA for linear |
 | 18650 Li-ion (4P–6P) | Creek node battery pack | See open question #11 |
-| 6–7 W solar panel | Creek node power | Sufficient at ~25 mA avg draw |
+| 6–7 W solar panel | Creek node power | Ample at the measured ~1.7 mA avg draw (open question #17) |
 
 ## Wiring — Creek Node (Moteino M0)
 
@@ -600,8 +600,10 @@ buffer the transfer task was still reading from. `ota_active_` covers exactly th
    5 minutes after the node stops transmitting (five missed reports).
 
 4. **Battery/sleep test:** Disconnect USB from the creek node, run on
-   battery. Measure current draw: should be ~25 mA average (30 mA during
-   sensor read + TX, ~6 µA during sleep).
+   battery. Measure current draw: should be ~2 mA average (measured ~1.7 mA
+   at the pole, open question #17). Expect ~35 mA on the radar rail only while it warms
+   up and reads, ≤12 mA on the Moteino rail while awake, and µA between reports. A radar
+   rail that sits at ~35 mA and never drops means SHDN is not wired to D4.
 
 5. **Range test (bag test at pole):** Wire up the Moteino + SEN0676 in a
    weatherproof bag, mount temporarily at the pole location, and log RSSI

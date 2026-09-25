@@ -107,30 +107,31 @@ short list of real engineering work that is known, scoped, and deliberately not 
   `ADVISORY_SOIL_PCT` (70%, `tiers.py`) can now be sanity-checked against real dry/wet
   readings instead of an unverified placeholder.
 
-- **#11.** ~~Solar/battery sizing for the creek node.~~ **PARTLY REOPENED — see #17.** The
-  hardware is settled: **Adafruit bq24074 linear charger**, a KSD9700 cold-cutoff switch
+- **#11.** ~~Solar/battery sizing for the creek node.~~ **RESOLVED again 2026-09-25 — the load
+  is ~2 mA (#17).** At that load the 6 Ah pack is ~100+ days with no sun, and panel sizing
+  stops mattering outside storm days. The hardware is settled: **Adafruit bq24074 linear charger**, a KSD9700 cold-cutoff switch
   upstream of the charger, and a **1S4P pack of 1500 mAh 18650 cells (6 Ah total)** optimized
   for compact pole mounting. Panel wattage is recorded as 6 W here and 7 W throughout
   `docs/node-hardware.md`; **nobody has checked the label** — do that before trusting either
   sizing table.
 
-  The load figure that made this "resolved" was wrong. It read "~25 mA average, confirmed in
-  field operation 2026-09-19+", but the node has no shunt and nothing in the system could
-  confirm a current. The first real measurement — from the pack's own overnight discharge,
-  2026-09-19/20 — is **~60 mA**, which cuts runtime from the ~10 days claimed here to ~4 days.
-  What field operation does confirm is stable voltage through rainfall and full daily recovery
-  in September. Sizing conclusions now rest on 60 mA; see `docs/node-hardware.md`,
-  "Measuring average draw without a shunt".
+  *History:* the load figure that first made this "resolved" was wrong. It read "~25 mA
+  average, confirmed in field operation 2026-09-19+", but the node has no shunt and nothing
+  in the system could confirm a current. The first real measurement, from the pack's own
+  overnight discharge on 2026-09-19/20, came to **~60 mA**, which reopened this. #17 then
+  found the always-on radar (~36 mA in truth; the 60 was an overestimate) and, once it was
+  fixed, measured ~2 mA. See `docs/node-hardware.md`, "Measuring average draw without a
+  shunt".
 
 - **#12.** ~~Charger and regulator selection for the creek node (spun out of #11).~~ **RESOLVED —
   deployed with Adafruit bq24074.** Keep Li-ion with the **Adafruit Universal USB / DC / 
   Solar Lithium Ion/Polymer charger (bq24074)** — a linear charger (67 % efficiency 6 V → 
   4 V). It was judged adequate against an assumed ~25 mA draw; the pack is **6 Ah**, not the
-  23.2 Ah this entry claimed. At the measured ~60 mA (#17) the MPPT upgrade is no longer
-  purely an optimization — the ~10 % it recovers matters once daily draw is ~1.4 Ah against a
-  6 Ah pack. Hold the decision until #17 says whether 60 mA is real or a wiring fault. Pair
-  with low-voltage protection. The 5 V boost with an enable pin duty-cycles the radar via a
-  GPIO — **firmware drives it; the wiring is unverified, which is #17's leading suspect.**
+  23.2 Ah this entry claimed. **#17 settled it (2026-09-25): the load is ~2 mA, so the
+  linear charger stays and the MPPT upgrade is not needed.** The ~60 mA that briefly put it
+  back in question was a wiring fault plus an overestimate. Pair with low-voltage
+  protection. The 5 V boost's enable pin duty-cycles the radar from a GPIO; the wiring was
+  wrong until 2026-09-23 and is verified since.
   Chemistry changes do not solve cold charging and 12 V controllers idle away a fifth of the
   node's budget.
 
@@ -239,7 +240,8 @@ the calibration phase.
 - **#10.** Rain-on-snow thresholds (`app/features.py`: 0.20 in SWE, 34 °F) are placeholders, and
   the flag cannot be validated until a winter rain-on-snow event is actually captured.
 
-- *#11 is largely Closed, above; its load figure is reopened as #17.* What follows is the
+- *#11 is Closed, above; its load figure was settled by #17 at ~2 mA, which makes the 80 mA
+  analysis below moot for the as-built node.* What follows is the
   original ESP32-C6-era sizing analysis that led to that decision — retained as background
   reasoning, not as a description of the as-built node, which uses a **bq24074 linear
   charger** (not MPPT), a KSD9700 cutoff, and a **6 Ah pack** (not 23.2 Ah). Panel wattage
@@ -280,10 +282,10 @@ the calibration phase.
   18 V Vmp panel to 13 V.
   **Deployed decision: Adafruit bq24074 linear charger.** This was decided against an assumed
   ~25 mA draw and a misrecorded 23.2 Ah pack, where the linear charger's ~67 % efficiency
-  (vs. MPPT's ~90 %) was not load-bearing. The real figures are **~60 mA and 6 Ah** — about a
-  quarter of the margin the decision assumed — so "an MPPT is pure optimization" no longer
-  follows. The bq24074 is simpler and has proven reliable in field operation, and it stays
-  unless #17 confirms the load is genuinely 60 mA.
+  (vs. MPPT's ~90 %) was not load-bearing. The pack really is 6 Ah, but the load is
+  **~2 mA** (#17, measured 2026-09-25), so the charger's efficiency still is not
+  load-bearing, and the bq24074 stays. It is simpler and has proven reliable in field
+  operation.
   Pair with low-voltage protection on the pack. Choose the 5 V boost with an enable pin — 
   that EN line is the radar load switch, so duty-cycling costs a GPIO and a 100 ms settle 
   rather than a separate MOSFET.
@@ -296,12 +298,66 @@ the calibration phase.
 
 ## Carried into v1.1 — known, scoped, deliberately not in v1
 
-- **#17.** **The node draws ~60 mA, and the firmware says it should draw 1–2 mA.** Opened
-  2026-09-20, spun out of #11. **Suspect (1) confirmed 2026-09-23, found by hand rather than
-  by the diagnostic window:** the SHDN wire was on the wrong header pin, so the radar ran
-  24/7. Moving it to `~4` made the rail switch and exposed a too-short radar warm-up (fixed
-  in `main.cpp`, "Radar warm-up"). Re-measure the overnight slope once that firmware is on
-  the pole; if it is not near ~4–5 mV/h, suspects (2) and (3) are still live. The first measurement of average draw — least-squares fit to
+- **#17.** ~~**The node draws ~60 mA, and the firmware says it should draw 1–2 mA.**~~
+  **RESOLVED 2026-09-25 — it was the radar rail and nothing else. The node now draws
+  ~2 mA, which is what the firmware predicts.** Opened 2026-09-20, spun out of #11.
+
+  **Meter at the pole, 2026-09-23.** The radar rail drew a constant **35 mA**, because the
+  SHDN wire was on the wrong header pin and the radar ran 24/7. With the radar held on for
+  about a minute, the rail averaged **35.09 mA**. The Moteino rail peaked at 12 mA. The pack,
+  with the panel disconnected, peaked at 58.7 mA (radar and awake MCU together) and averaged
+  **~40 mA**, read off a bouncing meter. Moving the wire to `~4` made the rail switch. It also
+  exposed a radar warm-up that was too short, fixed in `main.cpp` ("Radar warm-up") and on
+  the pole since the 2026-09-24 19:01 UTC push. A post-fix reading of "10 mA average" on the
+  radar line came from a window of a few seconds that caught one pulse; the slope below
+  rules out a standing drain of that size.
+
+  **The first clean night after both fixes, 2026-09-25 01:56 → 10:22 UTC,** fit the same way
+  as the 2026-09-19/20 night below:
+
+  | Same clock window, 01:56 → 10:22 UTC | Overnight slope |
+  | --- | --- |
+  | 09-19/20, radar on 24/7 | −10.55 ± 0.06 mV/h |
+  | 09-21/22, radar on 24/7 | −10.79 ± 0.06 mV/h |
+  | 09-22/23, radar on 24/7 | −10.68 ± 0.06 mV/h |
+  | **09-24/25, rail switching** | **−0.51 ± 0.06 mV/h** |
+
+  The drop is about 20×. It holds when the night is split in halves (−0.42 ± 0.18 and
+  −0.70 ± 0.17), and with outdoor temperature as a covariate (−0.49 ± 0.21 mV/h,
+  temperature term +0.02 ± 0.25 mV/°C across 46 → 34 °F). The pack sat at 4.19 V all
+  night, and the 4.2 mV residual matches the earlier nights, so the reading is live and
+  dithering.
+
+  - **The meter supplies the anchor `docs/node-hardware.md` said was missing.** The fix
+    removed a measured 35.09 mA, less the ~0.3–1 mA the radar still draws while it warms
+    up each wake: ~34.4 mA. That is worth 10.16 mV/h, so K ≈ **3.4 mA per mV/h**, with no
+    OCV curve involved.
+  - **Now: 0.51 × 3.4 ≈ 1.7 mA** (1–2.5 mA across the fit's uncertainty). **Before:
+    10.67 × 3.4 ≈ 36 mA**, which agrees with the meter's 35 mA radar plus ~1 mA for the
+    rest, and its ~40 mA pack average. The old "~60 mA" came from the OCV-curve guess and
+    ran about 1.6× high. The OCV band alone gives 1.9–3.8 mA for last night, which overlaps.
+    One assumption: K is taken to be the same at 4.19 V as at 4.0–4.1 V.
+  - **Suspect (2) is ruled out.** A SAMD21 kept out of standby (~12 mA) would show about
+    3.5 mV/h.
+  - **Suspect (3) is bounded.** The firmware's own duty cycle (radar ~0.3–1 mA while it
+    warms up, the Moteino rail's 12 mA for ~3 s a wake ≈ 0.6 mA) already comes to
+    0.9–1.6 mA. That leaves room for at most ~1 mA of quiescent draw across the boosts,
+    charger and protection board.
+  - **Consequences:** ~40 mAh/day, under 1 % of the 6 Ah pack. A full pack runs the node
+    **~100+ days with no charging at all**, against ~4 days at the old figure. #11 closes
+    again, #12's linear charger stays, and the winter-recovery problem in
+    `docs/node-hardware.md` does not arise at this load.
+  - **Storm days now dominate the budget.** Fast mode holds the radar rail up, so the 35 mA
+    returns for as long as the creek is rising: ~0.84 Ah (~14 % of the pack) per 24 h of
+    fast sampling.
+
+  The recorder wrote nothing from 2026-09-24 21:00 to 2026-09-25 01:55 UTC, a second stall
+  that an HA restart ended. That is why the window starts at 01:56 rather than at dusk.
+
+  *What follows is the investigation as it stood before the resolution, kept because the
+  diagnostic machinery it describes is still in the firmware.*
+
+  The first measurement of average draw — least-squares fit to
   the pack's overnight discharge, 2026-09-19/20, −10.87 ± 0.08 mV/h over 265 reports — puts
   the node at **~60 mA** (40–80 mA, the band set by the unknown OCV curve). Summing what the
   firmware actually does gives 1–2 mA. A ~30× gap is a fault, not a modelling error.
@@ -364,7 +420,8 @@ the calibration phase.
 
   **Consequences if it is real:** runtime falls from ~10 days to ~4, #12's charger decision
   loses most of its margin, and the "duty-cycle the radar" fix that the whole winter-survival
-  analysis rests on turns out never to have been in effect.
+  analysis rests on turns out never to have been in effect. *(It was real, the radar rail
+  was the whole of it, and the fix is now in effect; see the resolution above.)*
 
 - **#14.** ~~Sensor goes blind exactly at the alarm condition, and the tier silently
   de-escalates.~~ **RESOLVED 2026-09-12 (the dangerous half).** Usable range tops out at
