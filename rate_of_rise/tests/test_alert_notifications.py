@@ -428,8 +428,8 @@ def test_data_problems_reach_a_phone_not_just_the_dashboard():
         ids = t["entity_id"] if isinstance(t["entity_id"], list) else [t["entity_id"]]
         watched.update(ids)
     for must in ("binary_sensor.creek_telemetry_stale",
-                 "binary_sensor.rate_of_rise_creek_stage_frozen",
-                 "binary_sensor.rate_of_rise_creek_stage_implausible",
+                 "binary_sensor.outside_rate_of_rise_creek_stage_frozen",
+                 "binary_sensor.outside_rate_of_rise_creek_stage_implausible",
                  "binary_sensor.creek_modeling_service_stale",
                  "binary_sensor.rate_of_rise_creek_upstream_data_missing"):
         assert must in watched, must

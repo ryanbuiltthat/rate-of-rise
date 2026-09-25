@@ -3,6 +3,20 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.23.5
+
+- **Fix: the add-on pinned 0.23.0's three new entities at IDs they do not have.** They
+  stay registered as `sensor.outside_rate_of_rise_creek_ml_shadow_probability`,
+  `binary_sensor.outside_rate_of_rise_creek_stage_frozen` and
+  `binary_sensor.outside_rate_of_rise_creek_stage_implausible`. The dashboard and
+  `creek_node_health.yaml` were moved to those IDs instead of the rename 0.23.2's Deploying
+  section asked for, so that rename is no longer wanted. `default_entity_id` now names
+  them with the prefix too, so if HA ever registers them again (entity deleted, config
+  restored) they come back under the IDs everything uses.
+- **Fix: the household Flood Watch card never showed "ML shadow N%"** — its template
+  still read the unprefixed ID, which always renders `unknown`. The live copy is already
+  fixed in place.
+
 ## 0.23.4
 
 - **Fix: `automation.creek_data_problem_cleared` (and its siblings) failed to load —

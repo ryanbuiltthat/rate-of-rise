@@ -183,7 +183,9 @@ relevant area.**
 device's **area** in front of every entity minted after the device is placed in one:
 0.23.0's new entities came out `outside_rate_of_rise_*` (the gateway's
 `outside_creek_gateway_*` entities are the same effect, ESPHome-side). The pin only
-applies at first registration — an existing entity has to be renamed in HA. Use
+applies at first registration, so it cannot fix an entity that is already registered.
+Those three were kept as `outside_rate_of_rise_*` and are pinned that way
+(`_AREA_PREFIXED` in `discovery.py`), so the pin never disagrees with the registry. Use
 `DiscoveryPublisher.entity_ids()`; `test_dashboard_entities.py` checks the dashboard
 against it.
 

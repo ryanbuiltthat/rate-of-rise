@@ -53,7 +53,7 @@ views:
           **Tier {{ states('sensor.rate_of_rise_creek_alert_tier') }}** · flood probability
           **{{ states('sensor.rate_of_rise_creek_flood_probability') }}%**
           ({{ states('sensor.rate_of_rise_creek_model_method') }} model)
-          {% set ml = states('sensor.rate_of_rise_creek_ml_shadow_probability') %}
+          {% set ml = states('sensor.outside_rate_of_rise_creek_ml_shadow_probability') %}
           {% if ml not in ['unknown', 'unavailable'] %}· ML shadow {{ ml }}%
           _(recorded, not alerting)_{% endif %}
           {% if is_state('timer.creek_alerts_paused', 'active') %}
