@@ -3,6 +3,21 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.23.4
+
+- **Fix: `automation.creek_data_problem_cleared` (and its siblings) failed to load —
+  "Unable to determine action at 'actions[1]'".** 0.23.3's fix for the duplicate
+  `device_id` warning turned each shared `&anchor` block into a "pure template" with no
+  `device_id` of its own, but left it sitting in the `actions:` list as its own entry.
+  Home Assistant validates every `actions:` list item as an action in its own right, and
+  a bare anchor with no `device_id`/`action`/other recognized key doesn't match any known
+  action type, so it now errors instead of silently doing nothing. All three affected
+  anchors (`creek_push`, `watch_push`, `watch_clear`) are moved into a `variables:` step
+  instead, where they are just inert data that the two real `<<: *anchor` + `device_id:`
+  entries can still merge from. **This does not arrive with the Update button — re-copy
+  both `ha-packages/creek_warning.yaml` and `ha-packages/creek_node_health.yaml` to
+  `/config/ha-packages/` and reload automations.**
+
 ## 0.23.3
 
 - **Fix: `creek_warning.yaml` and `creek_node_health.yaml` logged 1092 "duplicate key

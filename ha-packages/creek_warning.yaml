@@ -199,6 +199,43 @@ automation:
             {{ 'Creek all-clear' if tier == 0
                else 'Creek ' ~ label ~ ' (Tier ' ~ tier ~ ')' }}
           paused: "{{ is_state('timer.creek_alerts_paused', 'active') }}"
+          # A plain YAML anchor, not an action: living here under a `variables:` step
+          # rather than as its own actions[] entry keeps it from being schema-validated
+          # (and rejected) as an action in its own right — it has no `device_id`/`action`
+          # key of its own, only the two merged entries below do.
+          _creek_push_template: &creek_push
+            domain: mobile_app
+            type: notify
+            continue_on_error: true
+            title: "{{ push_title }}"
+            message: >-
+              {{ why }}
+              {{ '' if tier == 0 else
+                 '— thresholds are not yet field-calibrated; verify before acting.' }}
+            data:
+              tag: "{{ push_tag }}"
+              notification_icon: >-
+                {{ 'mdi:check-circle-outline' if tier == 0 else 'mdi:home-flood' }}
+              # ttl/priority get the push past Android's Doze batching; without them a
+              # sleeping phone may sit on the message until the screen wakes. On their own
+              # they do NOT make a notification audible under Do Not Disturb.
+              ttl: 0
+              priority: high
+              # `alarm_stream` routes the sound through Android's alarm stream, which is what
+              # gets it past silent and vibrate. Getting it past DO NOT DISTURB is a separate,
+              # DEVICE-SIDE permission that only the phone's owner can grant, once, by hand:
+              #   Settings -> Apps -> Home Assistant -> Notifications -> "alarm_stream"
+              #   -> allow it to override / ignore Do Not Disturb.
+              #
+              # The channel name is load-bearing and must stay stable: Android fixes a
+              # channel's importance and sound the first time it appears and ignores every
+              # later change. Renaming it silently starts a fresh channel with no DND
+              # permission, which reads on the phone as the alarm having stopped working.
+              channel: "{{ 'alarm_stream' if is_critical else 'Creek Watch' }}"
+              importance: "{{ 'high' if is_critical else 'default' }}"
+              # A critical alert stays put until acknowledged; lower tiers behave like any
+              # other notification.
+              sticky: "{{ 'true' if is_critical else 'false' }}"
       # A held drop is announced only if it is still a drop.
       - condition: template
         value_template: "{{ not hold_drop or tier < last_notified }}"
@@ -260,45 +297,13 @@ automation:
       # its `device_id:`), paste it as a new list item, and set its device_id (Settings
       # -> Devices & Services -> Devices -> click the phone -> the URL ends
       # .../config/devices/device/<the id>). The `&creek_push`/`<<: *creek_push` pair is
-      # a plain YAML anchor: it shares the title/message/data content so it is written
-      # once, not once per phone; only `device_id` differs between blocks.
+      # a plain YAML anchor (defined above, in the `variables:` step): it shares the
+      # title/message/data content so it is written once, not once per phone; only
+      # `device_id` differs between blocks.
       #
       # `tag` is constant so each new tier *replaces* the previous notification instead
       # of stacking a pile of them through a storm, and the all-clear overwrites the
       # alarm rather than sitting below it.
-      - &creek_push
-        domain: mobile_app
-        type: notify
-        continue_on_error: true
-        title: "{{ push_title }}"
-        message: >-
-          {{ why }}
-          {{ '' if tier == 0 else
-             '— thresholds are not yet field-calibrated; verify before acting.' }}
-        data:
-          tag: "{{ push_tag }}"
-          notification_icon: >-
-            {{ 'mdi:check-circle-outline' if tier == 0 else 'mdi:home-flood' }}
-          # ttl/priority get the push past Android's Doze batching; without them a
-          # sleeping phone may sit on the message until the screen wakes. On their own
-          # they do NOT make a notification audible under Do Not Disturb.
-          ttl: 0
-          priority: high
-          # `alarm_stream` routes the sound through Android's alarm stream, which is what
-          # gets it past silent and vibrate. Getting it past DO NOT DISTURB is a separate,
-          # DEVICE-SIDE permission that only the phone's owner can grant, once, by hand:
-          #   Settings -> Apps -> Home Assistant -> Notifications -> "alarm_stream"
-          #   -> allow it to override / ignore Do Not Disturb.
-          #
-          # The channel name is load-bearing and must stay stable: Android fixes a
-          # channel's importance and sound the first time it appears and ignores every
-          # later change. Renaming it silently starts a fresh channel with no DND
-          # permission, which reads on the phone as the alarm having stopped working.
-          channel: "{{ 'alarm_stream' if is_critical else 'Creek Watch' }}"
-          importance: "{{ 'high' if is_critical else 'default' }}"
-          # A critical alert stays put until acknowledged; lower tiers behave like any
-          # other notification.
-          sticky: "{{ 'true' if is_critical else 'false' }}"
       - <<: *creek_push
         device_id: efa8fde8c961dd7d5c23feda71661457   # primary phone
       - <<: *creek_push
