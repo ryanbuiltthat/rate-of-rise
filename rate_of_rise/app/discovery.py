@@ -9,9 +9,11 @@ ENTITY IDs: each config pins its own with `default_entity_id`, taken from `entit
 (device name plus the entity **name**). Left to itself, Home Assistant also puts the
 device's *area* in front — once the device was assigned to "Outside", 0.23.0's new
 entities registered as `outside_rate_of_rise_*`. The pin applies only when an entity is
-first registered; an existing entity keeps whatever id it already has. The `object_id`
-published below is ignored by current Home Assistant. Use `entity_ids()` rather than
-assuming, and the dashboard is checked against it in `tests/test_dashboard_entities.py`.
+first registered; an existing entity keeps whatever id it already has, so those three
+are pinned at the prefixed IDs they were registered under (`_AREA_PREFIXED`). The
+`object_id` published below is ignored by current Home Assistant. Use `entity_ids()`
+rather than assuming, and the dashboard is checked against it in
+`tests/test_dashboard_entities.py`.
 
 Only entities defined here get the device prefix. The HA-side template sensor in
 `ha-packages/creek_warning.yaml` and the RFM69 gateway keep their own IDs.
@@ -34,6 +36,11 @@ def _slugify(text: str) -> str:
 
 DISCOVERY_PREFIX = "homeassistant"
 NODE_ID = "rate_of_rise"
+
+# Registered after the device went into the "Outside" area but before the pin existed, so
+# HA put the area in front. Every dashboard card and package names them that way, so the
+# pin does too: a re-registration lands on the same IDs instead of moving them.
+_AREA_PREFIXED = {"creek_ml_shadow_probability", "creek_stage_frozen", "creek_stage_implausible"}
 
 
 class DiscoveryPublisher:
@@ -502,11 +509,17 @@ class DiscoveryPublisher:
         the two rules agree by coincidence. The ones where they diverge produced dashboard
         references to entities that never existed. Deriving IDs here — and checking the
         dashboard against them in the tests — keeps that from recurring.
+
+        The three in `_AREA_PREFIXED` also carry the `outside_` area prefix they were
+        registered with.
         """
         device_name = self._device()["name"]
         out = {}
         for component, slug, cfg in self._specs():
-            out[slug] = f"{component}.{_slugify(device_name + ' ' + cfg['name'])}"
+            name = f"{device_name} {cfg['name']}"
+            if slug in _AREA_PREFIXED:
+                name = f"Outside {name}"
+            out[slug] = f"{component}.{_slugify(name)}"
         return out
 
     def configs(self) -> list[tuple[str, dict]]:

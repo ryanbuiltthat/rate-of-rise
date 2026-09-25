@@ -51,11 +51,25 @@ def test_every_entity_pins_its_entity_id():
     """Once the device is assigned an area, Home Assistant puts the area in front of every
     entity it mints after that — 0.23.0's three new entities registered as
     `outside_rate_of_rise_*`, and every dashboard card and package watchdog naming them
-    pointed at nothing. `default_entity_id` is used verbatim, area or not."""
+    pointed at nothing. `default_entity_id` is used verbatim, area or not, so the next new
+    entity cannot repeat that."""
     pub, _ = build()
     ids = pub.entity_ids()
     for _, c in pub.configs():
         assert c.get("default_entity_id") == ids[c["object_id"]], c["object_id"]
+
+
+def test_entities_registered_before_the_pin_keep_their_area_prefix():
+    """0.23.0's three registered as `outside_rate_of_rise_*` before the pin existed, and the
+    dashboard and packages were moved to those IDs instead of renaming them in HA. Pinned
+    unprefixed, any re-registration would move them out from under the gauge-fault check."""
+    ids = build()[0].entity_ids()
+    assert ids["creek_ml_shadow_probability"] == \
+        "sensor.outside_rate_of_rise_creek_ml_shadow_probability"
+    assert ids["creek_stage_frozen"] == "binary_sensor.outside_rate_of_rise_creek_stage_frozen"
+    assert ids["creek_stage_implausible"] == \
+        "binary_sensor.outside_rate_of_rise_creek_stage_implausible"
+    assert ids["creek_stage_stale"] == "binary_sensor.rate_of_rise_creek_stage_stale"
 
 
 def test_every_entity_has_device_and_availability():
