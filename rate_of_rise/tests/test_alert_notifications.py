@@ -469,8 +469,11 @@ def test_every_watchdog_the_pushes_name_exists():
     for path in (ROOT / "ha-packages").glob("*.yaml"):
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for block in doc.get("template") or []:
+            # A trigger-based block also carries `triggers:` and `variables:`, which are not
+            # entities.
             for domain, entries in block.items():
-                templates.update(f"{domain}.{e['unique_id']}" for e in entries)
+                templates.update(f"{domain}.{e['unique_id']}" for e in entries
+                                 if isinstance(e, dict) and "unique_id" in e)
     gateway = {"binary_sensor.outside_creek_gateway_creek_node_radar_fault"}
     for auto_id in ("creek_data_watchdog_push", "creek_data_watchdog_clear"):
         for t in _health_automation(auto_id)["triggers"]:

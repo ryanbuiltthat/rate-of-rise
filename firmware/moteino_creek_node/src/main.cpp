@@ -2,11 +2,10 @@
 //
 // Reads water level via Modbus RTU from the SEN0676 80 GHz radar, packs a
 // JSON payload, and transmits over RFM69HW (915 MHz) to the ESP32 gateway.
-// Sleeps between cycles and duty-cycles the radar rail, which should hold average
-// draw to a few mA. It does not: the pack says ~60 mA, and ~5.7x more than it drew
-// before 2026-09-14. See open question #17 and the radar-rail diagnostic below.
-// Answered 2026-09-23: the SHDN wire was on the wrong header pin, so the radar never
-// powered down. It is on ~4 (PA08) now, which is what exposed the radar warm-up below. Reporting is
+// Sleeps between cycles and duty-cycles the radar rail, which holds average draw to
+// ~1.7 mA (measured 2026-09-25, open question #17). Until 2026-09-23 the SHDN wire was on
+// the wrong header pin, so the radar never powered down and the node drew ~36 mA. It is on
+// ~4 (PA08) now, which is what exposed the radar warm-up below. Reporting is
 // every 60 s normally and every 5 s once it detects the creek rising (see
 // "Adaptive crest sampling" below). Listens briefly after each TX for a
 // wireless firmware push (see firmware/README.md, OTA section) so future

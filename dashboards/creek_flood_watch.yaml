@@ -450,6 +450,23 @@ views:
           # also produces null readings. Here so a held rail is never mistaken for a fault.
           - entity: binary_sensor.outside_creek_gateway_creek_node_diagnostic_active
             name: Diagnostic running
+          # The battery pack, judged once a day at 04:30 from the night's readings, the only
+          # hours the "battery" reading is the cell rather than the charger (creek_node_health.yaml).
+          - entity: sensor.creek_node_pack_health
+            name: Battery pack
+            secondary_info: last-changed
+          - type: attribute
+            entity: sensor.creek_node_pack_health
+            attribute: reason
+            name: Why
+          - type: attribute
+            entity: sensor.creek_node_pack_health
+            attribute: reserve_days
+            name: Pack reserve
+            suffix: days
+          # Set it when a different pack goes on the pole. 0 reads as the as-built 6000 mAh.
+          - entity: input_number.creek_node_pack_capacity_mah
+            name: Pack capacity
           - entity: sensor.outside_weather_station_soil_moisture_willow
             name: Soil — near house
             secondary_info: last-changed

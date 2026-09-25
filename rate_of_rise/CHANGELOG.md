@@ -3,6 +3,29 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.23.6
+
+- **Open question #17 is resolved: the node draws ~1.7 mA.** The first clean night after
+  the SHDN rewire (2026-09-24/25) fell 0.51 mV/h, against ~10.7 on the nights the radar
+  was stuck on. The meter's 35.09 mA radar step converts that to mA without guessing an
+  OCV curve (3.4 mA per mV/h). The old "~60 mA" was really ~36 mA, and the always-on radar
+  was all of the excess. The docs, README and spec now carry the measured figure, and #11
+  and #12 are closed again: the linear charger stays and no MPPT is needed.
+- **New: `sensor.creek_node_pack_health`, reading healthy / unhealthy / replace now**
+  (`ha-packages/creek_node_health.yaml`). It is judged at 04:30 from the night's voltage,
+  the overnight slope, and whether the charger saw any input, so the 5 °C cold cutoff is
+  not read as a pack fault. "Replace now" (below 3.50 V, or above 4.25 V at night) pushes
+  to the phones through the data-problem automation. The pack's capacity is a UI number,
+  `input_number.creek_node_pack_capacity_mah`; 0 reads as the as-built 6000 mAh.
+- **The power model now follows fast sampling** (`code-snippets/creek_node_power_24h.yaml`):
+  36 mA while the gateway reports it, the ~2 mA helper otherwise, and zero when the
+  packet-based telemetry check says the link is down. Storm days had read ~20× low.
+
+**None of this arrives with the Update button.** Re-copy
+`ha-packages/creek_node_health.yaml` (and the power package, if installed) to
+`/config/ha-packages/`, then **restart HA**, because `trend` and `history_stats` are new
+integrations. The first pack verdict lands at the next 04:30.
+
 ## 0.23.5
 
 - **Fix: the add-on pinned 0.23.0's three new entities at IDs they do not have.** They

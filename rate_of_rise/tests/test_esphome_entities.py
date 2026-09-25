@@ -116,13 +116,17 @@ def test_dashboard_creek_entities_are_published_by_the_gateway():
 
     Scoped to sensor.creek_* deliberately: add-on entities carry the `rate_of_rise_`
     device prefix (test_dashboard_entities.py owns those), so they never match this
-    pattern in the first place — no exclusion needed here any more.
+    pattern in the first place. HA-package template sensors (sensor.creek_node_pack_health)
+    do match it, and are not the gateway's; test_dashboard_entities.py checks those against
+    the packages, so they are set aside here.
     """
+    from test_dashboard_entities import package_entity_ids
+
     # Comments discuss entities in prose and globs ("sensor.creek_gateway_*"), which are not
     # references; scanning them would fail the test on its own documentation.
     dash = "\n".join(line for line in DASHBOARD.read_text(encoding="utf-8").splitlines()
                      if not line.lstrip().startswith("#"))
-    referenced = set(re.findall(r"\bsensor\.creek_[a-z0-9_]+\b", dash))
+    referenced = set(re.findall(r"\bsensor\.creek_[a-z0-9_]+\b", dash)) - package_entity_ids()
     published = set(gateway_entity_ids().values())
     missing = sorted(referenced - published)
     assert not missing, f"dashboard references entities the gateway does not publish: {missing}"

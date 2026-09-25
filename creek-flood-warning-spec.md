@@ -30,7 +30,7 @@
 | RFM69HW 915 MHz modules × 2 | Node TX + gateway RX, point-to-point radio link | **Installed** |
 | ESP32 (any variant) | Gateway: RFM69HW RX + WiFi + MQTT bridge | On hand |
 | ~~ESP32-C6~~ | ~~Creek node MCU, ESPHome, WiFi~~ — **superseded by Moteino M0 + RFM69HW** (lower power, better range through trees) | ~~On hand~~ |
-| CN3791 1S MPPT solar charger + panel + 1S Li-ion pack (18650) | Creek node power. MPPT recovers the ~33% the linear bq24074 burns going 6 V → 4 V; closes the December surplus gap (open question #12). | **To purchase** (CN3791 module). Pack sizing: open questions #11-12. |
+| bq24074 linear solar charger + panel + 1S4P Li-ion pack (18650, 6 Ah) | Creek node power. The node draws ~1.7 mA (open question #17), so the linear charger's ~33 % loss going 6 V → 4 V does not matter and the CN3791 MPPT upgrade is not needed (open question #12). | **Installed.** Pack sizing: open questions #11–12. |
 | Ecowitt weather station (uploads to Weather Underground) | On-site rain, temp, wind | Installed |
 | Ecowitt WH51 soil moisture ×2 | Antecedent wetness | **Installed (×2)** |
 | Aluminum pole at the creek's edge (property low point), guy-wired above | Sensor mount | **Built** (see mounting geometry below) |
@@ -75,7 +75,7 @@
 - Report level every 60 s; pack JSON payload: `{distance_mm, battery_mv}`.
 - Transmit to gateway (node ID 2) via RFM69, then deep sleep (~6 µA on SAMD21).
 - Battery voltage via ADC + voltage divider. Sensor powered from switched 5 V rail (boost/buck EN pin).
-- Average draw ~25 mA (vs. ~50 mA with WiFi) — 6 W solar panel suffices.
+- Average draw ~1.7 mA, measured 2026-09-25 (open question #17); the solar panel is ample.
 - Firmware source: `firmware/moteino_creek_node/`. See `firmware/README.md` for wiring and build instructions.
 
 ### Gateway firmware (ESPHome, Seeed XIAO ESP32-C3)

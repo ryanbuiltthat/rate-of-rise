@@ -8,24 +8,32 @@
 # battery_mv, nothing else (firmware/moteino_creek_node/src/main.cpp), so 24-hour
 # consumption cannot be measured here — it has to be modelled:
 #
-#     power (W) = measured pack voltage  x  assumed average current
+#     power (W) = measured pack voltage  x  modelled current
 #
-# The voltage half is real, live, and from the node. The current half is a constant you
-# set once (input_number below, default 25 mA per docs/node-hardware.md "Power budget"),
-# so what comes out is a *budget tracker*, not a measurement. It is still worth having:
-# the voltage term makes it follow the pack through charge and discharge, and gating on
-# node-online (below) makes it fall when the node goes quiet. A 24-hour figure that
-# drops well under the nominal ~2.4 Wh means downtime, not thrift.
+# The voltage half is real, live, and from the node. The current half is modelled from
+# two measured figures (docs/node-hardware.md "Power budget", open question #17): the
+# input_number below, ~1.7 mA in normal 60 s reporting, and ~36 mA while the gateway
+# reports fast sampling, when the radar rail stays up. So what comes out is a *budget
+# tracker*, not a measurement. It is still worth having: it follows the node into and out
+# of fast sampling, which is where a storm day's energy goes, and it falls to zero when
+# the node goes quiet. A quiet day is ~0.19 Wh (~48 mAh). A day well under that means
+# downtime, and a day well over it means fast sampling.
+#
+# In daylight the battery sensor reads the charger's OUT rail, not the cell (up to 4.8 V;
+# see node-hardware.md). That is the rail the node runs from, so the power figure holds.
 #
 # To make it a true measurement you need current sensing on the pack rail (an INA219 or
 # INA226 on the node's I2C, its mA added to the RFM69 payload) — at which point delete
 # the input_number and the template sensor below and point the integration straight at
 # the real current sensor. The rest of the chain is unchanged.
 #
-# OFFLINE = ZERO. When binary_sensor.creek_gateway_creek_node_status is off, this
-# publishes 0 W. The node may in fact be alive and merely out of radio range, so this
-# undercounts in that case. It is the honest default anyway: the point of the number is
-# to show power spent on telemetry that actually arrived.
+# OFFLINE = ZERO. When binary_sensor.creek_gateway_creek_node_status is off, or
+# binary_sensor.creek_telemetry_stale (ha-packages/creek_node_health.yaml) is on, this
+# publishes 0 W. Both are needed: the status sensor only writes on a transition, so it can
+# sit at on after packets stop, and the packet-based stale flag is what catches that. The
+# node may in fact be alive and merely out of radio range, so this undercounts in that
+# case. It is the honest default anyway: the point of the number is to show power spent
+# on telemetry that actually arrived.
 #
 # HOW TO INSTALL — pick one
 #
@@ -40,40 +48,49 @@
 #      key only once per file. Restart HA.
 #
 #   C. Through the UI, no file editing. Settings > Devices & Services > Helpers >
-#      Create helper, four times, in this order:
+#      Create helper, five times, in this order:
 #        1. Number ............ name "Creek Node Average Current", min 1, max 250,
-#                               step 0.5, unit mA, display mode Box. Set it to 25.
-#        2. Template > sensor . name "Creek Node Power", paste the state template from
-#                               the template: block below, unit W, device class Power,
-#                               state class Measurement.
-#        3. Integral - Riemann sum integral sensor
+#                               step 0.5, unit mA, display mode Box. Set it to 2.
+#        2. Template > sensor . name "Creek Node Current", paste its state template from
+#                               the template: block below, unit mA, device class
+#                               Current, state class Measurement.
+#        3. Template > sensor . name "Creek Node Power", same again with its template,
+#                               unit W, device class Power, state class Measurement.
+#        4. Integral - Riemann sum integral sensor
 #                               input sensor.creek_node_power, method Left Riemann sum,
 #                               precision 3, max sub-interval 1 minute (REQUIRED — see
 #                               the note on the integration block), name
 #                               "Creek Node Energy".
-#        4. Statistics ........ input sensor.creek_node_energy, characteristic "change",
+#        5. Statistics ........ input sensor.creek_node_energy, characteristic "change",
 #                               max age 24:00:00, sampling size 4000, name
 #                               "Creek Node Energy 24h".
-#      The UI creates the same four entities under the same entity IDs.
+#      The UI creates the same five entities under the same entity IDs.
 #
 # Written against Home Assistant 2026.9.3 and the entity IDs the creek gateway currently
 # publishes (sensor.creek_gateway_creek_node_battery,
-# binary_sensor.creek_gateway_creek_node_status).
+# binary_sensor.creek_gateway_creek_node_status,
+# binary_sensor.outside_creek_gateway_creek_node_fast_sampling), plus
+# binary_sensor.creek_telemetry_stale from ha-packages/creek_node_health.yaml. If that
+# package is not installed, the stale check reads as "not stale" and the status sensor
+# alone decides.
 # =====================================================================================
 
 # --- The one tunable -----------------------------------------------------------------
 # Average pack-side current, everything included: Moteino M0, RFM69HW, and the SEN0676
 # on its switched 5 V boost, averaged across sleep, wake, Modbus read, TX and the
-# post-TX OTA listen window. docs/node-hardware.md puts this at ~25 mA for the installed
-# hardware; the retired ESP32-C6 node's budget was ~80 mA, which is what the panel and
-# pack were sized against.
+# post-TX OTA listen window. Measured at ~1.7 mA on 2026-09-25 (open question #17: overnight
+# pack slope, anchored by a meter reading of the radar rail), so set it to 2, the nearest
+# step. It read ~36 mA until 2026-09-23, while a miswired SHDN kept the radar on 24/7. The
+# retired ESP32-C6 node's budget was ~80 mA, which is what the panel and pack were sized
+# against.
 #
-# It is an input_number rather than a constant on purpose: it is the one number in here
-# that is a guess, and a guess worth revising from a clamp-meter reading or from watching
-# the pack discharge on a cloudy week. Adaptive crest sampling (5 s cadence during a
-# rise, FAST_REPORT_INTERVAL_S in main.cpp) pushes the true average above this for as
-# long as the creek is rising; the node does not report which mode it is in, so this
-# model cannot follow it. Storm-day figures therefore read low.
+# It is an input_number rather than a constant on purpose, so it can follow a future
+# re-measurement (an overnight slope converts at ~3.4 mA per mV/h; see node-hardware.md).
+#
+# Fast sampling is not tunable here. Adaptive crest sampling (5 s cadence during a rise,
+# FAST_REPORT_INTERVAL_S in main.cpp) holds the radar rail up, and the rail was measured
+# at 35.09 mA with the radar on. Add ~1 mA for a 5 s wake cycle and that is 36 mA, a
+# measurement rather than a guess, so it is a constant in the Creek Node Current template.
 input_number:
   creek_node_avg_current_ma:
     name: Creek Node Average Current
@@ -85,34 +102,47 @@ input_number:
     mode: box
 
 # --- Instantaneous modelled draw -----------------------------------------------------
+# Both templates never return unavailable or unknown. A Riemann sum stops accumulating
+# across a non-numeric source state, so a template that went unavailable whenever the
+# gateway restarted would quietly punch holes in the 24-hour total. Falling back to 0
+# (node down) or to a nominal 3.9 V (node up, voltage not yet in) keeps the integral
+# continuous and keeps the error where it can be reasoned about.
 template:
   - sensor:
+      # The whole model lives here: offline, fast sampling, or normal reporting.
+      - name: "Creek Node Current"
+        unique_id: creek_node_current
+        unit_of_measurement: mA
+        device_class: current
+        state_class: measurement
+        icon: mdi:current-dc
+        state: >
+          {% set online = is_state('binary_sensor.creek_gateway_creek_node_status', 'on')
+             and not is_state('binary_sensor.creek_telemetry_stale', 'on') %}
+          {% if not online %}
+            0
+          {% elif is_state('binary_sensor.outside_creek_gateway_creek_node_fast_sampling', 'on') %}
+            36
+          {% else %}
+            {{ states('input_number.creek_node_avg_current_ma') | float(2) }}
+          {% endif %}
+        attributes:
+          modelled: true
+          fast_sampling: >
+            {{ is_state('binary_sensor.outside_creek_gateway_creek_node_fast_sampling', 'on') }}
+
       - name: "Creek Node Power"
         unique_id: creek_node_power
         unit_of_measurement: W
         device_class: power
         state_class: measurement
         icon: mdi:flash
-        # Never returns unavailable or unknown. A Riemann sum stops accumulating across a
-        # non-numeric source state, so a template that went unavailable whenever the
-        # gateway restarted would quietly punch holes in the 24-hour total. Falling back
-        # to 0 W (node down) or to a nominal 3.9 V (node up, voltage not yet in) keeps
-        # the integral continuous and keeps the error where it can be reasoned about.
         state: >
-          {% set node = 'binary_sensor.creek_gateway_creek_node_status' %}
-          {% set batt = 'sensor.creek_gateway_creek_node_battery' %}
-          {% set ma = states('input_number.creek_node_avg_current_ma') | float(25) %}
-          {% if states(node) != 'on' %}
-            0
-          {% else %}
-            {{ (states(batt) | float(3.9) * ma / 1000) | round(4) }}
-          {% endif %}
+          {{ (states('sensor.creek_gateway_creek_node_battery') | float(3.9)
+              * states('sensor.creek_node_current') | float(0) / 1000) | round(4) }}
         attributes:
           modelled: true
-          assumed_current_ma: >
-            {{ states('input_number.creek_node_avg_current_ma') | float(25) }}
-          node_online: >
-            {{ states('binary_sensor.creek_gateway_creek_node_status') }}
+          current_ma: "{{ states('sensor.creek_node_current') | float(0) }}"
 
 sensor:
   # --- Cumulative energy -------------------------------------------------------------
@@ -160,38 +190,32 @@ sensor:
 # =====================================================================================
 # Watt-hours are the conventional answer to "power consumption", but every sizing figure
 # in docs/node-hardware.md is in amp-hours: the as-built pack is 1S4P of 1500 mAh cells,
-# 6000 mAh total, and the node should be spending ~600 mAh/day of it. These three give
-# that directly. Merge them into the blocks above (they are shown under their own keys
-# only so the section can be dropped in or left out as a unit).
+# 6000 mAh total, and the node should be spending ~40–50 mAh/day of it on a quiet day.
+# The capacity is input_number.creek_node_pack_capacity_mah (defined in
+# ha-packages/creek_node_health.yaml, set from the UI when the pack changes); 0 or
+# missing reads as the as-built 6000.
+# These three give that directly, from sensor.creek_node_current above. Merge them into
+# the blocks above (they are shown under their own keys only so the section can be
+# dropped in or left out as a unit).
 #
 # sensor.creek_node_pack_used_24h is the one to put on a dashboard: percent of the whole
-# pack consumed per day. Around 10 % is nominal. If it climbs while the assumed current
-# has not been touched, the pack voltage is what climbed — which means the panel is
-# working, not that the node is drawing more.
+# pack the node drew in the last day. Under 1 % is a quiet day; each hour of fast sampling
+# adds ~0.6 %. Voltage does not enter it, so it moves only with fast-sampling time, node
+# uptime and the assumed current. It is what the node drew, not what the pack lost: in
+# daylight the panel carries the load.
 #
 # template:
 #   - sensor:
-#       - name: "Creek Node Current"
-#         unique_id: creek_node_current
-#         unit_of_measurement: mA
-#         device_class: current
-#         state_class: measurement
-#         state: >
-#           {% if states('binary_sensor.creek_gateway_creek_node_status') != 'on' %}
-#             0
-#           {% else %}
-#             {{ states('input_number.creek_node_avg_current_ma') | float(25) }}
-#           {% endif %}
-#
-#       # Percent of the 6000 mAh as-built pack consumed in the last 24 h.
+#       # Percent of the installed pack drawn in the last 24 h.
 #       - name: "Creek Node Pack Used 24h"
 #         unique_id: creek_node_pack_used_24h
 #         unit_of_measurement: "%"
 #         state_class: measurement
 #         icon: mdi:battery-clock
 #         state: >
-#           {{ (states('sensor.creek_node_charge_24h') | float(0) / 6000 * 100)
-#              | round(1) }}
+#           {% set c = states('input_number.creek_node_pack_capacity_mah') | float(0) %}
+#           {{ (states('sensor.creek_node_charge_24h') | float(0)
+#               / (c if c > 0 else 6000) * 100) | round(1) }}
 #
 # sensor:
 #   - platform: integration
@@ -247,7 +271,12 @@ utility_meter:
 #     name: Pack voltage
 #   - entity: sensor.creek_node_power
 #     name: Modelled draw
+#   - entity: sensor.creek_node_current
+#     name: Modelled current
+#   - entity: binary_sensor.outside_creek_gateway_creek_node_fast_sampling
+#     name: Fast sampling
 #   - entity: input_number.creek_node_avg_current_ma
-#     name: Assumed average current
+#     name: Assumed quiet-day current
 #   - entity: binary_sensor.creek_gateway_creek_node_status
 #     name: Node link
++

@@ -65,19 +65,20 @@ Worked per the EE skill's §4.1 method, sized for the **early-spring to mid-Dece
 flood season rather than year-round.
 
 **This budget is the retired ESP32-C6 WiFi node's.** It was assumed to be pessimistic for
-the Moteino M0 + RFM69HW that replaced it. **Telemetry from the pole does not support that
-assumption**, and the ~25 mA figure this file carried until 2026-09-20 was never a
-measurement — it was a duty-cycle estimate that one revision relabelled "confirmed in field
-operation" while the table directly below it still said "estimate, unmeasured". Nothing had
-been measured. The first actual measurement (method below) puts the installed node at
-**~60 mA**, which is much nearer the retired C6's budget than the estimate was.
+the Moteino M0 + RFM69HW that replaced it, and it is, by a factor of ~45. **The installed
+node draws ~1.7 mA** (measured 2026-09-25, open question #17), which is what its firmware
+predicts. Getting there took a wiring fault found and fixed: until 2026-09-23 the radar
+ran 24/7 at 35 mA, and the pack's overnight slope was first read as ~60 mA.
 
 | | |
 |---|---|
-| SEN0676 | 30 mA (datasheet), ~35 mA from the cell through an 85 %-efficient boost |
+| SEN0676 | 30 mA (datasheet); **35.09 mA measured** on its boost's input rail |
 | ~~ESP32-C6~~ *(retired)* | ~45 mA, WiFi up with `power_save_mode: LIGHT` — **estimate** |
 | **Average, as sized** | **~80 mA** → **1.92 Ah/day = 7.1 Wh/day** at 3.7 V |
-| Moteino M0 + RFM69HW *(installed)* | **~60 mA** (40–80 mA band) → ~1.4 Ah/day — **measured from the pack, see below** |
+| Moteino M0 + RFM69HW *(installed)* | **~1.7 mA** (1–2.5 mA) → ~40 mAh/day — **measured, see below** |
+| *…same, radar rail stuck on (to 2026-09-23)* | *~36 mA — the fault #17 found* |
+
+*The rest of this section is the investigation as it stood before #17 was resolved.*
 
 **The ~60 mA is itself a surprise and probably a fault, not a budget.** Adding up what the
 firmware actually does — radar 35 mA for ~0.6 s, MCU ~11 mA, RFM69 RX for the OTA window,
@@ -96,8 +97,9 @@ drawing current continuously that should not be. The likeliest candidates, in or
 3. **Quiescent draw of the two boosts plus the charger and protection board**, which is
    budgeted at nothing anywhere in this file and never verified.
 
-Until that is resolved, treat the sizing conclusions below as resting on the *measured*
-60 mA, not the estimated 25 mA.
+*Resolved 2026-09-25: (1) was the whole of it. (2) is ruled out, and (3) is at most
+~1 mA. The sizing conclusions below were worked at 80 mA and hold with a wide margin at
+~1.7 mA.*
 
 ### Measuring average draw without a shunt
 
@@ -162,6 +164,23 @@ That makes `ΔI` a single large well-known quantity (~35 mA pack-side) instead o
 small ones, and it doubles as the test for fault #1 above — if pinning the radar on does not
 change the slope, the rail was never switching.
 
+**The anchor, as it actually arrived (2026-09-25).** The SHDN repair ran that cleaner
+variant in reverse, and a meter measured the step: the radar rail drew **35.09 mA** while
+on, and it had been on 24/7. Same clock window each night (01:56 → 10:22 UTC):
+
+```text
+before the fix (3 nights)  -10.55 / -10.79 / -10.68 ± 0.06 mV/h   pack 4.10 → 3.98 V
+after  (2026-09-24/25)      -0.51 ± 0.06 mV/h   (-0.49 ± 0.21 with temperature)   4.19 V
+ΔI = 35.09 − ~0.7 (warm-up share still drawn)  ≈ 34.4 mA  over  Δslope = 10.16 mV/h
+K  ≈ 3.4 mA per mV/h   →   now ≈ 1.7 mA,   before ≈ 36 mA
+```
+
+K sits just below the OCV band's 3.7–7.4, so the 2026-09-19/20 "~60 mA" ran about 1.6×
+high, as the band's caveat allowed. From here on, an overnight slope converts at
+**~3.4 mA per mV/h**. It is only good near the voltages it was measured at: the two
+states it compares sat at 4.0–4.1 V and 4.19 V. A slope creeping past ~1 mV/h on a quiet
+night means something has started drawing again.
+
 > **The battery sensor does not read the cell during daylight.** The Moteino M0's divider is
 > on VIN, which sits on the charger's OUT rail, and with the panel up that rail is held
 > above the cell by the bq24074's power path. Readings reach **4.83 V**, which is impossible
@@ -187,6 +206,10 @@ will matter more than any of this:
 | PSH | 3.3 | 4.0–4.8 | 3.9 | 3.0 | 2.3 | 1.9 |
 | Linear charger | ok | ok | ok | ok | ok | **short** |
 | MPPT | ok | ok | ok | ok | ok | ok |
+
+*(These needs are for the 80 mA the budget was sized against. At the installed node's
+measured ~1.7 mA, about 0.15 Wh/day, the panel is oversized by roughly 45× outside storm
+days.)*
 
 So 7 W is comfortable March through November and marginal in the first half of December,
 *only* on a linear charger. **The charger topology is worth more than another 2 W of
@@ -224,6 +247,12 @@ ice-jam and rain-on-snow risk peak.** Rain on snow is the major regional flood d
 spec §1, and an ice-jammed channel floods harder than an open one, so the tail of that
 outage lands on the highest-risk weeks of the year rather than the emptiest.
 
+**At the installed node's measured ~1.7 mA (#17) none of this arises.** Early-December
+harvest on the linear charger is ~6.6 Wh/day (the −0.5 Wh/day row plus its 7.1 Wh/day
+load), against a load of ~0.15 Wh/day. The as-built 6 Ah pack refills from empty in
+about 4 days, and a full pack alone runs the node ~100+ days. What follows is the reasoning
+at 80 mA, kept because it is why the radar is on a switched rail at all.
+
 That is the real cost of dying in winter — not the frozen days, which genuinely do not
 matter much, but the months of dead recovery afterwards. (The radar itself is not blind on
 ice: it measures distance to whatever surface is there.)
@@ -235,11 +264,12 @@ real:
 1. **Duty-cycle the radar on a switched 5 V rail.** ~80 mA → ~48 mA. This is the change
    that turns early December from a net drain into a genuine surplus, and it is worth more
    than any amount of pack. Needs a load switch, a GPIO, and a settle delay before the
-   Modbus read (datasheet: 100 ms startup). **Implemented in firmware** — `SENSOR_EN_PIN`
-   (D4) is driven high, `SENSOR_SETTLE_MS` (500 ms) is waited out, the Modbus read runs, and
-   the pin goes low again, every cycle. **Whether it is implemented in the wiring is exactly
-   what the measured 60 mA calls into question** (fault #1 above): the firmware cannot tell
-   whether the U1V11F5's SHDN pin is actually connected to D4.
+   Modbus read (datasheet: 100 ms startup). **Implemented in firmware and, since
+   2026-09-23, in the wiring.** `SENSOR_EN_PIN` (D4) is driven high, the radar is polled
+   until its reading settles (`main.cpp`, "Radar warm-up"), and the pin goes low again,
+   every cycle. Until 2026-09-23 the SHDN wire was on the wrong header pin, so the radar
+   ran 24/7 (fault #1 above). With it fixed, the node's whole draw is ~1.7 mA (#17), far
+   below even the ~48 mA this item projected.
 2. **MPPT or buck charger** instead of linear. Recovers the third of the harvest a linear
    charger burns going 6 V → 4 V.
 3. **Low-voltage protection on the pack — required either way.** Without a cutoff the C6
@@ -253,8 +283,8 @@ Settled after working the budget; see open questions #11–12 for the reasoning.
 | Role | Part | Why |
 |---|---|---|
 | Panel | 6 V, 7 W | Covers Mar–Nov; only early Dec is marginal |
-| Charger | **[Adafruit Universal USB / DC / Solar Lithium Ion/Polymer charger](https://www.adafruit.com/product/4755) (bq24074)** — **deployed** | Linear charger (~67 % efficiency going 6 V → 4 V). Chosen when the load was believed to be ~25 mA; at the measured ~60 mA the MPPT upgrade is back on the table, because the third of the harvest a linear charger burns going 6 V → 4 V is no longer covered by a huge surplus. Re-decide once the 60 mA is explained. |
-| Pack | **1S4P 18650, 1500 mAh/cell (6 Ah total, as-built)** | Compact and lightweight for pole mounting. At the measured ~60 mA this is **~4 days** of continuous runtime at 0 °C, not the ~10 days this table claimed at the estimated 25 mA. |
+| Charger | **[Adafruit Universal USB / DC / Solar Lithium Ion/Polymer charger](https://www.adafruit.com/product/4755) (bq24074)** — **deployed** | Linear charger (~67 % efficiency going 6 V → 4 V). At the measured ~1.7 mA load (#17) the third of the harvest it burns does not matter, so it stays; no MPPT upgrade. |
+| Pack | **1S4P 18650, 1500 mAh/cell (6 Ah total, as-built)** | Compact and lightweight for pole mounting. At the measured ~1.7 mA, a full pack is **~100+ days** with no charging. A storm day in fast mode (radar rail held up, 35 mA) costs ~14 % of it per 24 h. |
 | Pack protection | 1S protection board (over-discharge / over-current) | Separates "node down" from "pack scrap". **Cell to B+/B− only; charger *and* loads both to P+/P−** — the MOSFETs sit between B− and P−, so a charger on B+/B− bypasses over-charge and over-current entirely |
 | Radar rail | **Pololu U1V11F5** (5 V step-up, product 2562) | **True shutdown**: SHDN low disconnects the load rather than leaking input through, so it *is* the duty-cycle switch. <100 µA off, <1 mA running |
 | MCU rail | **Pololu U1V11F3** (3.3 V step-up, product 2561) | Boosts below 3.3 V and linearly down-regulates above, so it holds 3.3 V across the whole 1S range |
@@ -353,11 +383,9 @@ battery they throw away ~28 %, which is the same mistake as the linear charger.
 **Deployed charger:** [Adafruit bq24074](https://www.adafruit.com/product/4755), a linear 
 charger (~67 % efficiency 6 V → 4 V). It was selected against an assumed ~25 mA load on a
 6 Ah pack, where the surplus was large enough that its efficiency loss (vs. MPPT's ~90 %)
-did not matter. **At the measured ~60 mA that reasoning no longer holds on its own** — the
-daily draw is ~1.4 Ah against a pack of 6 Ah, so the third of the harvest the linear stage
-burns is now a real constraint in the shoulder months rather than slack. The bq24074 is
-simple, robust and field-proven here; keep it if the 60 mA turns out to be a wiring fault
-and the load drops back, and revisit MPPT if it does not.
+did not matter. The ~60 mA measured on 2026-09-20 briefly put that in doubt. It was a
+wiring fault, and the fixed node draws ~1.7 mA (#17), so the reasoning holds with even more
+margin. The bq24074 stays: it is simple, robust and field-proven here.
 
 **Other considerations:**
 
@@ -412,21 +440,42 @@ above.
 ### As-built pack: 1S4P, 1500 mAh/cell (6 Ah)
 
 The deployed pack is compact and lightweight for pole mounting — **6 Ah total, roughly 
-22 Wh usable at 0 °C**. The Moteino M0 + RFM69HW draws **~60 mA average**, measured from the
-pack's own overnight discharge on 2026-09-19/20 at the 60 s report cadence (method above).
-At that draw the pack alone provides **~4 days** of continuous runtime at 0 °C.
+22 Wh usable at 0 °C**. The Moteino M0 + RFM69HW draws **~1.7 mA average** at the 60 s
+report cadence (measured 2026-09-25, method above), so the pack alone provides
+**~100+ days** of runtime with no charging. Fast sampling during a rise holds the radar
+rail up at 35 mA and costs ~14 % of the pack per 24 h, which is the budget that matters now.
 
-**This is the number that used to read "~25 mA, confirmed in field operation, ~10 days".**
-It was neither confirmed nor measured — the node has no shunt, so nothing in the system was
-capable of confirming it. Four days of reserve is still enough to bridge an ordinary cloudy
-stretch in the flood season, but it is not the comfortable margin this section described,
-and it will not bridge a November one. See fault #1 in the power budget: if the radar rail
-is genuinely not switching, fixing the wiring likely recovers most of the gap and restores
-something close to the original figure.
+**This section used to read "~60 mA, ~4 days"**, and before that "~25 mA, confirmed in field
+operation, ~10 days", which was never measured. The 60 mA was a fault: a miswired SHDN kept
+the radar on 24/7 until 2026-09-23 (open question #17).
 
-Field operation 2026-09-19+ does confirm the pack holds stable voltage through rainfall
-events and solar cycling, and recovers fully each day at this time of year — the panel is
-comfortably ahead of even the 60 mA load in September.
+Field operation 2026-09-19+ confirms the pack holds stable voltage through rainfall events
+and solar cycling, and recovers fully each day at this time of year. It did so even with
+the radar stuck on.
+
+### Pack health in Home Assistant
+
+`sensor.creek_node_pack_health` (`ha-packages/creek_node_health.yaml`) reads **healthy /
+unhealthy / replace now** and is re-judged once a day at 04:30. The dark hours are the only
+time the battery reading is the cell. It works from four things:
+
+- the pre-dawn voltage;
+- the overnight slope, converted to mA at the 3.4 mA per mV/h above and scaled by the pack
+  capacity;
+- whether the charger saw any input in the last day. A reading above 4.25 V can only be the
+  charger's OUT rail;
+- whether fast sampling ran overnight. If it did, the slope is skipped.
+
+| Verdict | When |
+| --- | --- |
+| replace now | pre-dawn < 3.50 V, or > 4.25 V (charger overcharging). Pushes to the phones |
+| unhealthy | drain > 3× the quiet-day current, or < 3.90 V after a day with charge input, or no charge input and < 14 days of reserve |
+| healthy | otherwise, including a pack that is only waiting out the cold cutoff |
+
+A fast drain cannot tell a weak pack from a load that is not switching off, so it stops at
+"unhealthy" and names the SHDN wire as the other suspect. When a different pack goes on the
+pole, set `input_number.creek_node_pack_capacity_mah` from the UI. 0 reads as the as-built
+6000 mAh.
 
 ### If you build the pack
 
