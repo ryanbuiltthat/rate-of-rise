@@ -3,6 +3,15 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.23.1
+
+- **Fix: `sensor.rate_of_rise_creek_predicted_crest` and `..._creek_lag_estimate` logged
+  MQTT `ValueError`s on a null `value`.** Their `value_template`s fell back to the literal
+  string `'unknown'` instead of Jinja's `none`; both sensors declare `state_class:
+  measurement`, so HA validated `"unknown"` as a numeric state and rejected it. Every other
+  numeric sensor in `discovery.py` already used `else none` for this case — these two now
+  match.
+
 ## 0.23.0
 
 Pre-storm hardening, from an audit of the live record (HA recorder, storm log, registry)
