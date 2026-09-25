@@ -3,6 +3,25 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.23.2
+
+- **Fix: 0.23.0's three new entities did not exist under the IDs everything names.**
+  The device had been placed in the "Outside" area on 2026-09-20, and Home Assistant puts
+  the area in front of every entity it mints after that, so they registered as
+  `sensor.outside_rate_of_rise_creek_ml_shadow_probability`,
+  `binary_sensor.outside_rate_of_rise_creek_stage_frozen` and
+  `binary_sensor.outside_rate_of_rise_creek_stage_implausible`. The dashboard cards showed
+  "Entity not found" — and `creek_node_health.yaml`'s gauge-fault check read both
+  watchdogs as off, so a frozen or implausible stage could never raise its alert.
+  Every discovery config now pins its ID with `default_entity_id` (`entity_ids()`, the
+  rule the other 81 were registered under), so the next new entity cannot repeat this.
+
+### Deploying
+
+The pin applies only to an entity's first registration. The three above are already
+registered, so rename each once in HA (Settings → Entities → the entity → ⚙ → Entity ID),
+deleting the `outside_` prefix. Nothing in the repo changes for that.
+
 ## 0.23.1
 
 - **Fix: `sensor.rate_of_rise_creek_predicted_crest` and `..._creek_lag_estimate` logged

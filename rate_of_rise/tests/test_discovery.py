@@ -47,6 +47,17 @@ def test_stable_entity_id_hints_and_unique_ids():
     assert fp["state_topic"] == "creek/flood_probability"
 
 
+def test_every_entity_pins_its_entity_id():
+    """Once the device is assigned an area, Home Assistant puts the area in front of every
+    entity it mints after that — 0.23.0's three new entities registered as
+    `outside_rate_of_rise_*`, and every dashboard card and package watchdog naming them
+    pointed at nothing. `default_entity_id` is used verbatim, area or not."""
+    pub, _ = build()
+    ids = pub.entity_ids()
+    for _, c in pub.configs():
+        assert c.get("default_entity_id") == ids[c["object_id"]], c["object_id"]
+
+
 def test_every_entity_has_device_and_availability():
     pub, _ = build()
     for _, c in pub.configs():
