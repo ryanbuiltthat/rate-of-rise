@@ -87,12 +87,12 @@ class DiscoveryPublisher:
             ("sensor", "creek_predicted_crest", {
                 "name": "Creek Predicted Crest",
                 "state_topic": f"{b}/predicted_crest",
-                "value_template": "{{ value_json.value if value_json.value is not none else 'unknown' }}",
+                "value_template": "{{ value_json.value if value_json.value is not none else none }}",
                 "unit_of_measurement": "ft", "state_class": "measurement", "icon": "mdi:wave"}),
             ("sensor", "creek_lag_estimate", {
                 "name": "Creek Lag Estimate",
                 "state_topic": f"{b}/lag_estimate",
-                "value_template": "{{ value_json.value if value_json.value is not none else 'unknown' }}",
+                "value_template": "{{ value_json.value if value_json.value is not none else none }}",
                 "json_attributes_topic": f"{b}/lag_estimate",
                 "unit_of_measurement": "min", "state_class": "measurement", "icon": "mdi:timer-sand"}),
             ("sensor", "creek_alert_tier", {
