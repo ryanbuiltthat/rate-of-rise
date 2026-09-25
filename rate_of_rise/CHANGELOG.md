@@ -3,6 +3,20 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.23.3
+
+- **Fix: `creek_warning.yaml` and `creek_node_health.yaml` logged 1092 "duplicate key
+  `device_id`" warnings.** Each phone-push automation's `&anchor` block set `device_id`
+  for the "primary phone" itself and was then merged (`<<: *anchor`) into a second entry
+  that also set `device_id`; per YAML merge-key rules the explicit key should just
+  override the merged one, but HA's `annotatedyaml` loader flags that as a literal
+  duplicate instead of silently preferring the override. The three affected anchors
+  (`creek_push`, `watch_push`, `watch_clear`) are now pure templates with no `device_id`
+  of their own — every phone entry, including the primary one, sets it exactly once via
+  `<<: *anchor` + `device_id:`. **This does not arrive with the Update button — re-copy
+  both `ha-packages/creek_warning.yaml` and `ha-packages/creek_node_health.yaml` to
+  `/config/ha-packages/` and reload automations.**
+
 ## 0.23.2
 
 - **Fix: 0.23.0's three new entities did not exist under the IDs everything names.**
