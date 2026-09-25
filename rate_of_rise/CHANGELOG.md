@@ -3,7 +3,7 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
-## 0.23.1
+## 0.23.2
 
 - **Fix: 0.23.0's three new entities did not exist under the IDs everything names.**
   The device had been placed in the "Outside" area on 2026-09-20, and Home Assistant puts
@@ -21,6 +21,15 @@ The version matches `version:` in `config.yaml`; bump it to trigger the GUI Upda
 The pin applies only to an entity's first registration. The three above are already
 registered, so rename each once in HA (Settings → Entities → the entity → ⚙ → Entity ID),
 deleting the `outside_` prefix. Nothing in the repo changes for that.
+
+## 0.23.1
+
+- **Fix: `sensor.rate_of_rise_creek_predicted_crest` and `..._creek_lag_estimate` logged
+  MQTT `ValueError`s on a null `value`.** Their `value_template`s fell back to the literal
+  string `'unknown'` instead of Jinja's `none`; both sensors declare `state_class:
+  measurement`, so HA validated `"unknown"` as a numeric state and rejected it. Every other
+  numeric sensor in `discovery.py` already used `else none` for this case — these two now
+  match.
 
 ## 0.23.0
 
