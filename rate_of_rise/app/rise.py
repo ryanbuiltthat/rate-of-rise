@@ -110,7 +110,9 @@ def accepted_stage(df: pd.DataFrame, stage_max_age_minutes: float = 6.0) -> np.n
     if "stage_ft" not in df:
         return np.full(len(df), np.nan)
     stage = pd.to_numeric(df["stage_ft"], errors="coerce").to_numpy(dtype=float).copy()
-    bad = implausible_stage_mask(df).to_numpy()
+    # A copy: under pandas copy-on-write (the default from 3.0) to_numpy() hands back a
+    # read-only view, and the |= below would raise.
+    bad = implausible_stage_mask(df).to_numpy(dtype=bool, copy=True)
     if "creek_node_online" in df:
         online = df["creek_node_online"].astype("boolean")
         bad |= online.eq(False).fillna(False).to_numpy(dtype=bool)
