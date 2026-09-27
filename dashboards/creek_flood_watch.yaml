@@ -357,6 +357,8 @@ views:
             name: Active model
           - entity: sensor.rate_of_rise_creek_candidate_model
             name: Candidate model
+          - entity: binary_sensor.rate_of_rise_creek_candidate_ready
+            name: Candidate ready to promote
 
       - type: markdown
         title: Model review
@@ -387,10 +389,19 @@ views:
           `{{ state_attr('sensor.rate_of_rise_creek_model_health', 'shadow_model') or 'none' }}`.
           {% endif %}
 
+          {% set ready_reason = state_attr('binary_sensor.rate_of_rise_creek_candidate_ready', 'candidate_ready_reason') %}
+          {% if is_state('binary_sensor.rate_of_rise_creek_candidate_ready', 'on') %}
+          ✅ **Candidate is ready to promote**: {{ ready_reason }}.
+          {% elif ready_reason and ready_reason != 'no candidate' %}
+          ⏳ **Candidate not ready yet**: {{ ready_reason }}.
+          {% endif %}
+
           #### Promote
-          Activates the candidate. A candidate a held-out split could not score is
-          still promotable — the call is yours — but it is flagged here and in the
-          command result for as long as it stays active.
+          Activates the candidate. "Ready" means it cleared low starting bars on its
+          held-out split (≥ 3 positives, AUC ≥ 0.60, hit rate ≥ 20 %, false alarms
+          ≤ 80 %). A candidate that did not is still promotable — the call is yours —
+          but it is flagged here and in the command result for as long as it stays
+          active.
 
           #### Rollback
           Undoes the last promote. With no earlier model to return to, it restores

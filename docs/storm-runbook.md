@@ -168,6 +168,15 @@ caught at least one held-out positive.
 - Check the candidate's metrics on the Operator tab **before** promoting. `roc_auc`
   present means a split could score it; a bare `note` about a single-class split means
   nothing could.
+- **Candidate ready to promote** (0.23.7) does that check for you. It turns on when a
+  retrain's candidate clears deliberately low starting bars on its held-out split: at
+  least 3 positives, AUC ≥ 0.60, hit rate ≥ 20 %, false-alarm rate ≤ 80 %
+  (`READY_*` in `app/registry.py`). The Model review card says which bar a candidate
+  missed, and `creek_warning.yaml` pushes to the phones once per ready candidate. The bars
+  are low on purpose: a model's probability can only *add* tiers, since stage, rate, rain
+  and NWS rules run regardless, so a weak model costs false alarms, not missed floods.
+  Ready still waits on you to press **Promote**, and it drives alerts only with
+  `ml_drives_alerts` on.
 
 If a promoted model starts producing tiers that do not match what you can see at the
 creek, press **Rollback** and note it — that observation is worth more than the model.

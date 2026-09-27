@@ -9,7 +9,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.registry import THRESHOLD_LABEL, ModelRegistry, RegistryError  # noqa: E402
+from app.registry import (  # noqa: E402
+    READY_MAX_FALSE_ALARM_RATE, READY_MIN_HIT_RATE, READY_MIN_ROC_AUC,
+    READY_MIN_TEST_POSITIVES, THRESHOLD_LABEL, ModelRegistry, RegistryError,
+    promotion_readiness)
 
 # Stands in for a candidate a held-out split could actually score — and that caught some
 # of it — so the pointer tests below promote without tripping the unvalidated warning.
@@ -193,6 +196,67 @@ def test_candidate_version_is_readable():
     assert reg.candidate_version is None
     reg.set_candidate("v1", VALIDATED)
     assert reg.candidate_version == "v1"
+
+
+# Clears every READY_* bar with a little room, so each test below breaks exactly one.
+READY = {"roc_auc": 0.7, "hit_rate": 0.4, "false_alarm_rate": 0.6, "test_positives": 10}
+
+
+def test_no_candidate_is_not_ready():
+    snap = fresh_registry()[0].snapshot()
+    assert snap["candidate_ready"] is False
+    assert snap["candidate_ready_reason"] == "no candidate"
+
+
+def test_a_candidate_clearing_every_bar_is_ready():
+    reg, _ = fresh_registry()
+    reg.set_candidate("gbm-good", READY)
+    snap = reg.snapshot()
+    assert snap["candidate_ready"] is True, snap
+    assert "40%" in snap["candidate_ready_reason"]
+
+
+def test_the_field_candidate_with_a_single_class_split_is_not_ready():
+    """gbm-20260921T215321Z: 469 test rows, 0 positives — the case that prompted this."""
+    ready, reason = promotion_readiness({
+        "test_rows": 469, "test_positives": 0,
+        "note": "test split is single-class; precision/recall/AUC undefined"})
+    assert not ready
+    assert "single-class" in reason
+
+
+def test_each_ready_bar_is_enforced():
+    for key, bad, needle in (
+        ("test_positives", READY_MIN_TEST_POSITIVES - 1, "held-out positive"),
+        ("roc_auc", READY_MIN_ROC_AUC - 0.01, "AUC"),
+        ("hit_rate", READY_MIN_HIT_RATE - 0.01, "caught"),
+        ("false_alarm_rate", READY_MAX_FALSE_ALARM_RATE + 0.01, "false-alarm"),
+        ("false_alarm_rate", None, "undefined"),
+    ):
+        ready, reason = promotion_readiness(dict(READY, **{key: bad}))
+        assert not ready, (key, bad)
+        assert needle in reason, (key, reason)
+
+
+def test_the_bars_are_inclusive():
+    ready, _ = promotion_readiness({
+        "roc_auc": READY_MIN_ROC_AUC, "hit_rate": READY_MIN_HIT_RATE,
+        "false_alarm_rate": READY_MAX_FALSE_ALARM_RATE,
+        "test_positives": READY_MIN_TEST_POSITIVES})
+    assert ready
+
+
+def test_the_2026_09_24_zero_hit_model_is_not_ready():
+    ready, _ = promotion_readiness(
+        {"roc_auc": 0.608, "hit_rate": 0.0, "false_alarm_rate": None, "test_positives": 49})
+    assert not ready
+
+
+def test_promoting_clears_readiness():
+    reg, _ = fresh_registry()
+    reg.set_candidate("gbm-good", READY)
+    reg.promote()
+    assert reg.snapshot()["candidate_ready"] is False
 
 
 def main():

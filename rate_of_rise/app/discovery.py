@@ -196,6 +196,16 @@ class DiscoveryPublisher:
                 "state_topic": f"{b}/status/registry",
                 "value_template": "{{ value_json.candidate_version if value_json.candidate_version is not none else 'none' }}",
                 "icon": "mdi:cube-scan"}),
+            # On when the candidate clears registry.READY_* — the cue to press Promote.
+            # Attributes carry the whole registry snapshot, so `candidate_ready_reason` and
+            # `candidate_version` are there for the dashboard and the notify automation.
+            ("binary_sensor", "creek_candidate_ready", {
+                "name": "Creek Candidate Ready",
+                "state_topic": f"{b}/status/registry",
+                "value_template": "{{ 'ON' if value_json.candidate_ready else 'OFF' }}",
+                "payload_on": "ON", "payload_off": "OFF",
+                "json_attributes_topic": f"{b}/status/registry",
+                "icon": "mdi:rocket-launch-outline"}),
             # --- local creek gauge (SEN0676 via Moteino -> RFM69 gateway) ---
             # Stage itself is already published by the gateway as `sensor.creek_gateway_stage`
             # (firmware/esp32_rfm69_gateway/gateway.base.yaml), so it is not repeated here.

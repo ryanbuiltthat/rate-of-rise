@@ -3,6 +3,30 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.23.7
+
+- **New: `binary_sensor.rate_of_rise_creek_candidate_ready`, the cue to press Promote.**
+  It turns on when a retrain's candidate clears low starting bars on its held-out split:
+  at least 3 positives, AUC ≥ 0.60, hit rate ≥ 20 %, false-alarm rate ≤ 80 %
+  (`READY_*` in `app/registry.py`). The bars are low on purpose. A model's probability can
+  only add tiers, because stage, rate, rain and NWS rules still run, so a weak model costs
+  false alarms, not missed floods. The only way a model improves is to run through more
+  storms. Promotion is still a button press, and a promoted model drives alerts only with
+  `ml_drives_alerts` on.
+- The Model review card now says **ready** or **not ready**, and why. For example,
+  gbm-20260921T215321Z reads "not scored: test split is single-class".
+- The retrain command result no longer calls every candidate "ready to promote". It says
+  ready or not ready, with the reason.
+- **New automation `creek_candidate_ready`** (`ha-packages/creek_warning.yaml`). It pushes
+  to both phones on the non-critical Creek Watch channel and posts a dashboard
+  notification, once per ready candidate. Promoting it clears the dashboard notification.
+- `train.py`'s module docstring no longer describes the pre-gauge state. The SEN0676 is
+  live and `min_events_for_ml` has cleared.
+
+**Deploying:** press Update for the new entity. Then re-copy
+`ha-packages/creek_warning.yaml` to `/config/ha-packages/` and reload automations for the
+push, and re-copy the dashboard for the Model review card.
+
 ## 0.23.6
 
 - **Open question #17 is resolved: the node draws ~1.7 mA.** The first clean night after

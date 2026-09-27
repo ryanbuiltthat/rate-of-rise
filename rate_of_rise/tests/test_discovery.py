@@ -28,8 +28,8 @@ def test_topics_and_counts():
     # + 2 (2j Google flash flood) + 1 ML shadow probability
     assert len(sensors) == 59, len(sensors)
     # 3 NWS flags + rain-on-snow + ponding + storm-in-progress + 11 watchdogs
-    # + 2 gauge-fault watchdogs (stage frozen, stage implausible)
-    assert len(binaries) == 20, len(binaries)
+    # + 2 gauge-fault watchdogs (stage frozen, stage implausible) + candidate ready
+    assert len(binaries) == 21, len(binaries)
     assert len(buttons) == 4, len(buttons)
     assert len(texts) == 1, len(texts)   # annotate-latest-storm
     for topic, _ in pairs:
@@ -161,7 +161,7 @@ def test_local_gauge_rate_of_rise_sensor_present():
 def test_publish_all_emits_retained_json():
     pub, published = build()
     pub.publish_all()
-    assert len(published) == 84
+    assert len(published) == 85
     for topic, payload, retain in published:
         assert retain is True
         json.loads(payload)  # valid JSON
