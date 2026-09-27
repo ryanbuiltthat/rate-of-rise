@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import deque
 from dataclasses import asdict, dataclass
+
+import numpy as np
 
 from .config import Config
 from .ha import HAClient
@@ -41,6 +44,12 @@ class FeatureRow:
     # None). See FeatureBuilder._plausible_stage.
     stage_raw_ft: float | None = None
     stage_implausible: bool | None = None
+    # --- the creek's own recent history (stage_history_features) ---
+    # Where the creek is relative to where it just was: the rise-probability models lean on
+    # these to tell "rain is falling and the creek has not answered yet" from "it already
+    # has" — without them every row after a crest looked like the start of the next rise.
+    stage_change_1h_in: float | None = None
+    stage_above_6h_low_in: float | None = None
     # --- forecast/upstream features (Addendum C, filled by SourceCoordinator) ---
     rain_rate_in_hr: float | None = None   # raw Ecowitt rate; None = entity unavailable
     rain_1h_in: float | None = None
@@ -117,7 +126,55 @@ class FeatureRow:
 # they must be added explicitly wherever the feature payload is assembled.
 DERIVED_KEYS = ("temp_f", "rain_on_snow_flag", "rate_of_rise_in_min",
                 "stage_age_min", "creek_node_online", "rate_of_rise_sample_count",
-                "stage_raw_ft", "stage_implausible")
+                "stage_raw_ft", "stage_implausible",
+                "stage_change_1h_in", "stage_above_6h_low_in")
+
+
+# --- Stage history (stage_change_1h_in / stage_above_6h_low_in) ---
+STAGE_LOOKBACK_S = 3600.0          # "change over the last hour"
+STAGE_LOOKBACK_SLACK_S = 10 * 60.0  # ...measured against a reading within 10 min of 1 h ago
+STAGE_LOW_WINDOW_S = 6 * 3600.0    # "above the lowest point of the last 6 h"
+STAGE_LOW_MIN_SPAN_S = 3600.0      # ...once at least an hour of that window is on hand
+
+
+def stage_history_features(ts, stage) -> tuple[np.ndarray, np.ndarray]:
+    """(change over the last hour, height above the 6 h low), in inches, for every sample.
+
+    One function for both the live row (FeatureBuilder feeds it the last 6 h of accepted
+    readings and keeps the final element) and training (rise.py feeds it the whole
+    dataset), so the two can never compute these differently. `stage` holds NaN for
+    readings that must not count — offline or implausible — and those rows get NaN out.
+
+    NaN rather than a guess whenever the history cannot support the number: no reading
+    within STAGE_LOOKBACK_SLACK_S of an hour ago (a dropout, or the add-on just started),
+    or less than STAGE_LOW_MIN_SPAN_S of history behind the 6 h low.
+    """
+    ts = np.asarray(ts, dtype=float)
+    stage = np.asarray(stage, dtype=float)
+    n = len(ts)
+    change = np.full(n, np.nan)
+    above = np.full(n, np.nan)
+    good = ~np.isnan(stage)
+    gts, gst = ts[good], stage[good]
+    if not len(gts):
+        return change, above
+    for i in np.flatnonzero(good):
+        t, s = ts[i], stage[i]
+        # Nearest accepted reading to one hour ago.
+        j = int(np.searchsorted(gts, t - STAGE_LOOKBACK_S))
+        best = None
+        for k in (j - 1, j):
+            if 0 <= k < len(gts) and gts[k] < t:
+                if best is None or abs(gts[k] - (t - STAGE_LOOKBACK_S)) < abs(
+                        gts[best] - (t - STAGE_LOOKBACK_S)):
+                    best = k
+        if best is not None and abs(gts[best] - (t - STAGE_LOOKBACK_S)) <= STAGE_LOOKBACK_SLACK_S:
+            change[i] = (s - gst[best]) * 12.0
+        lo = int(np.searchsorted(gts, t - STAGE_LOW_WINDOW_S))
+        hi = int(np.searchsorted(gts, t, side="right"))
+        if hi > lo and t - gts[lo] >= STAGE_LOW_MIN_SPAN_S:
+            above[i] = (s - gst[lo:hi].min()) * 12.0
+    return change, above
 
 
 # Above this soil-moisture reading the low-lying areas are effectively saturated
@@ -148,7 +205,7 @@ def _to_fahrenheit(value: float | None, unit: str | None) -> float | None:
 # whole outage's worth of level change to a single loop interval: a creek that rose 3 in
 # over a 40-minute dropout reads as 0.6 in/min (12x the Tier 3 threshold) instead of the
 # 0.075 in/min it actually did. That is a Tier 3 Warning, and with the package's
-# `critical_from_tier: 2` it is a critical, alarm-stream push at 3 AM for nothing.
+# `critical_from_tier: 3` it is a critical, alarm-stream push at 3 AM for nothing.
 #
 # So the guards live here, where the number is made, rather than in tiers.py, where it is
 # only compared: a rate that cannot be computed honestly is reported as None, and None fires
@@ -185,6 +242,10 @@ class FeatureBuilder:
         # kept across link dropouts — see _plausible_stage.
         self._last_good: tuple[float, float] | None = None
         self._implausible_since: float | None = None
+        # (loop_ts, stage_ft) for every row whose stage was accepted, last 6 h — the input
+        # to stage_history_features. Loop time, not sample time, because that is what the
+        # dataset records and training recomputes from.
+        self._stage_6h: deque[tuple[float, float]] = deque()
         self._temp_unit: str | None = None                   # cached on first read
 
     def _node_online(self) -> bool | None:
@@ -339,6 +400,7 @@ class FeatureBuilder:
         ponding = any(s >= PONDING_SATURATION_PCT for s in present)
 
         stage_ft, rate, implausible = stage_raw, None, None
+        accepted = None     # the reading, only if it is current and believable
         if stage_raw is None or not self._link_usable(stage_age_s, node_online):
             # No reading, or the radio is down and HA is serving the last one it heard.
             # No rate across the gap. The plausibility baseline is kept (see
@@ -357,6 +419,7 @@ class FeatureBuilder:
                 stage_ft = None
             else:
                 rate = self._rate_of_rise(sample_ts, stage_raw)
+                accepted = stage_raw
 
         row = FeatureRow(
             ts=ts,
@@ -374,6 +437,7 @@ class FeatureBuilder:
             stage_raw_ft=stage_raw,
             stage_implausible=implausible,
         )
+        row.stage_change_1h_in, row.stage_above_6h_low_in = self._stage_history(ts, accepted)
         if self._sources is not None:
             for key, value in self._sources.features().items():
                 setattr(row, key, value)
@@ -384,6 +448,20 @@ class FeatureBuilder:
 
         log.debug("Built feature row: %s", row)
         return row
+
+    def _stage_history(self, ts: float, stage_ft: float | None):
+        """This row's stage_history_features, from the accepted readings of the last 6 h.
+        A row with no accepted stage (offline, implausible) gets None for both and adds
+        nothing to the history — the same rows training treats as missing."""
+        hist = self._stage_6h
+        while hist and ts - hist[0][0] > STAGE_LOW_WINDOW_S:
+            hist.popleft()
+        if stage_ft is None:
+            return None, None
+        hist.append((ts, stage_ft))
+        change, above = stage_history_features([h[0] for h in hist], [h[1] for h in hist])
+        as_opt = lambda v: None if np.isnan(v) else round(float(v), 3)  # noqa: E731
+        return as_opt(change[-1]), as_opt(above[-1])
 
     def _temp_f(self) -> float | None:
         entity = self._cfg.onsite_temp_entity

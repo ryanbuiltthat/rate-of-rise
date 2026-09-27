@@ -142,7 +142,9 @@ It governs the WPC ERO rule (Moderate+ alone, Slight only when wet) and radar ce
 (≥50 dBZ or ≤20 min out fires immediately; a marginal cell needs **two confirming scans**
 *and* primed ground). The radar confirmation exists because SCIT revises its per-scan
 track vector constantly — most inbound cells change track on the very next scan, so
-single-scan marginal alerts flapped.
+single-scan marginal alerts flapped. Once raised, a radar Watch is **held 30 min** after the
+last qualifying scan (`RadarWatchHold`, 0.24.0): cells leave the threat list as they arrive
+overhead, and the tier used to drop to All-clear before their rain reached the creek.
 
 **Every threshold in this file is an uncalibrated placeholder.** Treat a tier as a prompt
 to go look, not a validated alarm.

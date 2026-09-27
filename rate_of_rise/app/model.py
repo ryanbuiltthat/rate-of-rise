@@ -17,6 +17,11 @@ ended up raising Tier 4 on a dry evening (2026-09-13):
     the newest candidate — whether or not it is allowed near the alarm. It is published and
     recorded every loop, which is the only way to watch a model through a real storm before
     trusting it with one.
+
+A candidate is only shadowed once it has been validated (registry.is_validated). The
+September 2026 candidate had never been tested on a single positive — every one it trained
+on was an artifact — and it read 82-99 % on ordinary 1 ft rises, on the household card.
+An unscored number shown next to the real one is worse than no number.
 """
 from __future__ import annotations
 
@@ -109,7 +114,9 @@ class Model:
         """
         active = self._registry.active_version
         self._active.load(active)
-        self._shadow.load(active or self._registry.candidate_version)
+        candidate = (self._registry.candidate_version
+                     if self._registry.candidate_validated else None)
+        self._shadow.load(active or candidate)
 
     def _ml_ready(self) -> bool:
         return (self._active.booster is not None

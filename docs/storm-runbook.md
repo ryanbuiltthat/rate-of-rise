@@ -2,8 +2,8 @@
 
 What to do when a storm hits. Checklist form — meant to be readable on a phone at 2 am.
 
-> **Rate of Rise now pushes to your phone — but do not treat it as your alarm clock.** Tier 2
-> (Watch) and above send a critical push on Android's alarm stream; below that, an
+> **Rate of Rise now pushes to your phone — but do not treat it as your alarm clock.** Tier 3
+> (Warning) and above send a critical push on Android's alarm stream; Watch and below, an
 > ordinary notification. Getting it through **Do Not Disturb needs a one-time permission
 > granted on each phone by hand** — it is not Android's default and no config here can
 > set it. Until you have run `script.creek_alert_test` with DND on and actually heard it,

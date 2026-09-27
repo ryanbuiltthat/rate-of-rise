@@ -121,11 +121,14 @@ automation:
       # so it sounds at alarm volume through silent and vibrate, and stays on screen until
       # dismissed. Below it, an ordinary push.
       #
-      # Default 2 (Watch) rather than 3 (Warning): Watch — "rain is falling upstream, the
-      # creek has not answered yet" — is the tier worth waking up for in a basin where
-      # rainfall-to-crest is tens of minutes (spec §1). Raise this to 3 once the stage
-      # thresholds are calibrated, or to 5 to disable critical pushes entirely.
-      critical_from_tier: 2
+      # Default 3 (Warning) since 0.24.0; it was 2 (Watch). Watch comes from radar cells
+      # and upstream rain — on 2026-09-26/27 it came and went nine times in 30 h, several
+      # for under 10 min, while the creek rose 1-3 h later. Warning is the creek itself
+      # answering (stage, or a confirmed 0.05 in/min rise — the first real one fired at
+      # 10:22 on 2026-09-27), which is what is worth sounding through Do Not Disturb.
+      # Watch still pushes, as an ordinary notification. Lower to 2 to be woken by Watch
+      # again, or set 5 to disable critical pushes entirely.
+      critical_from_tier: 3
       # ============================================================================
 
       alert_entity: sensor.rate_of_rise_creek_alert_tier
