@@ -40,9 +40,8 @@ PACKAGE = ROOT / "ha-packages" / "creek_warning.yaml"
 # Home Assistant device ids are a 32-character lowercase hex string.
 DEVICE_ID = re.compile(r"^[0-9a-f]{32}$")
 
-# Highest tier app/tiers.py can emit, and the highest reachable without the creek gauge.
+# Highest tier app/tiers.py can emit.
 MAX_TIER = 4
-MAX_TIER_WITHOUT_GAUGE = 2
 
 
 def automation():
@@ -189,14 +188,27 @@ def test_one_dead_target_does_not_silence_the_rest():
         assert step["continue_on_error"] is True
 
 
-def test_the_critical_floor_is_reachable_today():
-    """Tiers 3-4 need the creek gauge, which is not mounted. A floor above 2 would mean
-    no critical alert can physically fire -- the feature would look wired up and never
-    make a sound."""
+def test_the_critical_floor_is_a_tier_that_can_fire():
+    """A floor above the highest tier would mean no critical alert can ever fire -- the
+    feature would look wired up and never make a sound. Tiers 3-4 need the creek gauge,
+    which has reported since 2026-09-12 and raised a real Warning on 2026-09-27, so the
+    default of 3 (Warning) is reachable; 5 is the documented way to turn criticals off and
+    is the one value above MAX_TIER allowed."""
     floor = automation()["variables"]["critical_from_tier"]
-    assert 0 <= floor <= MAX_TIER, floor
-    assert floor <= MAX_TIER_WITHOUT_GAUGE, (
-        f"critical_from_tier={floor} cannot fire until the creek gauge is mounted")
+    assert 0 <= floor <= MAX_TIER or floor == MAX_TIER + 1, floor
+
+
+def test_watch_is_an_ordinary_push_and_warning_is_critical():
+    """0.24.0 moved the floor from 2 to 3. Watch comes from radar cells and upstream rain,
+    which on 2026-09-26/27 came and went nine times in 30 h; the creek's own Warning is
+    what is worth sounding through Do Not Disturb."""
+    assert automation()["variables"]["critical_from_tier"] == 3
+    watch = render_variables(to_state={"state": "2", "label": "Watch", "why": "radar"},
+                             live={"state": "2", "label": "Watch", "why": "radar"})
+    warning = render_variables(to_state={"state": "3", "label": "Warning", "why": "rising"},
+                               live={"state": "3", "label": "Warning", "why": "rising"})
+    assert watch["is_critical"] is False
+    assert warning["is_critical"] is True
 
 
 def test_a_critical_push_routes_through_the_alarm_stream():
@@ -283,7 +295,7 @@ def test_a_manual_run_builds_its_variables_instead_of_dying():
     assert v["tier"] == 2
     assert v["label"] == "Watch"
     assert v["why"] == "upstream rain"
-    assert v["is_critical"] is True
+    assert v["is_critical"] is (2 >= automation()["variables"]["critical_from_tier"])
     assert "Tier 2" in v["push_title"]
 
 

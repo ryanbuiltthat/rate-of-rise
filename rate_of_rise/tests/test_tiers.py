@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.features import FeatureRow  # noqa: E402
-from app.tiers import compute_tier  # noqa: E402
+from app.tiers import WATCH_RADAR_HOLD_MIN, RadarWatchHold, compute_tier  # noqa: E402
 
 
 def row(**kw):
@@ -229,6 +229,51 @@ def test_a_marginal_confirmed_cell_fires_on_primed_ground():
             soil_moisture_mean_pct=90.0), 0.0)
     assert tier == 2
     assert "radar" in reasons[0]
+
+
+def _cell(ts, eta=12.0):
+    """A cell that qualifies on its own (severe), `eta` minutes out, at time `ts`."""
+    return row(ts=ts, radar_threat_eta_min=eta, radar_threat_cells=1.0,
+               radar_threat_max_dbz=52.0, radar_threat_scan_count=1.0)
+
+
+def test_a_radar_watch_is_held_after_the_cell_passes():
+    """2026-09-26/27: nine Watch episodes in 30 h, four of them 5-10 min long — each cell
+    dropped out of the threat list as it arrived, and the tier fell straight back to
+    All-clear while the rain it brought was still on its way to the creek."""
+    hold = RadarWatchHold()
+    assert compute_tier(_cell(0.0), 0.0, radar_hold=hold)[0] == 2
+    tier, _, reasons = compute_tier(row(ts=10 * 60.0), 0.0, radar_hold=hold)
+    assert tier == 2
+    assert "seen 10 min ago" in reasons[0] and "held 20 min more" in reasons[0]
+    assert compute_tier(row(ts=WATCH_RADAR_HOLD_MIN * 60.0), 0.0, radar_hold=hold)[0] == 2
+    assert compute_tier(row(ts=(WATCH_RADAR_HOLD_MIN + 1) * 60.0), 0.0,
+                        radar_hold=hold)[0] == 0
+
+
+def test_a_new_scan_restarts_the_hold():
+    hold = RadarWatchHold()
+    compute_tier(_cell(0.0), 0.0, radar_hold=hold)
+    compute_tier(row(ts=20 * 60.0), 0.0, radar_hold=hold)
+    compute_tier(_cell(25 * 60.0), 0.0, radar_hold=hold)          # the next cell
+    assert compute_tier(row(ts=50 * 60.0), 0.0, radar_hold=hold)[0] == 2
+    assert compute_tier(row(ts=56 * 60.0), 0.0, radar_hold=hold)[0] == 0
+
+
+def test_the_hold_never_raises_a_tier_by_itself():
+    hold = RadarWatchHold()
+    assert compute_tier(row(ts=0.0), 0.0, radar_hold=hold)[0] == 0      # nothing to hold
+    compute_tier(_cell(0.0), 0.0, radar_hold=hold)
+    # A higher tier still wins and is the only thing explained.
+    tier, _, reasons = compute_tier(row(ts=60.0, stage_ft=2.1), 0.0, radar_hold=hold)
+    assert tier == 3 and all("radar" not in r for r in reasons)
+    # A clock that steps backwards ends the hold rather than extending it.
+    assert compute_tier(row(ts=-600.0), 0.0, radar_hold=hold)[0] == 0
+
+
+def test_without_a_hold_every_row_stands_alone():
+    compute_tier(_cell(0.0), 0.0)
+    assert compute_tier(row(ts=60.0), 0.0)[0] == 0
 
 
 def test_stage_drives_warning_and_emergency():

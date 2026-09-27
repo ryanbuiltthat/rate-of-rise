@@ -454,7 +454,7 @@
             <div>
               <h3>Five tiers and an operator console <span class="new-tag">new</span></h3>
               <p>
-                A five-level tier ladder drives phone pushes over MQTT, escalating at Watch and
+                A five-level tier ladder drives phone pushes over MQTT, escalating at Warning and
                 above to a critical Android alarm-stream notification that sounds through
                 silent and Do Not Disturb. Any official NWS flood product floors the tier
                 independently of the model. An operator dashboard can trigger inference,
@@ -520,12 +520,12 @@
           <div class="rung" style="--tier: var(--t2)">
             <div class="bar"></div><div class="n">2</div>
             <div class="name">Watch</div>
-            <div class="cond">Rain measured upstream, radar cells inbound, or a severe/extreme Google gauge status or flash-flood polygon over the site. <strong>Critical push from here up.</strong></div>
+            <div class="cond">Rain measured upstream, radar cells inbound (held 30&nbsp;min after a cell passes), or a severe/extreme Google gauge status or flash-flood polygon over the site.</div>
           </div>
           <div class="rung" style="--tier: var(--t3)">
             <div class="bar"></div><div class="n">3</div>
             <div class="name">Warning</div>
-            <div class="cond">The creek is answering &mdash; 24&nbsp;in stage, or rising 0.05&nbsp;in/min, confirmed against radio dropouts.</div>
+            <div class="cond">The creek is answering &mdash; 24&nbsp;in stage, or rising 0.05&nbsp;in/min, confirmed against radio dropouts. <strong>Critical push from here up.</strong></div>
           </div>
           <div class="rung" style="--tier: var(--t4)">
             <div class="bar"></div><div class="n">4</div>
@@ -534,7 +534,7 @@
           </div>
         </div>
         <p style="margin-top:20px">
-          At Watch and above the notification routes through Android's alarm stream, so it
+          At Warning and above the notification routes through Android's alarm stream, so it
           sounds at alarm volume through silent, vibrate and Do Not Disturb. Any official NWS
           flood product raises the floor independently &mdash; a forecaster knows things two
           buried probes do not. A dropped radio link to the creek node can no longer manufacture

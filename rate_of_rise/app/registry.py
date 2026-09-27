@@ -125,6 +125,12 @@ class ModelRegistry:
         candidate = self._data.get("candidate")
         return candidate.get("version") if candidate else None
 
+    @property
+    def candidate_validated(self) -> bool:
+        """Whether the candidate was scored on a held-out split and caught something."""
+        candidate = self._data.get("candidate")
+        return bool(candidate) and is_validated(candidate.get("metrics"))
+
     def snapshot(self) -> dict:
         """Compact, JSON-serializable view for the `creek/status/registry` topic."""
         active = self._data.get("active") or {}

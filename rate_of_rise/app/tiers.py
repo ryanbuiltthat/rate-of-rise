@@ -109,6 +109,13 @@ WATCH_RADAR_IMMINENT_ETA_MIN = 20.0
 # single noisy SCIT vector estimate causes on a cell that isn't urgent enough to act on
 # immediately anyway.
 WATCH_RADAR_CONFIRM_SCANS = 2.0
+# A radar Watch outlives the scan that earned it by this long (RadarWatchHold). A cell
+# leaves the threat list the moment it arrives overhead (ETA 0), dips below 40 dBZ for one
+# scan, or its track wobbles, and each time the tier dropped straight back to All-clear:
+# on 2026-09-26/27 that was nine Watch episodes in 30 h, four of them 5-10 min long, while
+# the creek's rises came 1-3 h after the cells. The rain a cell brings arrives after it
+# does, so the Watch stays up after it too.
+WATCH_RADAR_HOLD_MIN = 30.0
 
 # --- Tier 3 Warning: creek responding (gauge required) ---
 WARNING_STAGE_FT = 2.0             # bank top is +3 ft (spec §2)
@@ -141,6 +148,36 @@ NWS_WARNING_FLOOR = 2              # Watch — the rule §6 mandates
 NWS_FLASH_WARNING_FLOOR = 3        # Warning
 
 
+class RadarWatchHold:
+    """Keeps a radar Watch up for WATCH_RADAR_HOLD_MIN after the last scan that raised it.
+
+    compute_tier sees one row and remembers nothing, so the memory lives here, owned by
+    the service loop. A restart forgets it — at worst one early drop, which the
+    notification automation's own 15-minute hold on drops still absorbs.
+    """
+
+    def __init__(self, hold_min: float = WATCH_RADAR_HOLD_MIN):
+        self._hold_s = hold_min * 60.0
+        self._last_ts: float | None = None
+        self._last_reason: str | None = None
+
+    def apply(self, ts: float, reason: str | None) -> str | None:
+        """The radar reason for this row. A fresh one is recorded and returned; without
+        one, the last stands (saying how old it is) until the hold runs out."""
+        if reason is not None:
+            self._last_ts, self._last_reason = ts, reason
+            return reason
+        if self._last_ts is None:
+            return None
+        age_s = ts - self._last_ts
+        if not 0 <= age_s <= self._hold_s:
+            self._last_ts = self._last_reason = None
+            return None
+        remaining = (self._hold_s - age_s) / 60.0
+        return (f"{self._last_reason} — seen {age_s / 60.0:.0f} min ago, "
+                f"Watch held {remaining:.0f} min more")
+
+
 def _ge(value: float | None, threshold: float) -> bool:
     """True only when we actually have a reading — a missing feature never fires a tier."""
     return value is not None and value >= threshold
@@ -150,8 +187,12 @@ def compute_tier(
     row: FeatureRow,
     flood_probability: float | None,
     ror_confirm_samples: int | None = None,
+    radar_hold: RadarWatchHold | None = None,
 ) -> tuple[int, str, list[str]]:
-    """Highest tier whose conditions are met, with the reasons that got it there."""
+    """Highest tier whose conditions are met, with the reasons that got it there.
+
+    `radar_hold`, when given, keeps a radar Watch up after its cell has passed — see
+    RadarWatchHold. The service passes one; without it every row is judged alone."""
     p = flood_probability or 0.0
     if ror_confirm_samples is None:
         ror_confirm_samples = WARNING_RATE_OF_RISE_CONFIRM_SAMPLES
@@ -220,6 +261,7 @@ def compute_tier(
         reasons.append((2, f"{row.rain_6h_in:.2f}\" on-site rain in 6 h"))
     # Note the inverted comparison: a *smaller* ETA is the worse condition, so _ge does
     # not apply — and a missing ETA (None = no inbound cell) must still never fire.
+    radar_reason = None
     if row.radar_threat_eta_min is not None and row.radar_threat_eta_min <= WATCH_RADAR_ETA_MIN:
         severe = _ge(row.radar_threat_max_dbz, WATCH_RADAR_SEVERE_DBZ)
         imminent = row.radar_threat_eta_min <= WATCH_RADAR_IMMINENT_ETA_MIN
@@ -229,8 +271,12 @@ def compute_tier(
         if severe or imminent or (confirmed and primed):
             count = int(row.radar_threat_cells or 1)
             dbz = f" ({row.radar_threat_max_dbz:.0f} dBZ)" if row.radar_threat_max_dbz else ""
-            reasons.append((2, f"{count} radar cell(s) inbound{dbz}, "
-                               f"~{row.radar_threat_eta_min:.0f} min out"))
+            radar_reason = (f"{count} radar cell(s) inbound{dbz}, "
+                            f"~{row.radar_threat_eta_min:.0f} min out")
+    if radar_hold is not None:
+        radar_reason = radar_hold.apply(row.ts, radar_reason)
+    if radar_reason:
+        reasons.append((2, radar_reason))
     if p >= WATCH_PROBABILITY:
         reasons.append((2, f"model probability {p * 100:.0f}%"))
 
