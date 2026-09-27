@@ -59,7 +59,9 @@ Two things still need a **one-time** manual setup (they can't come from the add-
    `critical_from_tier` (in the automation's variables, near the top) sets which tier
    makes the push CRITICAL: at or above it, the push goes out on Android's
    `alarm_stream` channel, so it sounds at alarm volume through silent and vibrate and
-   stays on screen until dismissed. Below it, an ordinary notification.
+   stays on screen until dismissed. Below it, an ordinary notification. The default is
+   **3 (Warning)** — the creek itself answering; Watch, which radar cells and upstream
+   rain raise, is an ordinary push. It was 2 before 0.24.0.
 
    > **Required, once, per phone: let the channel override Do Not Disturb.** This is not
    > a formality and it is not Android's default — the companion app documentation is
@@ -144,6 +146,8 @@ Set these on the **Configuration** tab.
 | `rate_of_rise_window_minutes` | `10` | Rate of rise is measured against a reading at least this old, never the previous one. A still creek flickers 1–2 mm between reports; over one ~63 s report that read as 0.075 in/min, over the Warning. See *Radio dropouts and false rate-of-rise alarms* |
 | `max_stage_rise_in_min` | `2.0` | Fastest rise the creek can physically make. A jump past it is withheld from the tiers as a sensor fault and raises *Creek Stage Implausible* (the 2026-09-17 false Emergency). Believed if it holds 30 min |
 | `ml_drives_alerts` | `false` | Off: a promoted model runs in **shadow** — published as *Creek ML Shadow Probability* and recorded every loop, while the tiers use the threshold estimate. On: a promoted model past `min_events_for_ml` drives the tiers (20 % Watch, 50 % Warning, 80 % Emergency) |
+| `rise_1h_threshold_in` | `0.5` | *Creek Rise Probability 1h* is the chance the creek comes up at least this many inches within the next hour. Changing it retrains that model at the next add-on start |
+| `rise_3h_threshold_in` | `1.0` | The same for *Creek Rise Probability 3h*, over the next three hours |
 | `google_floods_api_key` | `""` | Google Flood Forecasting API key (Google Cloud project + the API enabled). Setting it enables two reads: the gauges Google models within 25 mi of the site with their forecast status (neighbouring rivers, capped at Tier 2 Watch), and flash-flood polygon containment of the site itself (also capped at Tier 2 Watch). Blank disables both |
 | `wu_api_key` | `""` | Optional (Weather Underground PWS) |
 | `nwm_reach_id` | `<nwm reach id>` | NWM reach at the sensor site (open question #3) |
@@ -188,9 +192,18 @@ label, and the reasons that fired:
 |---|---|---|---|
 | 0 | All-clear | nothing elevated | — |
 | 1 | Advisory | NWS QPF + antecedent soil moisture | No |
-| 2 | Watch | upstream / on-site rain accumulation | No |
+| 2 | Watch | upstream / on-site rain accumulation, inbound radar cells | No |
 | 3 | Warning | stage, rate-of-rise | Yes |
 | 4 | Emergency | stage near bank top | Yes |
+
+**A radar Watch is held for 30 min after the last scan that raised it**
+(`WATCH_RADAR_HOLD_MIN`, `tiers.RadarWatchHold`). A cell drops out of the threat list as it
+arrives overhead, dips below 40 dBZ for a scan, or wobbles off its track, and each time the
+tier used to fall straight back to All-clear — nine Watch episodes in 30 h on 2026-09-26/27,
+four of them 5–10 min long, while the creek's rises came 1–3 h after the cells. The reason
+says when the cell was last seen and how long the hold has left. The hold is in the add-on's
+memory, so a restart forgets it; the notification automation's 15-minute hold on drops
+covers that.
 
 An active NWS product additionally sets a **floor** on the tier, whatever our own sensors
 say (spec §6): Flood Watch → ≥ Advisory, Flood Warning → ≥ Watch, Flash Flood Warning →
@@ -215,7 +228,7 @@ the last value the node sent. Difference the first reading after the link return
 that stale one and the whole outage's worth of level change lands in a single loop interval:
 a creek that rose 3 in over a 40-minute dropout reads as **0.6 in/min**, twelve times the
 Tier 3 threshold, instead of the 0.075 in/min it actually did. With the package's
-`critical_from_tier: 2`, that is a critical alarm-stream push for a creek doing nothing
+`critical_from_tier: 3`, that is a critical alarm-stream push for a creek doing nothing
 unusual.
 
 Four guards stop it, all in `app/features.py` and `app/tiers.py`:
@@ -340,7 +353,7 @@ all; Promote says so at the press and keeps saying so while such a model is acti
 storms accumulate, the threshold estimate is the honest answer and the tier thresholds
 stay placeholders.
 
-**Candidate ready (0.23.7).** `binary_sensor.rate_of_rise_creek_candidate_ready` turns on
+**Candidate ready (0.24.1).** `binary_sensor.rate_of_rise_creek_candidate_ready` turns on
 when a candidate clears low starting bars on its held-out split: at least 3 positives,
 AUC ≥ 0.60, hit rate ≥ 20 %, false-alarm rate ≤ 80 % (`READY_*` in `app/registry.py`).
 Its `candidate_ready_reason` attribute names the bar a candidate missed, or summarizes
@@ -358,6 +371,31 @@ implausible stages and rates without a confirmed sample count; "validated" now a
 catching at least one held-out positive (the model active on 2026-09-24 had AUC 0.608 and
 caught 0 of 49); and inference undoes the class weighting, which inflated probabilities by
 up to ~34x in odds against the fixed 20/50/80 % tier cut-offs.
+
+**Rise probability (0.24.0).** The Warning-tier model above has nothing to learn from until
+the creek reaches Warning, and a season can pass without that. *Creek Rise Probability 1h*
+and *3h* ask a question every storm answers instead: will the creek come up at least
+`rise_1h_threshold_in` (default 0.5 in) within the hour, or `rise_3h_threshold_in` (1.0 in)
+within three? They are refitted every nightly batch and at startup when missing, are used
+as soon as they are fitted, and **never drive a tier** — they are published for people to
+read. Each sensor's attributes carry the threshold and the model's scores:
+
+- `brier_skill` — above 0 means better than always quoting the base rate. The number to watch.
+- `episodes` / `episodes_flagged` — separate rises on record, and how many of them a model
+  that never saw that storm put at 50 % or more.
+- `quiet_false_alarms` — rows at 50 %+ with no storm and no rise anywhere near them.
+- `trustworthy` — at least two rises, positive skill, and one flagged.
+
+Every score is leave-one-storm-out: a 5-minute series has hundreds of near-identical rows per
+storm, and a row-level split would test the model on the storm it learned from. The creek's
+own recent movement is an input (*Creek Stage Change 1h*, *Creek Stage Above 6h Low*, both
+also published) — without it, the rows just after a crest, still raining, looked like the
+start of the next rise. Fitted on rises of an inch or two from a creek near 1 ft, these say
+nothing about what the creek does out of its banks.
+
+Since 0.24.0 an unvalidated candidate is no longer shown as *Creek ML Shadow Probability*:
+the September 2026 candidate, never tested on a real positive, read 82–99 % on ordinary
+1 ft rises on the household card.
 
 > **Calibration note:** WH51 soil-moisture readings are relative (0–100 %) and site-specific.
 > The saturated/dry endpoints need field calibration (open question #7) before the ponding

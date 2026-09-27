@@ -137,6 +137,11 @@ class Config:
     # promoted model then runs in shadow — computed, published and recorded, but the tiers
     # use the threshold estimate — until its storms-on-record justify handing it the alarm.
     ml_drives_alerts: bool = False
+    # Rise probability (app/rise.py): the rise, in inches, each horizon's model is asked
+    # about. Defaults are the smallest rises every storm on record produced, so there is
+    # something to learn from; raise them once bigger storms are on record.
+    rise_1h_threshold_in: float = 0.5
+    rise_3h_threshold_in: float = 1.0
     upstream_pws_ids: list[str] = field(default_factory=list)
     usgs_downstream: bool = True
     snodas_swe: bool = True
@@ -178,6 +183,8 @@ class Config:
             rate_of_rise_confirm_samples=int(env.get("RATE_OF_RISE_CONFIRM_SAMPLES", 2)),
             rate_of_rise_window_minutes=_num(env, "RATE_OF_RISE_WINDOW_MINUTES", 10.0),
             max_stage_rise_in_min=_num(env, "MAX_STAGE_RISE_IN_MIN", 2.0),
+            rise_1h_threshold_in=_num(env, "RISE_1H_THRESHOLD_IN", 0.5),
+            rise_3h_threshold_in=_num(env, "RISE_3H_THRESHOLD_IN", 1.0),
             google_floods_api_key=_optional(env.get("GOOGLE_FLOODS_API_KEY")),
             wu_api_key=_optional(env.get("WU_API_KEY")),
             nwm_reach_id=_optional(env.get("NWM_REACH_ID")),
@@ -207,6 +214,11 @@ class Config:
             ha_api_url=env.get("HA_API_URL", "http://supervisor/core/api"),
             supervisor_token=env.get("SUPERVISOR_TOKEN", ""),
         )
+
+    @property
+    def rise_thresholds(self) -> dict[int, float]:
+        """{horizon_min: inches} for rise.RiseModels."""
+        return {60: self.rise_1h_threshold_in, 180: self.rise_3h_threshold_in}
 
     @property
     def py_log_level(self) -> int:

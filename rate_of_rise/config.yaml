@@ -1,5 +1,5 @@
 name: Rate of Rise
-version: "0.23.7"
+version: "0.24.1"
 slug: rate_of_rise
 description: Flood-probability + predicted-stage inference and nightly retrain for the creek.
 url: https://github.com/ryanbuiltthat/rate-of-rise
@@ -69,6 +69,12 @@ options:
   # On: a promoted model past min_events_for_ml drives the tiers (20 % Watch, 50 % Warning,
   # 80 % Emergency). Leave off until a model has been watched through real storms.
   ml_drives_alerts: false
+  # --- Rise probability (Creek Rise Probability 1h / 3h) ---------------------------------
+  # The chance the creek comes up this many inches within the next hour / three hours,
+  # fitted nightly on this creek's own storms. Informational only -- never drives a tier.
+  # Changing a value retrains that model at the next add-on start.
+  rise_1h_threshold_in: 0.5
+  rise_3h_threshold_in: 1.0
   # Google Flood Forecasting (floodforecasting.googleapis.com) — needs a Google Cloud
   # project with the API enabled and an API key. Setting it enables two reads: the
   # gauges Google models within 25 mi of the site (neighbouring rivers, not this creek —
@@ -151,6 +157,8 @@ schema:
   rate_of_rise_window_minutes: float(5.0,60.0)
   max_stage_rise_in_min: float(0.5,20.0)
   ml_drives_alerts: bool
+  rise_1h_threshold_in: float(0.1,24.0)
+  rise_3h_threshold_in: float(0.1,36.0)
   google_floods_api_key: password?
   wu_api_key: password?
   nwm_reach_id: str?

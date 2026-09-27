@@ -106,11 +106,11 @@ Escalation ladder — each rung is the lowest condition that reaches it.
 |---|---|---|
 | 0 | All-clear | No elevated risk. Nothing fires. |
 | 1 | Advisory | Forecast rain onto already-wet ground, or a WPC excessive-rain risk. |
-| 2 | Watch | Rain measured upstream, or radar cells inbound. **Critical push from here up.** |
-| 3 | Warning | The creek is answering — 24 in stage, or rising 0.05 in/min. |
+| 2 | Watch | Rain measured upstream, or radar cells inbound (held 30 min after a cell passes). |
+| 3 | Warning | The creek is answering — 24 in stage, or rising 0.05 in/min. **Critical push from here up.** |
 | 4 | Emergency | 30 in and climbing — overbank imminent. |
 
-At Watch and above the notification routes through Android's alarm stream, so it sounds at
+At Warning and above the notification routes through Android's alarm stream, so it sounds at
 alarm volume through silent, vibrate and Do Not Disturb. Any official NWS flood product
 raises the floor independently — a forecaster knows things two buried probes do not.
 

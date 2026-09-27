@@ -91,6 +91,20 @@ class DiscoveryPublisher:
                 "unit_of_measurement": "%", "state_class": "measurement",
                 "json_attributes_topic": f"{b}/flood_probability",
                 "icon": "mdi:brain"}),
+            # Chance the creek comes up `threshold_in` inches within the hour / three hours
+            # (rise.py). Informational: nothing reads these to raise a tier. Attributes carry
+            # the threshold, the model's held-out scores, and why it is unknown when it is.
+            *(
+                ("sensor", f"creek_rise_probability_{label}", {
+                    "name": f"Creek Rise Probability {label}",
+                    "state_topic": f"{b}/rise/{label}",
+                    "value_template": ("{{ (value_json.value | float(0) * 100) | round(0) "
+                                       "if value_json.value is not none else none }}"),
+                    "unit_of_measurement": "%", "state_class": "measurement",
+                    "json_attributes_topic": f"{b}/rise/{label}",
+                    "icon": "mdi:arrow-up-bold-circle-outline"})
+                for label in ("1h", "3h")
+            ),
             ("sensor", "creek_predicted_crest", {
                 "name": "Creek Predicted Crest",
                 "state_topic": f"{b}/predicted_crest",
@@ -219,6 +233,21 @@ class DiscoveryPublisher:
                 "value_template": "{{ value_json.rate_of_rise_in_min if value_json.rate_of_rise_in_min is not none else none }}",
                 "unit_of_measurement": "in/min", "state_class": "measurement",
                 "icon": "mdi:trending-up"}),
+            # Where the creek is against where it just was (features.stage_history_features)
+            # — the plain-number companions to the rise probabilities. Unknown until an hour
+            # of accepted readings is on hand, and across a dropout.
+            ("sensor", "creek_stage_change_1h", {
+                "name": "Creek Stage Change 1h",
+                "state_topic": f"{b}/features",
+                "value_template": "{{ value_json.stage_change_1h_in if value_json.stage_change_1h_in is not none else none }}",
+                "unit_of_measurement": "in", "state_class": "measurement",
+                "icon": "mdi:delta"}),
+            ("sensor", "creek_stage_above_6h_low", {
+                "name": "Creek Stage Above 6h Low",
+                "state_topic": f"{b}/features",
+                "value_template": "{{ value_json.stage_above_6h_low_in if value_json.stage_above_6h_low_in is not none else none }}",
+                "unit_of_measurement": "in", "state_class": "measurement",
+                "icon": "mdi:arrow-collapse-up"}),
             # How old the stage reading behind that rate is. Blank rate + a climbing age is
             # the signature of a dropped radio link, and it is the difference between "the
             # creek is not rising" and "nobody is watching the creek" — which the stage

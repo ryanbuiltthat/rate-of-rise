@@ -170,6 +170,21 @@ def test_with_nothing_active_the_shadow_is_the_newest_candidate():
     assert model.shadow(row())[1] == result.version
 
 
+def test_an_unscored_candidate_is_not_shadowed():
+    """The September 2026 candidate had never been tested on a positive and read 82-99 % on
+    ordinary 1 ft rises — on the household card, as "ML shadow". A candidate is shadowed
+    only once its held-out split could say whether it is any good."""
+    d = Path(tempfile.mkdtemp())
+    registry = ModelRegistry(d)
+    result = _trained_artifact(d)
+    registry.set_candidate(result.version, {"test_positives": 0,
+                                            "note": "test split is single-class"})
+    model = Model(Config(), registry, d)
+    assert model.shadow(row()) is None and model.shadow_version is None
+    registry.set_candidate(result.version, result.metrics)     # a scored one is watched
+    assert model.shadow(row())[1] == result.version
+
+
 def test_no_model_at_all_means_no_shadow():
     d = Path(tempfile.mkdtemp())
     model = Model(Config(), ModelRegistry(d), d)

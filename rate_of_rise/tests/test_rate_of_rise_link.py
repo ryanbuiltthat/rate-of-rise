@@ -7,7 +7,7 @@ Three field failures these guard against:
     differenced against the last one from before the outage. The whole outage's level
     change was charged to one loop interval, read as 0.177 in/min, and fired a Tier 3
     Warning — a critical, alarm-stream push (ha-packages/creek_warning.yaml,
-    `critical_from_tier: 2`) for a creek that was not doing anything unusual.
+    `critical_from_tier: 3`) for a creek that was not doing anything unusual.
   * 2026-09-21/22: rate of rise was taken between the last value *change* before each poll,
     which could be one node report (~63 s) apart. The node reports whole millimetres and a
     still creek flickers 1-2 mm, so 1 mm read as 0.0375 in/min and 2 mm as 0.075 in/min —

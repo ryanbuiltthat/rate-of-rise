@@ -2,8 +2,8 @@
 
 What to do when a storm hits. Checklist form — meant to be readable on a phone at 2 am.
 
-> **Rate of Rise now pushes to your phone — but do not treat it as your alarm clock.** Tier 2
-> (Watch) and above send a critical push on Android's alarm stream; below that, an
+> **Rate of Rise now pushes to your phone — but do not treat it as your alarm clock.** Tier 3
+> (Warning) and above send a critical push on Android's alarm stream; Watch and below, an
 > ordinary notification. Getting it through **Do Not Disturb needs a one-time permission
 > granted on each phone by hand** — it is not Android's default and no config here can
 > set it. Until you have run `script.creek_alert_test` with DND on and actually heard it,
@@ -168,7 +168,7 @@ caught at least one held-out positive.
 - Check the candidate's metrics on the Operator tab **before** promoting. `roc_auc`
   present means a split could score it; a bare `note` about a single-class split means
   nothing could.
-- **Candidate ready to promote** (0.23.7) does that check for you. It turns on when a
+- **Candidate ready to promote** (0.24.1) does that check for you. It turns on when a
   retrain's candidate clears deliberately low starting bars on its held-out split: at
   least 3 positives, AUC ≥ 0.60, hit rate ≥ 20 %, false-alarm rate ≤ 80 %
   (`READY_*` in `app/registry.py`). The Model review card says which bar a candidate

@@ -29,11 +29,12 @@ from .ha import HAClient
 from .model import Model
 from .mqtt_client import MqttClient
 from .registry import ModelRegistry, promotion_readiness
+from .rise import HORIZONS_MIN, LABELS as RISE_LABELS, RiseModels, train_rise
 from .stagelog import StageLogger, stage_log_dir
 from .storms import StormLog
 from .sources import FEATURE_KEYS, SourceCoordinator
 from . import train
-from .tiers import compute_tier
+from .tiers import RadarWatchHold, compute_tier
 
 log = logging.getLogger("app")
 
@@ -66,6 +67,7 @@ def _run_inference_once(
     features: FeatureBuilder, model: Model, dataset: DatasetWriter,
     mqtt: MqttClient, status: dict, health: HealthTracker = None, sources=None,
     storms: StormLog = None, ror_confirm_samples: int | None = None,
+    rise_models: RiseModels = None, radar_hold: RadarWatchHold = None,
 ) -> str:
     row = features.build()
     pred = model.predict(row)
@@ -73,8 +75,12 @@ def _run_inference_once(
     ml_value, ml_version = shadow if shadow is not None else (None, None)
     mqtt.publish("flood_probability", {"value": pred.flood_probability, "method": pred.method,
                                        "ml_value": ml_value, "ml_version": ml_version})
+    rise = rise_models.predict(row) if rise_models is not None else {}
+    for horizon, payload in rise.items():
+        mqtt.publish(f"rise/{RISE_LABELS[horizon]}", payload)
     mqtt.publish("predicted_crest", {"value": pred.predicted_crest_ft})
-    tier, label, reasons = compute_tier(row, pred.flood_probability, ror_confirm_samples)
+    tier, label, reasons = compute_tier(row, pred.flood_probability, ror_confirm_samples,
+                                        radar_hold)
     mqtt.publish("alert_tier", {"value": tier, "label": label, "reasons": reasons,
                                 "why": "; ".join(reasons) or "nothing elevated"})
     mqtt.publish("features",
@@ -90,7 +96,9 @@ def _run_inference_once(
                      health.evaluate(row, sources.health(), sources.configured()))
     dataset.append_row(row, {"alert_tier": tier, "flood_probability": pred.flood_probability,
                              "probability_method": pred.method, "ml_probability": ml_value,
-                             "ml_version": ml_version})
+                             "ml_version": ml_version,
+                             **{f"rise_p_{RISE_LABELS[h]}": v["value"]
+                                for h, v in rise.items()}})
     if storms is not None:
         if storms.observe(row, tier) is not None:
             _publish_storms(mqtt, storms)
@@ -161,9 +169,51 @@ def _retrain(cfg: Config, dataset: DatasetWriter, registry: ModelRegistry,
     return f"candidate {result.version} {verdict} ({reason}): {result.metrics}"
 
 
+def _storm_windows(storms: StormLog | None) -> list[tuple[float, float]]:
+    """(start, end) of every storm on record; an open one runs to its last rain (or now)."""
+    if storms is None:
+        return []
+    out = []
+    for e in storms.events(limit=100_000):
+        end = e.get("ended_ts") or e.get("last_rain_ts") or time.time()
+        out.append((float(e["started_ts"]), float(end)))
+    return out
+
+
+def _retrain_rise(cfg: Config, dataset: DatasetWriter, rise_models: RiseModels | None,
+                  storms: StormLog | None, data_dir) -> str:
+    """Refit both rise-probability models (rise.py). Not gated on min_events_for_ml: the
+    rises themselves are the evidence, and train_rise refuses when there are too few.
+    The newest fit is used at once — these never drive a tier, so there is no Promote."""
+    if rise_models is None:
+        return "off"
+    frame = dataset.frame()
+    windows = _storm_windows(storms)
+    parts = []
+    for horizon in HORIZONS_MIN:
+        threshold = cfg.rise_thresholds[horizon]
+        try:
+            result = train_rise(frame, data_dir, horizon, threshold, windows,
+                                cfg.rate_of_rise_confirm_samples, cfg.stage_max_age_minutes)
+        except Exception:     # a failed fit leaves the previous model answering
+            log.exception("rise model training failed for %d min", horizon)
+            parts.append(f"{RISE_LABELS[horizon]}: failed (see log)")
+            continue
+        if result.version:
+            m = result.metrics
+            parts.append(f"{RISE_LABELS[horizon]}: {result.version} skill={m.get('brier_skill')} "
+                         f"rises={m.get('episodes')} flagged={m.get('episodes_flagged')}")
+        else:
+            rise_models.set_reason(horizon, result.reason)
+            parts.append(f"{RISE_LABELS[horizon]}: {result.reason}")
+    rise_models.reload()
+    return "; ".join(parts)
+
+
 def _nightly_batch(
     cfg: Config, dataset: DatasetWriter, mqtt: MqttClient, model: Model,
     registry: ModelRegistry, status: dict, storms: StormLog = None,
+    rise_models: RiseModels = None,
 ) -> str:
     # Fold yesterday's part files into the Parquet dataset (§4 "append day's data").
     rows = dataset.consolidate()
@@ -179,15 +229,16 @@ def _nightly_batch(
     _publish_lag(mqtt, lag)
 
     retrain_result = _retrain(cfg, dataset, registry, model, DATA_DIR)
+    rise_result = _retrain_rise(cfg, dataset, rise_models, storms, DATA_DIR)
 
-    log.info("Nightly batch: dataset=%d rows, events=%d, lag=%s, retrain=%s",
-             rows, model.event_count(), lag["lag_minutes"], retrain_result)
+    log.info("Nightly batch: dataset=%d rows, events=%d, lag=%s, retrain=%s, rise=%s",
+             rows, model.event_count(), lag["lag_minutes"], retrain_result, rise_result)
     ran_at = _now_iso()
     status["last_nightly_at"] = ran_at
     method = _publish_model_health(cfg, mqtt, rows, model, ran_at)
     _publish_registry(mqtt, registry)
     return (f"rows={rows} events={model.event_count()} lag={lag['lag_minutes']} "
-            f"method={method} retrain={retrain_result}")
+            f"method={method} retrain={retrain_result} rise=[{rise_result}]")
 
 
 def _process_commands(
@@ -234,6 +285,8 @@ def main() -> int:
     features = FeatureBuilder(cfg, ha, sources)
     health = HealthTracker()
     model = Model(cfg, registry, data_dir)
+    rise_models = RiseModels(data_dir, cfg.rise_thresholds, cfg.rate_of_rise_confirm_samples)
+    radar_hold = RadarWatchHold()     # one per service: the memory compute_tier lacks
     dataset = DatasetWriter(data_dir)
     storms = StormLog(
         data_dir, SHARE_DIR,
@@ -263,9 +316,9 @@ def main() -> int:
         {
             "run_inference": lambda payload: _run_inference_once(
                 features, model, dataset, mqtt, status, health, sources, storms,
-                cfg.rate_of_rise_confirm_samples),
+                cfg.rate_of_rise_confirm_samples, rise_models, radar_hold),
             "retrain": lambda payload: _nightly_batch(
-                cfg, dataset, mqtt, model, registry, status, storms),
+                cfg, dataset, mqtt, model, registry, status, storms, rise_models),
             "promote": lambda payload: _promote(mqtt, registry, refresh_health,
                                                 cfg.ml_drives_alerts),
             "rollback": lambda payload: _rollback(mqtt, registry, refresh_health),
@@ -282,6 +335,15 @@ def main() -> int:
     _publish_model_health(cfg, mqtt, dataset.row_count(), model, None)
     _publish_lag(mqtt, load_lag(data_dir))
 
+    # A rise model that is missing (first start, a wiped /data) or was trained for another
+    # threshold (the option changed) is refitted now, not at the next nightly run — it
+    # takes seconds, and otherwise the Rise Probability sensors sit at unknown all day.
+    if rise_models.needs_training():
+        _publish_pipeline(mqtt, status, "running", "retrain")
+        log.info("Rise models missing or stale — training at startup: %s",
+                 _retrain_rise(cfg, dataset, rise_models, storms, data_dir))
+        _publish_pipeline(mqtt, status, "idle", "none")
+
     last_nightly_day: int | None = None
     interval = max(1, cfg.fast_loop_minutes) * 60
 
@@ -291,7 +353,7 @@ def main() -> int:
             try:
                 _run_inference_once(
                     features, model, dataset, mqtt, status, health, sources, storms,
-                    cfg.rate_of_rise_confirm_samples)
+                    cfg.rate_of_rise_confirm_samples, rise_models, radar_hold)
             except Exception:  # a transient feature/predict error must not kill the loop
                 log.exception("Inference failed")
                 status["last_error"] = "inference failed (see log)"
@@ -302,7 +364,8 @@ def main() -> int:
             now = datetime.now()
             if now.hour == cfg.nightly_retrain_hour and now.day != last_nightly_day:
                 _publish_pipeline(mqtt, status, "running", "retrain")
-                _nightly_batch(cfg, dataset, mqtt, model, registry, status, storms)
+                _nightly_batch(cfg, dataset, mqtt, model, registry, status, storms,
+                               rise_models)
                 _publish_pipeline(mqtt, status, "idle", "none")
                 last_nightly_day = now.day
 

@@ -3,7 +3,7 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
-## 0.23.7
+## 0.24.1
 
 - **New: `binary_sensor.rate_of_rise_creek_candidate_ready`, the cue to press Promote.**
   It turns on when a retrain's candidate clears low starting bars on its held-out split:
@@ -26,6 +26,39 @@ The version matches `version:` in `config.yaml`; bump it to trigger the GUI Upda
 **Deploying:** press Update for the new entity. Then re-copy
 `ha-packages/creek_warning.yaml` to `/config/ha-packages/` and reload automations for the
 push, and re-copy the dashboard for the Model review card.
+
+## 0.24.0
+
+- **New: the chance the creek rises, whether or not it reaches Warning.**
+  `sensor.rate_of_rise_creek_rise_probability_1h` is the chance the creek comes up at least
+  `rise_1h_threshold_in` (default 0.5 in) within the next hour;
+  `..._rise_probability_3h` the chance of `rise_3h_threshold_in` (1.0 in) within three. The
+  Warning-tier model has had nothing real to learn from (every positive was an artifact),
+  and may not all season; every storm answers this question. The defaults are the smallest
+  rises all three storms since 9/17 produced. Scored leave-one-storm-out on the recorder's
+  9/17–9/27 record: Brier skill 0.47 (1 h) and 0.67 (3 h), all 3 rises flagged, no 50 %
+  reading on ~2,000 quiet rows. Three storms is thin — the attributes carry the scores and
+  a `trustworthy` flag so the card can say so. **Informational only: never drives a tier.**
+- **New: `sensor.rate_of_rise_creek_stage_change_1h` and `..._stage_above_6h_low`** (inches).
+  The creek against where it just was — model inputs, and plain numbers for a Stage card.
+  Unknown until an hour of good readings is on hand, and across a radio dropout.
+- **Fix: Creek ML Shadow Probability no longer shows an unscored candidate.** The candidate
+  from 9/21 had never been tested on a real positive and read 82–99 % on ordinary 1 ft
+  rises, on the household card. A candidate is shadowed only once it is validated; the
+  sensor now reads unknown, which the card already hides.
+- **A radar Watch is now held 30 min after the last scan that raised it.** A cell leaves the
+  threat list as it arrives overhead, weakens below 40 dBZ for one scan, or wobbles off its
+  track, and each time the tier dropped straight back to All-clear: nine Watch episodes in
+  30 h on 9/26–27, four of them 5–10 min long, while the creek rose 1–3 h after the cells.
+  The reason now says when the cell was last seen and how long the hold has left.
+- **Critical pushes now start at Warning (`critical_from_tier: 3`), not Watch.** Watch —
+  radar cells and upstream rain — flapped as above and is now an ordinary push. Warning is
+  the creek itself answering; its first real one fired at 10:22 on 9/27 (1.9 in in 30 min).
+  **This does not arrive with the Update button — re-copy `ha-packages/creek_warning.yaml`
+  to `/config/ha-packages/` and reload automations.**
+- The rise models train on their own at the first start after updating (seconds), then in
+  every nightly batch and on Retrain. Changing either threshold option retrains at the next
+  start. For the sensors and the radar hold, **Update is enough.**
 
 ## 0.23.6
 
