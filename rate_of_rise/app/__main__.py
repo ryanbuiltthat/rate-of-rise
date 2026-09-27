@@ -28,7 +28,7 @@ from .lag import estimate_lag, load_lag, save_lag
 from .ha import HAClient
 from .model import Model
 from .mqtt_client import MqttClient
-from .registry import ModelRegistry
+from .registry import ModelRegistry, promotion_readiness
 from .rise import HORIZONS_MIN, LABELS as RISE_LABELS, RiseModels, train_rise
 from .stagelog import StageLogger, stage_log_dir
 from .storms import StormLog
@@ -164,7 +164,9 @@ def _retrain(cfg: Config, dataset: DatasetWriter, registry: ModelRegistry,
         # min_events_for_ml counts storms, not Warning-tier crossings within them.
         return "no candidate produced (see log — commonly too few positive examples yet)"
     registry.set_candidate(result.version, result.metrics)
-    return f"candidate {result.version} ready to promote: {result.metrics}"
+    ready, reason = promotion_readiness(result.metrics)
+    verdict = "ready to promote" if ready else "not ready"
+    return f"candidate {result.version} {verdict} ({reason}): {result.metrics}"
 
 
 def _storm_windows(storms: StormLog | None) -> list[tuple[float, float]]:

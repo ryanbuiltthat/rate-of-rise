@@ -2,8 +2,9 @@
 
 These exercise the pipeline against synthetic, fabricated storms — they prove the
 mechanics (labeling, splitting, fitting, serializing, gating) are correct, not that
-the model predicts anything about Creek. Nothing can prove that until the
-SEN0676 exists and real storms are on record; see train.py's module docstring.
+the model predicts anything about Creek. That takes real storms on record with
+enough confirmed Warning-tier crossings to score against; see train.py's module
+docstring for where that stands.
 
 Run: python rate_of_rise/tests/test_train.py
 """

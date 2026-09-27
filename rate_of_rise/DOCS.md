@@ -353,6 +353,13 @@ all; Promote says so at the press and keeps saying so while such a model is acti
 storms accumulate, the threshold estimate is the honest answer and the tier thresholds
 stay placeholders.
 
+**Candidate ready (0.24.1).** `binary_sensor.rate_of_rise_creek_candidate_ready` turns on
+when a candidate clears low starting bars on its held-out split: at least 3 positives,
+AUC ≥ 0.60, hit rate ≥ 20 %, false-alarm rate ≤ 80 % (`READY_*` in `app/registry.py`).
+Its `candidate_ready_reason` attribute names the bar a candidate missed, or summarizes
+the one that passed. The `creek_candidate_ready` automation in `creek_warning.yaml` pushes
+once per ready candidate. Promotion stays a button press.
+
 **Shadow mode (0.23.0).** With `ml_drives_alerts` off (the default) the alert tiers use the
 threshold estimate whatever is promoted, and the ML model — the active one, or with none
 active the newest candidate — runs alongside as *Creek ML Shadow Probability*, recorded in

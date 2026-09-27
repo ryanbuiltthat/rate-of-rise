@@ -74,6 +74,41 @@ def is_validated(metrics: dict | None) -> bool:
     return (metrics.get("hit_rate") or 0.0) > 0.0
 
 
+# "Ready to promote" bars. Deliberately low: an ML probability can only *add* tiers
+# (tiers.compute_tier takes the max over every rule, and stage/rate/rain/NWS rules run
+# regardless), so a weak promoted model costs false alarms, not missed floods — and the
+# only way it gets better is to run on more storms. Raise these once the record is long
+# enough that most retrains clear them easily.
+READY_MIN_TEST_POSITIVES = 3   # below this a hit rate is one or two coin flips
+READY_MIN_ROC_AUC = 0.60       # ranks rises above calm rows better than chance
+READY_MIN_HIT_RATE = 0.20      # catches at least 1 in 5 held-out positives
+READY_MAX_FALSE_ALARM_RATE = 0.80  # at least 1 in 5 of its alarms were real
+
+
+def promotion_readiness(metrics: dict | None) -> tuple[bool, str]:
+    """(ready, reason) for a candidate's metrics against the READY_* bars above."""
+    m = metrics or {}
+    if m.get(VALIDATION_METRIC) is None:
+        return False, f"not scored: {m.get('note') or 'no held-out metrics'}"
+    positives = int(m.get("test_positives") or 0)
+    auc = float(m[VALIDATION_METRIC])
+    hit = float(m.get("hit_rate") or 0.0)
+    fa = m.get("false_alarm_rate")
+    if positives < READY_MIN_TEST_POSITIVES:
+        return False, (f"only {positives} held-out positive(s); "
+                       f"need {READY_MIN_TEST_POSITIVES}")
+    if auc < READY_MIN_ROC_AUC:
+        return False, f"AUC {auc:.2f} < {READY_MIN_ROC_AUC:.2f}"
+    if hit < READY_MIN_HIT_RATE:
+        return False, (f"caught {hit:.0%} of {positives} held-out positives; "
+                       f"need {READY_MIN_HIT_RATE:.0%}")
+    if fa is None or float(fa) > READY_MAX_FALSE_ALARM_RATE:
+        shown = "undefined" if fa is None else f"{float(fa):.0%}"
+        return False, f"false-alarm rate {shown} > {READY_MAX_FALSE_ALARM_RATE:.0%}"
+    return True, (f"caught {hit:.0%} of {positives} held-out positives, "
+                  f"{float(fa):.0%} false alarms, AUC {auc:.2f}")
+
+
 def _validation_caveat(metrics: dict) -> str:
     """Why a model is not validated, in words the operator can act on."""
     if metrics.get(VALIDATION_METRIC) is None:
@@ -135,6 +170,10 @@ class ModelRegistry:
         """Compact, JSON-serializable view for the `creek/status/registry` topic."""
         active = self._data.get("active") or {}
         candidate = self._data.get("candidate") or {}
+        if candidate:
+            ready, ready_reason = promotion_readiness(candidate.get("metrics"))
+        else:
+            ready, ready_reason = False, "no candidate"
         return {
             "active_version": active.get("version"),
             "active_metrics": active.get("metrics", {}),
@@ -149,6 +188,8 @@ class ModelRegistry:
             # not. True with nothing active — the threshold estimate makes no claim a
             # held-out split could check, so flagging it would be noise.
             "active_validated": not self.warning(),
+            "candidate_ready": ready,
+            "candidate_ready_reason": ready_reason,
         }
 
     # --- writes ----------------------------------------------------------
