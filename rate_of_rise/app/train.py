@@ -2,22 +2,25 @@
 artifact, log skill metrics").
 
 This is the piece `model.py` has been calling out as a stub since Phase 2
-("Phase 4: actually load models/<version>.pkl here"). It is code-complete and
-unit-tested against synthetic fixtures — see `tests/test_train.py` — but it has
-never seen real data, because two things it depends on do not exist yet:
+("Phase 4: actually load models/<version>.pkl here"). It was code-complete and
+unit-tested against synthetic fixtures — see `tests/test_train.py` — well before
+it saw real data, because two things it depends on took time to arrive:
 
-  * `stage_ft` and `rate_of_rise_in_min` are always None until the SEN0676 is
-    mounted, and they are the only Warning-tier drivers (`tiers.py`). The label
-    this module builds is therefore always False in the live system today, and
-    `train()` will correctly refuse to produce a model — see `MIN_POSITIVE_LABELS`
-    below — until real stage data exists to make that label mean something.
-  * Even once it does, `min_events_for_ml` (spec §5) gates *this module being
-    called at all* on ~10 captured storms (`storms.count()`), so the honest
-    expectation is that this stays dormant for months after Phase 1 completes.
+  * `stage_ft` and `rate_of_rise_in_min` were always None until the SEN0676 was
+    mounted, and they are the only Warning-tier drivers (`tiers.py`). Both are
+    live now, so the label this module builds is real, not permanently False —
+    `train()` still correctly refuses to produce a model on a record with too
+    few positives (see `MIN_POSITIVE_LABELS` below), but that is a per-retrain
+    data question now, not a standing hardware gate.
+  * `min_events_for_ml` (spec §5, ~10 captured storms via `storms.count()`) has
+    also cleared, so retrain runs and produces real candidates.
 
-That is by design, not a bug to route around: a model trained on zero positive
-examples is not "conservative", it is wrong, and the threshold estimate in
-`model.py` is the correct answer until real storms exist to fit against.
+Clearing both gates is not the same as having a trustworthy model, though:
+with a record this short, a given retrain's held-out test split can still land
+single-class (see `_skill_metrics`) or the chronological window can simply miss
+every Warning-tier crossing that exists elsewhere in the record. Until a
+candidate can be scored — and stays skillful across more than one retrain — the
+threshold estimate in `model.py` remains the answer that drives alerts.
 
 --- Label: forward-window Warning exceedance ---------------------------------
 
@@ -375,7 +378,7 @@ def train(frame, data_dir: Path) -> TrainResult | None:
         return None
     if int(y.sum()) < MIN_POSITIVE_LABELS:
         log.info("Skipping training: %d positive labels < MIN_POSITIVE_LABELS=%d "
-                 "(expected until the creek gauge exists — see module docstring)",
+                 "(too few confirmed Warning-tier crossings in the record yet)",
                  int(y.sum()), MIN_POSITIVE_LABELS)
         return None
 
