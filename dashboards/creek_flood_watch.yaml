@@ -478,9 +478,9 @@ views:
           # Set it when a different pack goes on the pole. 0 reads as the as-built 6000 mAh.
           - entity: input_number.creek_node_pack_capacity_mah
             name: Pack capacity
-          - entity: sensor.outside_weather_station_soil_moisture_willow
-            name: Soil — near house
-            secondary_info: last-changed
+          # - entity: sensor.outside_weather_station_soil_moisture_willow
+          #   name: Soil — near house
+          #   secondary_info: last-changed
           - entity: sensor.outside_weather_station_soil_moisture_field
             name: Soil — near creek
             secondary_info: last-changed
