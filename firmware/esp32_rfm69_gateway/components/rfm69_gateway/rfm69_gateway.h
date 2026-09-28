@@ -742,6 +742,13 @@ class Rfm69Gateway : public Component {
     this->node_online_ = online;
     this->node_status_known_ = true;
     this->node_status_sensor_->publish_state(online);
+    // RSSI describes a packet, and an offline node has no current packet. Left alone, the
+    // sensor holds the last good reading indefinitely, so a dead link still shows a healthy
+    // -72 dBm. Clearing it to unknown makes the outage visible on the signal chart too; the
+    // next packet republishes a real value.
+    if (!online && this->rssi_sensor_ != nullptr) {
+      this->rssi_sensor_->publish_state(NAN);
+    }
   }
 
   // Callable from any task. Only ever touches the status fields under status_mutex_ -- never an
