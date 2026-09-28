@@ -18,6 +18,7 @@ export RATE_OF_RISE_WINDOW_MINUTES="$(bashio::config 'rate_of_rise_window_minute
 export MAX_STAGE_RISE_IN_MIN="$(bashio::config 'max_stage_rise_in_min')"
 export RISE_1H_THRESHOLD_IN="$(bashio::config 'rise_1h_threshold_in')"
 export RISE_3H_THRESHOLD_IN="$(bashio::config 'rise_3h_threshold_in')"
+export PONDING_SATURATION_PCT="$(bashio::config 'ponding_saturation_pct')"
 export GOOGLE_FLOODS_API_KEY="$(bashio::config 'google_floods_api_key')"
 export WU_API_KEY="$(bashio::config 'wu_api_key')"
 export NWM_REACH_ID="$(bashio::config 'nwm_reach_id')"

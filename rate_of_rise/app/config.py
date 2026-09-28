@@ -125,7 +125,11 @@ class Config:
     # status sensor above only writes on transitions, so a wedged gateway leaves it frozen
     # at `on` — this is what tells the add-on the link is really alive. Blank disables it.
     creek_node_packets_entity: str | None = "sensor.outside_creek_gateway_creek_node_packets"
+    # Positional: [0] near the house, [1] near the creek. A blank entry keeps a retired
+    # probe's slot so the other keeps its label (FeatureBuilder.build).
     soil_moisture_entities: list[str] = field(default_factory=list)
+    # A probe at or above this reads as ponding (features.PONDING_SATURATION_PCT).
+    ponding_saturation_pct: float = 78.0
     onsite_rain_rate_entity: str | None = None
     # Monotonic rain counter (the Ecowitt's "rain total"). When set, on-site rain is the
     # difference between successive readings — exact — instead of the instantaneous rate
@@ -195,7 +199,9 @@ class Config:
             creek_node_packets_entity=opts.get(
                 "creek_node_packets_entity",
                 "sensor.outside_creek_gateway_creek_node_packets") or None,
-            soil_moisture_entities=list(opts.get("soil_moisture_entities", [])),
+            soil_moisture_entities=[(e or "").strip()
+                                    for e in opts.get("soil_moisture_entities", [])],
+            ponding_saturation_pct=_num(env, "PONDING_SATURATION_PCT", 78.0),
             onsite_rain_rate_entity=opts.get("onsite_rain_rate_entity") or None,
             onsite_rain_total_entity=opts.get("onsite_rain_total_entity") or None,
             ml_drives_alerts=bool(opts.get("ml_drives_alerts", False)),
