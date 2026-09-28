@@ -329,6 +329,5 @@ button:
     on_press:
       - lambda: id(creek_radio).start_ota_push(true);
 
-switch:
   - platform: restart
     name: "Restart Creek Gateway"
