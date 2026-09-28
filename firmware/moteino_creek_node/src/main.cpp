@@ -293,10 +293,48 @@ static int32_t secondsOfDay() {
        + (int32_t)rtc.getSeconds();
 }
 
+// ─── Hardware watchdog ───────────────────────────────────────────────────────
+// The catch-all for a hang nobody has found yet. The specific spins already known are
+// defended one by one (resetRadioPin, flash.sleep), but RFM69::sendFrame() still waits for
+// ModeReady with no timeout on every TX, and a board browning out under the radar rail's
+// inrush can wedge anywhere. Before this, any of those left the node off the air until
+// someone waded out and pressed reset; now the SAMD21 resets itself and reports again on
+// the next cycle.
+//
+// Armed only while awake. The WDT keeps counting in standby, and its longest period (16 s)
+// is shorter than a 60 s sleep, so sleepSeconds() stops it first. 16 s covers the longest
+// awake stretch -- radar warm-up up to SENSOR_READY_TIMEOUT_MS plus a final Modbus
+// timeout -- with a feed after the radar read to cover the TX and OTA window after it.
+//
+// Clocked from GCLK2, which RTCZero::begin() sets to 32.768 kHz / 32 = 1.024 kHz, so the
+// cycle counts below are milliseconds (near enough). It is also the WDT's reset default;
+// routing it explicitly just means nothing depends on that.
+static void wdtEnable() {
+  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID_WDT | GCLK_CLKCTRL_GEN_GCLK2 | GCLK_CLKCTRL_CLKEN;
+  while (GCLK->STATUS.bit.SYNCBUSY);
+  WDT->CTRL.reg = 0;
+  while (WDT->STATUS.bit.SYNCBUSY);
+  WDT->CONFIG.reg = WDT_CONFIG_PER_16K;     // 16384 cycles ≈ 16 s
+  WDT->INTENCLR.reg = WDT_INTENCLR_EW;
+  WDT->CTRL.reg = WDT_CTRL_ENABLE;
+  while (WDT->STATUS.bit.SYNCBUSY);
+}
+
+static void wdtFeed() {
+  if (WDT->STATUS.bit.SYNCBUSY) return;     // a clear already in flight restarts it anyway
+  WDT->CLEAR.reg = WDT_CLEAR_CLEAR_KEY;
+}
+
+static void wdtDisable() {
+  WDT->CTRL.reg = 0;
+  while (WDT->STATUS.bit.SYNCBUSY);
+}
+
 // Enter SAMD21 standby for the given number of seconds using an RTC alarm.
 // LowPower.standby() sets the SLEEPDEEP bit and executes WFI; the RTC match
 // interrupt is what wakes it back up.
 static void sleepSeconds(uint16_t seconds) {
+  wdtDisable();   // it would bite mid-sleep; loop() re-arms it on wake
   int32_t target = (secondsOfDay() + (int32_t)seconds) % SECONDS_PER_DAY;
 
   rtcAlarmFired = false;
@@ -598,6 +636,7 @@ void setup() {
 }
 
 void loop() {
+  wdtEnable();                  // disarmed again in sleepSeconds(); see "Hardware watchdog"
   resetRadioPin();
   bool radioOk = radioInit();
   if (!radioOk) Serial.println(F("RFM69 init failed; skipping TX this cycle"));
@@ -658,6 +697,7 @@ void loop() {
   } else {
     distance_mm = readRadarDistance();
   }
+  wdtFeed();                    // the warm-up just spent most of the 16 s budget
 
 #if DIAG_RADAR_WINDOW_ENABLE
   // A peek that finds the water up abandons the rest of tonight's window. Deliberately
@@ -741,7 +781,11 @@ void loop() {
     uint32_t otaListenStart = millis();
     while (millis() - otaListenStart < otaListenMs) {
       if (radio.receiveDone()) {
+        // A real handshake blocks in here for the whole transfer, far past 16 s. The
+        // library times out a stalled transfer itself, so stand the watchdog down for it.
+        wdtDisable();
         CheckForWirelessHEX(radio, flash, true);
+        wdtEnable();
       }
     }
   }
