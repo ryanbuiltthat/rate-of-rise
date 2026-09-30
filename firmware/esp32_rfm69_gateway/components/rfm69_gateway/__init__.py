@@ -59,6 +59,9 @@ CONF_RADAR_FAULT = "radar_fault"
 CONF_RADAR_FAILURES = "radar_failures"
 CONF_NODE_STATUS = "node_status"
 CONF_OTA_STATUS = "ota_status"
+CONF_RESET_CAUSE = "reset_cause"
+CONF_CYCLE = "cycle"
+CONF_RADIO_INIT_FAILURES = "radio_init_failures"
 CONF_OTA_HEX_URL = "ota_hex_url"
 CONF_OTA_DIAG_HEX_URL = "ota_diag_hex_url"
 
@@ -161,6 +164,31 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_OTA_STATUS): text_sensor.text_sensor_schema(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         ),
+        # Why the node last booted, by name (power-on / brown-out / external / watchdog /
+        # software). The node reads PM->RCAUSE once at boot and sends it on every packet, so
+        # this is a property of the current boot, not an event -- a text_sensor, no
+        # device_class, published on change only.
+        cv.Optional(CONF_RESET_CAUSE): text_sensor.text_sensor_schema(
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:restart-alert",
+        ),
+        # Cycles since the node booted. Deliberately NOT TOTAL_INCREASING: a drop back to 0 is
+        # the signal (the node reset), and that state_class would make HA smooth it over as
+        # a counter rollover. MEASUREMENT keeps the raw sawtooth visible in history.
+        cv.Optional(CONF_CYCLE): sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_MEASUREMENT,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:counter",
+        ),
+        # Radio init attempts that failed since the node's previous transmit. 0 on a healthy
+        # link; the packet that ends a silence carries how many wakes the radio refused.
+        cv.Optional(CONF_RADIO_INIT_FAILURES): sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_MEASUREMENT,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:radio-off",
+        ),
         cv.Required(CONF_OTA_HEX_URL): _https_url,
         # Optional: a gateway with no diagnostic image configured just pushes the normal
         # one when the diagnostic button is pressed, rather than failing the build.
@@ -210,6 +238,12 @@ async def to_code(config):
         cg.add(var.set_node_status_sensor(await binary_sensor.new_binary_sensor(conf)))
     if conf := config.get(CONF_OTA_STATUS):
         cg.add(var.set_ota_status_sensor(await text_sensor.new_text_sensor(conf)))
+    if conf := config.get(CONF_RESET_CAUSE):
+        cg.add(var.set_reset_cause_sensor(await text_sensor.new_text_sensor(conf)))
+    if conf := config.get(CONF_CYCLE):
+        cg.add(var.set_cycle_sensor(await sensor.new_sensor(conf)))
+    if conf := config.get(CONF_RADIO_INIT_FAILURES):
+        cg.add(var.set_radio_init_failures_sensor(await sensor.new_sensor(conf)))
 
     # SPI is compiled out of the Arduino-as-ESP-IDF-component core by default
     # (CONFIG_ARDUINO_SELECTIVE_SPI); RFM69.h needs it, so opt back in explicitly.
