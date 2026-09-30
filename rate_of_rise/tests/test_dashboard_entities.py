@@ -81,6 +81,11 @@ EXTERNAL = {
     # dashboard has to name each entity by the id HA actually assigned it.
     "binary_sensor.outside_creek_gateway_creek_node_radar_fault",
     "binary_sensor.outside_creek_gateway_creek_node_diagnostic_active",
+    # The node's outage diagnostics (2026-09-30). ESPHome text_sensors land in HA's `sensor`
+    # domain, which is why the reset cause is sensor.* here.
+    "sensor.outside_creek_gateway_creek_node_reset_cause",
+    "sensor.outside_creek_gateway_creek_node_cycle",
+    "sensor.outside_creek_gateway_creek_node_radio_init_failures",
     # RFM69 gateway (firmware/esp32_rfm69_gateway/gateway.base.yaml). test_esphome_entities.py
     # is what proves the gateway actually publishes these; here they are just "not the add-on's".
     "sensor.creek_gateway_stage",
@@ -172,6 +177,23 @@ def test_every_dashboard_entity_exists_somewhere():
     known = addon_entity_ids() | legacy_addon_entity_ids() | package_entity_ids() | EXTERNAL
     missing = sorted(dashboard_references() - known)
     assert not missing, f"dashboard references entities nothing provides: {missing}"
+
+
+NODE_OUTAGE_DIAGNOSTICS = (
+    "sensor.outside_creek_gateway_creek_node_reset_cause",
+    "sensor.outside_creek_gateway_creek_node_cycle",
+    "sensor.outside_creek_gateway_creek_node_radio_init_failures",
+)
+
+
+def test_dashboard_shows_the_node_outage_diagnostics():
+    """The node's first packet after a silence says what the silence was: cycle back at 0
+    and a reset cause means it rebooted, a cycle that carried on means it resumed, radio
+    init failures above 0 means the radio was the mute part. That reading has to be on
+    the health card, or the answer lives only in the recorder."""
+    refs = dashboard_references()
+    for entity_id in NODE_OUTAGE_DIAGNOSTICS:
+        assert entity_id in refs, f"dashboard does not show {entity_id}"
 
 
 def test_addon_entity_ids_come_from_the_name_not_the_object_id():
