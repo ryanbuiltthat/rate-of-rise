@@ -247,6 +247,16 @@ rfm69_gateway:
     name: Creek Node Status
   ota_status:
     name: Node OTA Status
+  # Outage diagnostics from the node (moteino_creek_node/src/main.cpp, "Diagnostics on the
+  # wire"). After a silence, the first packet's reset cause and cycle count say whether the
+  # node rebooted (and why) or resumed, and the init-failure count says whether the radio
+  # was what kept it quiet.
+  reset_cause:
+    name: Creek Node Reset Cause
+  cycle:
+    name: Creek Node Cycle
+  radio_init_failures:
+    name: Creek Node Radio Init Failures
 
 # --- Calibration ------------------------------------------------------------------------
 # Surveyed 2026-09-12: creekbed -> sensor face = 43.5 in = 1105 mm. Bank top was re-measured

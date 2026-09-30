@@ -153,6 +153,9 @@ class Rfm69Gateway : public Component {
   void set_radar_failures_sensor(sensor::Sensor *s) { this->radar_failures_sensor_ = s; }
   void set_node_status_sensor(binary_sensor::BinarySensor *s) { this->node_status_sensor_ = s; }
   void set_ota_status_sensor(text_sensor::TextSensor *s) { this->ota_status_sensor_ = s; }
+  void set_reset_cause_sensor(text_sensor::TextSensor *s) { this->reset_cause_sensor_ = s; }
+  void set_cycle_sensor(sensor::Sensor *s) { this->cycle_sensor_ = s; }
+  void set_radio_init_failures_sensor(sensor::Sensor *s) { this->radio_init_failures_sensor_ = s; }
   void set_ota_hex_url(const std::string &url) { this->ota_hex_url_ = url; }
   // The armed radar-rail diagnostic build (open question #17). CI builds it from the same
   // commit as the normal image and publishes both to the same release, so pressing the
@@ -659,9 +662,21 @@ class Rfm69Gateway : public Component {
     }
 
     const bool parsed = json::parse_json(std::string(payload), [this](JsonObject root) -> bool {
-      // The node sends "distance_mm": null when its Modbus read fails. Publish NAN for that
+      // Two payload dialects. Since 2026-09-30 the node sends single-letter keys, which is
+      // what made room for the r/n/i diagnostics inside the 61-byte frame; before that it
+      // sent distance_mm/battery_mv/fast/diag. The gateway is flashed over WiFi and the node
+      // over the radio, so for a while after either update the other side is still on the
+      // old form -- decode both, keyed off `v`, which the compact form always carries and
+      // the long form never does. Battery is the discriminator rather than distance because
+      // distance is legitimately null on a failed read.
+      const bool compact = !root["v"].isNull();
+      auto distance = compact ? root["d"] : root["distance_mm"];
+      auto battery = compact ? root["v"] : root["battery_mv"];
+      auto fast = compact ? root["f"] : root["fast"];
+      auto diag = compact ? root["g"] : root["diag"];
+
+      // The node sends a null distance when its Modbus read fails. Publish NAN for that
       // so the reading shows as unknown in HA instead of a plausible-looking zero.
-      auto distance = root["distance_mm"];
       if (this->distance_sensor_ != nullptr) {
         this->distance_sensor_->publish_state(distance.isNull() ? NAN : distance.as<float>());
       }
@@ -674,10 +689,7 @@ class Rfm69Gateway : public Component {
       // what it was told (open question #17). Counting those would raise a radar fault every
       // time the diagnostic ran, which is both wrong and the kind of false alarm that teaches
       // people to ignore the real one.
-      const bool held = [&root]() {
-        auto d = root["diag"];
-        return !d.isNull() && d.as<int>() != 0;
-      }();
+      const bool held = !diag.isNull() && diag.as<int>() != 0;
       if (!held) {
         if (distance.isNull()) {
           if (this->radar_failures_ < 255) this->radar_failures_++;
@@ -693,7 +705,6 @@ class Rfm69Gateway : public Component {
         }
       }
       if (this->battery_sensor_ != nullptr) {
-        auto battery = root["battery_mv"];
         this->battery_sensor_->publish_state(battery.isNull() ? NAN : battery.as<float>());
       }
       // The node has put `fast` on the wire since adaptive crest sampling landed, and the
@@ -711,16 +722,43 @@ class Rfm69Gateway : public Component {
       // battery slope had already been read as a confirmed diagnosis. This entity is that
       // question, answered on the dashboard.
       if (this->diag_active_sensor_ != nullptr) {
-        auto diag = root["diag"];
-        this->diag_active_sensor_->publish_state(!diag.isNull() && diag.as<int>() != 0);
+        this->diag_active_sensor_->publish_state(held);
       }
       if (this->fast_mode_sensor_ != nullptr) {
-        auto fast = root["fast"];
         // Absent (an older node build) is not the same as false, but a binary_sensor has no
         // unknown to publish into, and "not fast" is the safe reading: it attributes the
         // cheaper wake cost to a node that may be doing the more expensive one, so a power
         // figure derived from it errs low rather than flattering the budget.
         this->fast_mode_sensor_->publish_state(!fast.isNull() && fast.as<int>() != 0);
+      }
+
+      // The outage diagnostics (moteino_creek_node/src/main.cpp, "Diagnostics on the wire").
+      // Only the compact form carries them; a long-form packet leaves the entities alone
+      // rather than publishing a made-up zero.
+      //   r  PM->RCAUSE, one bit set: which reset brought the node up.
+      //   n  cycles since boot. Published raw; a drop is a reset and HA's history shows it.
+      //   i  radio init attempts that failed since the node's previous transmit.
+      auto reset = root["r"];
+      if (this->reset_cause_sensor_ != nullptr && !reset.isNull()) {
+        const unsigned cause = reset.as<unsigned>();
+        const char *text = (cause & 0x40) ? "software"          // SYST: NVIC_SystemReset, the OTA reboot
+                         : (cause & 0x20) ? "watchdog"          // WDT
+                         : (cause & 0x10) ? "external"          // EXT: the reset button
+                         : (cause & 0x04) ? "brown-out 3.3 V"   // BOD33
+                         : (cause & 0x02) ? "brown-out 1.2 V"   // BOD12
+                         : (cause & 0x01) ? "power-on"          // POR
+                                          : "unknown";
+        if (this->reset_cause_sensor_->state != text) {
+          this->reset_cause_sensor_->publish_state(text);
+        }
+      }
+      auto cycle = root["n"];
+      if (this->cycle_sensor_ != nullptr && !cycle.isNull()) {
+        this->cycle_sensor_->publish_state(cycle.as<float>());
+      }
+      auto init_failures = root["i"];
+      if (this->radio_init_failures_sensor_ != nullptr && !init_failures.isNull()) {
+        this->radio_init_failures_sensor_->publish_state(init_failures.as<float>());
       }
       return true;
     });
@@ -1175,6 +1213,9 @@ class Rfm69Gateway : public Component {
   uint8_t radar_failures_{0};
   binary_sensor::BinarySensor *node_status_sensor_{nullptr};
   text_sensor::TextSensor *ota_status_sensor_{nullptr};
+  text_sensor::TextSensor *reset_cause_sensor_{nullptr};
+  sensor::Sensor *cycle_sensor_{nullptr};
+  sensor::Sensor *radio_init_failures_sensor_{nullptr};
 
   // Resets to 0 on a gateway reboot, which is why the entity is TOTAL_INCREASING rather than
   // TOTAL: HA treats a drop as a counter reset and keeps the derived statistics continuous
