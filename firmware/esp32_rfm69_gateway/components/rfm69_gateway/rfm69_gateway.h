@@ -780,12 +780,41 @@ class Rfm69Gateway : public Component {
     this->node_online_ = online;
     this->node_status_known_ = true;
     this->node_status_sensor_->publish_state(online);
-    // RSSI describes a packet, and an offline node has no current packet. Left alone, the
-    // sensor holds the last good reading indefinitely, so a dead link still shows a healthy
-    // -72 dBm. Clearing it to unknown makes the outage visible on the signal chart too; the
-    // next packet republishes a real value.
-    if (!online && this->rssi_sensor_ != nullptr) {
+    if (!online) {
+      this->clear_measurements_();
+    }
+  }
+
+  // Blanks everything the node *measures* once it is declared offline. Left alone, each of
+  // these sensors holds the last packet's value indefinitely, and in a time series a held
+  // value is indistinguishable from a real one: a day-long outage drew as a perfectly level
+  // creek and a perfectly steady battery, and a level stage differences to a rate of rise of
+  // zero -- the most reassuring reading there is, at the moment nothing is known. NaN shows
+  // as unknown in HA, which the recorder stores and the history graph draws as a gap, and
+  // which long-term statistics leave out rather than averaging a frozen value into.
+  //
+  // Unknown, not unavailable: the gateway is up and answering, it just has no current
+  // reading. Unavailable stays reserved for the gateway itself dropping off the API.
+  //
+  // Distance is what clears stage and depth: they are derived from it in gateway.base.yaml's
+  // on_value lambda, which passes NaN through. The next packet republishes real values.
+  //
+  // Counters and the last-known node state (packet count, cycle, reset cause, radio init
+  // failures, radar failures and fault, fast mode, diagnostic hold) are deliberately kept.
+  // They describe the node as it was last heard, which is what you want on the way out to
+  // fix it -- and the packet counter must keep its last_updated, because HA and the add-on
+  // date the outage from it (creek_telemetry_stale, FeatureBuilder._node_online).
+  void clear_measurements_() {
+    // RSSI describes a packet, and an offline node has no current packet: a dead link
+    // otherwise still shows a healthy -72 dBm on the signal chart.
+    if (this->rssi_sensor_ != nullptr) {
       this->rssi_sensor_->publish_state(NAN);
+    }
+    if (this->distance_sensor_ != nullptr) {
+      this->distance_sensor_->publish_state(NAN);
+    }
+    if (this->battery_sensor_ != nullptr) {
+      this->battery_sensor_->publish_state(NAN);
     }
   }
 

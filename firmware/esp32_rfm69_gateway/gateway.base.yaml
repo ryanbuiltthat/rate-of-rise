@@ -201,6 +201,17 @@ rfm69_gateway:
             const float d = x;
             if (isnan(mount)) return;
 
+            // No reading: a failed radar read (null distance on the wire), or the component
+            // clearing distance because the node went offline (clear_measurements_). Stage
+            // and depth are unknown too -- holding the last depth would draw an outage as a
+            // level creek. Explicit rather than relying on NaN falling through the
+            // comparisons below, which it happens to, but only by accident.
+            if (isnan(d)) {
+              id(creek_stage).publish_state(NAN);
+              id(creek_depth_in).publish_state(NAN);
+              return;
+            }
+
             // Too FAR is a lost target -- nothing reflected, so the depth is genuinely
             // unknown and NaN is honest.
             if (d > mount + ${overrange_slack_mm}) {
