@@ -17,7 +17,11 @@
     if (s <= bank) return g.bed - ((s - c.bed) / ((bank - c.bed) || 1)) * (g.bed - g.bank);
     return g.bank - ((s - bank) / ((max - bank) || 1)) * (g.bank - g.top);
   }
+  // No reading is its own state, not "Normal": the gateway blanks stage to unknown while the
+  // creek node is offline, and a green pill over a missing number reads as all-clear.
+  const noData = (v) => v == null || isNaN(v);
   function status(stage, c) {
+    if (noData(stage)) return { key: 'nodata', label: 'No data', color: 'var(--prism-text-secondary,#6b7280)' };
     for (const s of STATUS) if (c[s.key] != null && stage >= c[s.key]) return s;
     return { key: 'normal', label: 'Normal', color: 'var(--prism-good,#3aa76d)' };
   }
@@ -46,7 +50,9 @@
     if (c.max == null || c.max <= (c.bank ?? c.flood)) c.max = (c.bank ?? c.flood) * 1.4;
     const G = { bed: 204, bank: 121, top: 92 };
     const st = status(c.stage, c);
-    svg.querySelector('#water').setAttribute('transform', 'translate(0 ' + stageToY(c.stage, c, G).toFixed(1) + ')');
+    const water = svg.querySelector('#water');
+    water.style.display = noData(c.stage) ? 'none' : '';   // no level to draw, not an empty channel
+    if (!noData(c.stage)) water.setAttribute('transform', 'translate(0 ' + stageToY(c.stage, c, G).toFixed(1) + ')');
     [['action', '.th-action'], ['flood', '.th-flood'], ['major', '.th-major']].forEach(([k, sel]) => {
       const g = svg.querySelector(sel); if (!g) return;
       if (c[k] == null || (k === 'flood' && c.bank != null && c.flood === c.bank)) { g.style.display = 'none'; return; }
@@ -77,7 +83,9 @@
   window.updateCreekFeature = function (svg, cfg) {
     const c = Object.assign({ unit: 'ft', bed: 0, max: 12 }, cfg);
     const st = status(c.stage, c);
-    svg.querySelector('#f-water').setAttribute('transform', 'translate(0 ' + stageToY(c.stage, c, { bed: 36, bank: 13, top: 4 }).toFixed(1) + ')');
+    const fWater = svg.querySelector('#f-water');
+    fWater.style.display = noData(c.stage) ? 'none' : '';
+    if (!noData(c.stage)) fWater.setAttribute('transform', 'translate(0 ' + stageToY(c.stage, c, { bed: 36, bank: 13, top: 4 }).toFixed(1) + ')');
     set(svg, '#f-value', fmt(c.stage, 1));
     set(svg, '#f-unit', c.unit);
     const s = set(svg, '#f-status', st.label); if (s) s.setAttribute('fill', st.color);

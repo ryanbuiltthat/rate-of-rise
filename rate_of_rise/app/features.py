@@ -9,10 +9,12 @@ rain-on-snow flag — are derived here.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections import deque
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -44,6 +46,11 @@ class FeatureRow:
     # None). See FeatureBuilder._plausible_stage.
     stage_raw_ft: float | None = None
     stage_implausible: bool | None = None
+    # True when stage_ft is the last accepted reading carried through a link outage rather
+    # than a current one (FeatureBuilder.build, "held for the tiers"). Recorded with the row
+    # so a replay can tell held from live, but never a model input (train.FEATURE_COLUMNS is
+    # an allowlist); in tiers.py it only changes how the reason is worded.
+    stage_held: bool | None = None
     # --- the creek's own recent history (stage_history_features) ---
     # Where the creek is relative to where it just was: the rise-probability models lean on
     # these to tell "rain is falling and the creek has not answered yet" from "it already
@@ -199,8 +206,10 @@ def _to_fahrenheit(value: float | None, unit: str | None) -> float | None:
 
 # Rate of rise is only as trustworthy as the two samples behind it, and the radio link to
 # the creek node is the thing that decides whether there *were* two samples. When the node
-# goes quiet the gateway does not blank `sensor.creek_gateway_stage` — it simply stops
-# updating it — so Home Assistant keeps serving the last number the node managed to send.
+# goes quiet, older gateway firmware does not blank `sensor.creek_gateway_stage` — it simply
+# stops updating it — so Home Assistant keeps serving the last number the node managed to
+# send. Current firmware blanks it after node_timeout, but a gateway that has itself stopped
+# publishing still freezes it, so the guards below are needed either way.
 # Naively differencing that against the first reading after the link returns charges the
 # whole outage's worth of level change to a single loop interval: a creek that rose 3 in
 # over a 40-minute dropout reads as 0.6 in/min (12x the Tier 3 threshold) instead of the
@@ -229,7 +238,8 @@ IMPLAUSIBLE_ACCEPT_AFTER_S = 30 * 60.0
 
 
 class FeatureBuilder:
-    def __init__(self, cfg: Config, ha: HAClient, sources=None, now_fn=time.time):
+    def __init__(self, cfg: Config, ha: HAClient, sources=None, now_fn=time.time,
+                 state_path: Path | None = None):
         self._cfg = cfg
         self._ha = ha
         self._sources = sources   # SourceCoordinator | None (Addendum C)
@@ -246,6 +256,13 @@ class FeatureBuilder:
         # to stage_history_features. Loop time, not sample time, because that is what the
         # dataset records and training recomputes from.
         self._stage_6h: deque[tuple[float, float]] = deque()
+        # The last stage that was current and passed the plausibility check — what the
+        # tiers fall back on while the link is down (see build, "held for the tiers").
+        # Persisted, because an add-on restart mid-outage (an update, or the restart the
+        # service-stale advice calls for) would otherwise forget it and drop the tier —
+        # exactly the de-escalation the hold exists to prevent.
+        self._state_path = state_path
+        self._last_accepted_stage: float | None = self._load_last_accepted()
         self._temp_unit: str | None = None                   # cached on first read
 
     def _node_online(self) -> bool | None:
@@ -383,6 +400,32 @@ class FeatureBuilder:
         self._ror_samples = min(self._ror_samples + 1.0, RATE_OF_RISE_SAMPLE_CAP)
         return (latest_stage - base_stage) * 12.0 / ((latest_ts - base_ts) / 60.0)
 
+    def _load_last_accepted(self) -> float | None:
+        if self._state_path is None:
+            return None
+        try:
+            stage = json.loads(self._state_path.read_text(encoding="utf-8"))["stage_ft"]
+            return float(stage) if stage is not None else None
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            log.warning("could not read last accepted stage from %s: %s",
+                        self._state_path, exc)
+            return None
+
+    def _remember_accepted(self, sample_ts: float, stage_ft: float) -> None:
+        changed = stage_ft != self._last_accepted_stage
+        self._last_accepted_stage = stage_ft
+        if self._state_path is None or not changed:
+            return       # a still creek writes nothing
+        tmp = self._state_path.with_suffix(".tmp")
+        try:
+            tmp.write_text(json.dumps({"ts": sample_ts, "stage_ft": stage_ft}),
+                           encoding="utf-8")
+            tmp.replace(self._state_path)
+        except OSError as exc:
+            log.warning("could not persist last accepted stage: %s", exc)
+
     def _reseed(self) -> None:
         self._stage_hist.clear()
         self._ror_samples = 0.0
@@ -399,13 +442,27 @@ class FeatureBuilder:
         soil_mean = sum(present) / len(present) if present else None
         ponding = any(s >= PONDING_SATURATION_PCT for s in present)
 
-        stage_ft, rate, implausible = stage_raw, None, None
+        stage_ft, rate, implausible, held = stage_raw, None, None, None
         accepted = None     # the reading, only if it is current and believable
         if stage_raw is None or not self._link_usable(stage_age_s, node_online):
             # No reading, or the radio is down and HA is serving the last one it heard.
             # No rate across the gap. The plausibility baseline is kept (see
             # _plausible_stage for why the reading after a dropout is the suspect one).
             self._reseed()
+            if stage_raw is None and node_online is False:
+                # Held for the tiers. The gateway now blanks stage to unknown once it
+                # declares the node offline, so the outage is a gap in HA's history rather
+                # than a flat line. But tiers.py reads stage_ft directly, and a node that
+                # goes silent at the crest — the creek over the bank, the pole or radio
+                # under it — must not drop Warning or Emergency and send the all-clear
+                # while the house floods (open-questions #14). Older gateway firmware held
+                # the number in HA and got that for free; this keeps it. Only on a link
+                # known to be down: with the link up, a blank stage is a lost radar target
+                # and stays None, as it always has. Nothing else consumes the held value
+                # as current: no rate, no stage history, and health.py and the training
+                # set both drop stage while creek_node_online is False.
+                stage_ft = self._last_accepted_stage
+                held = stage_ft is not None
         else:
             # With the link confirmed up, the reading HA holds is the creek as of now —
             # `last_updated` only moves when the value changes, so it dates the last change,
@@ -420,6 +477,7 @@ class FeatureBuilder:
             else:
                 rate = self._rate_of_rise(sample_ts, stage_raw)
                 accepted = stage_raw
+                self._remember_accepted(sample_ts, stage_raw)
 
         row = FeatureRow(
             ts=ts,
@@ -436,6 +494,7 @@ class FeatureBuilder:
             rate_of_rise_sample_count=self._ror_samples,
             stage_raw_ft=stage_raw,
             stage_implausible=implausible,
+            stage_held=held,
         )
         row.stage_change_1h_in, row.stage_above_6h_low_in = self._stage_history(ts, accepted)
         if self._sources is not None:

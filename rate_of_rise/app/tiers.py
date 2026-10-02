@@ -281,8 +281,11 @@ def compute_tier(
         reasons.append((2, f"model probability {p * 100:.0f}%"))
 
     # --- Tier 3 Warning (needs the creek node) ---
+    # A held stage is the last reading from before the node went silent (FeatureBuilder,
+    # "held for the tiers"): it keeps the tier up, and the reason says it is not current.
+    held = " (last reading, node offline)" if getattr(row, "stage_held", None) else ""
     if _ge(row.stage_ft, WARNING_STAGE_FT):
-        reasons.append((3, f"stage {row.stage_ft:.2f} ft"))
+        reasons.append((3, f"stage {row.stage_ft:.2f} ft{held}"))
     if _ge(row.rate_of_rise_in_min, WARNING_RATE_OF_RISE_IN_MIN):
         # A None count means the row predates the guard (an old dataset row, or a caller
         # that builds a row by hand) — no information is not evidence of a dropout, so it
@@ -301,7 +304,7 @@ def compute_tier(
 
     # --- Tier 4 Emergency (needs the creek node) ---
     if _ge(row.stage_ft, EMERGENCY_STAGE_FT):
-        reasons.append((4, f"stage {row.stage_ft:.2f} ft — near bank top"))
+        reasons.append((4, f"stage {row.stage_ft:.2f} ft — near bank top{held}"))
     if p >= EMERGENCY_PROBABILITY:
         reasons.append((4, f"model probability {p * 100:.0f}%"))
 

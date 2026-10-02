@@ -222,9 +222,14 @@ reading is enough to mean it. **Rate of rise is a difference between two reading
 can be manufactured by the radio link rather than by the creek — and that is a real failure
 mode, not a theoretical one.
 
-When the creek node stops answering, the gateway does not blank
+When the creek node stops answering, older gateway firmware does not blank
 `sensor.creek_gateway_stage`; it simply stops updating it, and Home Assistant keeps serving
-the last value the node sent. Difference the first reading after the link returns against
+the last value the node sent. Current gateway firmware clears stage, depth, distance,
+battery and RSSI to unknown once it declares the node offline, but a gateway that has
+itself stopped publishing still leaves the last value frozen, so the guards below stay
+necessary. While stage is blank and the link is down, the tiers use the last accepted
+reading, so a node lost at the crest keeps Warning or Emergency up rather than letting the
+all-clear through; the reason then says "(last reading, node offline)". Difference the first reading after the link returns against
 that stale one and the whole outage's worth of level change lands in a single loop interval:
 a creek that rose 3 in over a 40-minute dropout reads as **0.6 in/min**, twelve times the
 Tier 3 threshold, instead of the 0.075 in/min it actually did. With the package's

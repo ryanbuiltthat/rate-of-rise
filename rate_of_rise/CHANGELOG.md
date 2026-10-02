@@ -3,6 +3,31 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.24.2
+
+- **The tiers keep the last stage reading while the creek node is offline.** The gateway
+  firmware now blanks stage, depth, distance, battery and RSSI to unknown five minutes
+  after the node's last packet, so a node outage shows as a gap in HA's history instead of
+  a day of flat line. Until now the gateway held the last value, and `tiers.py` reads
+  `stage_ft` directly, so that held number was what kept Warning or Emergency up through
+  an outage. Blanked, a node that went silent at the crest (water over the bank, the pole
+  or radio under it) would have dropped the tier, and 15 minutes later the all-clear would
+  have replaced the critical push (open-questions #14). `FeatureBuilder` now carries the
+  last accepted stage for the tiers when the stage is unknown *and* the link is known to
+  be down. It is marked `stage_held`, and the tier reason reads "(last reading, node
+  offline)". With the link up, a blank stage is a lost radar target and stays None, as
+  before. A held stage produces no rate of rise and no stage history, and the
+  `stage_stale` watchdog and the training set still treat the outage as one. The last
+  accepted reading is persisted to `/data/last_stage.json`, so an add-on restart
+  mid-outage (an update, or the restart the service-stale advice calls for) keeps the
+  tier too.
+- Alerting is otherwise unchanged: with the old firmware the gateway held the number
+  itself and the add-on passed it through, which is what still happens.
+
+**Deploying:** press Update. Then reflash the gateway (its config pulls
+`gateway.base.yaml` and the component from `main`) for the gaps in history. The add-on
+should be updated first or together with the gateway, never after it.
+
 ## 0.24.1
 
 - **New: `binary_sensor.rate_of_rise_creek_candidate_ready`, the cue to press Promote.**
