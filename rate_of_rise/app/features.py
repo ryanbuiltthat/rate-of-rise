@@ -9,10 +9,12 @@ rain-on-snow flag — are derived here.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections import deque
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -236,7 +238,8 @@ IMPLAUSIBLE_ACCEPT_AFTER_S = 30 * 60.0
 
 
 class FeatureBuilder:
-    def __init__(self, cfg: Config, ha: HAClient, sources=None, now_fn=time.time):
+    def __init__(self, cfg: Config, ha: HAClient, sources=None, now_fn=time.time,
+                 state_path: Path | None = None):
         self._cfg = cfg
         self._ha = ha
         self._sources = sources   # SourceCoordinator | None (Addendum C)
@@ -255,7 +258,11 @@ class FeatureBuilder:
         self._stage_6h: deque[tuple[float, float]] = deque()
         # The last stage that was current and passed the plausibility check — what the
         # tiers fall back on while the link is down (see build, "held for the tiers").
-        self._last_accepted_stage: float | None = None
+        # Persisted, because an add-on restart mid-outage (an update, or the restart the
+        # service-stale advice calls for) would otherwise forget it and drop the tier —
+        # exactly the de-escalation the hold exists to prevent.
+        self._state_path = state_path
+        self._last_accepted_stage: float | None = self._load_last_accepted()
         self._temp_unit: str | None = None                   # cached on first read
 
     def _node_online(self) -> bool | None:
@@ -393,6 +400,32 @@ class FeatureBuilder:
         self._ror_samples = min(self._ror_samples + 1.0, RATE_OF_RISE_SAMPLE_CAP)
         return (latest_stage - base_stage) * 12.0 / ((latest_ts - base_ts) / 60.0)
 
+    def _load_last_accepted(self) -> float | None:
+        if self._state_path is None:
+            return None
+        try:
+            stage = json.loads(self._state_path.read_text(encoding="utf-8"))["stage_ft"]
+            return float(stage) if stage is not None else None
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            log.warning("could not read last accepted stage from %s: %s",
+                        self._state_path, exc)
+            return None
+
+    def _remember_accepted(self, sample_ts: float, stage_ft: float) -> None:
+        changed = stage_ft != self._last_accepted_stage
+        self._last_accepted_stage = stage_ft
+        if self._state_path is None or not changed:
+            return       # a still creek writes nothing
+        tmp = self._state_path.with_suffix(".tmp")
+        try:
+            tmp.write_text(json.dumps({"ts": sample_ts, "stage_ft": stage_ft}),
+                           encoding="utf-8")
+            tmp.replace(self._state_path)
+        except OSError as exc:
+            log.warning("could not persist last accepted stage: %s", exc)
+
     def _reseed(self) -> None:
         self._stage_hist.clear()
         self._ror_samples = 0.0
@@ -444,7 +477,7 @@ class FeatureBuilder:
             else:
                 rate = self._rate_of_rise(sample_ts, stage_raw)
                 accepted = stage_raw
-                self._last_accepted_stage = stage_raw
+                self._remember_accepted(sample_ts, stage_raw)
 
         row = FeatureRow(
             ts=ts,

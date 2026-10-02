@@ -282,7 +282,7 @@ def main() -> int:
     mqtt.connect()
 
     sources = SourceCoordinator(cfg, ha, data_dir)
-    features = FeatureBuilder(cfg, ha, sources)
+    features = FeatureBuilder(cfg, ha, sources, state_path=data_dir / "last_stage.json")
     health = HealthTracker()
     model = Model(cfg, registry, data_dir)
     rise_models = RiseModels(data_dir, cfg.rise_thresholds, cfg.rate_of_rise_confirm_samples)

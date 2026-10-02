@@ -17,7 +17,10 @@ The version matches `version:` in `config.yaml`; bump it to trigger the GUI Upda
   be down. It is marked `stage_held`, and the tier reason reads "(last reading, node
   offline)". With the link up, a blank stage is a lost radar target and stays None, as
   before. A held stage produces no rate of rise and no stage history, and the
-  `stage_stale` watchdog and the training set still treat the outage as one.
+  `stage_stale` watchdog and the training set still treat the outage as one. The last
+  accepted reading is persisted to `/data/last_stage.json`, so an add-on restart
+  mid-outage (an update, or the restart the service-stale advice calls for) keeps the
+  tier too.
 - Alerting is otherwise unchanged: with the old firmware the gateway held the number
   itself and the add-on passed it through, which is what still happens.
 

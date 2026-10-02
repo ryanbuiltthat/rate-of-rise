@@ -60,9 +60,9 @@ class FakeHA:
         return None
 
 
-def builder(ha, clock, **overrides):
+def builder(ha, clock, state_path=None, **overrides):
     cfg = Config(soil_moisture_entities=[], onsite_temp_entity=None, **overrides)
-    return FeatureBuilder(cfg, ha, now_fn=clock)
+    return FeatureBuilder(cfg, ha, now_fn=clock, state_path=state_path)
 
 
 class Clock:
@@ -351,6 +351,28 @@ def test_a_node_lost_at_the_crest_keeps_the_tier_when_the_gateway_blanks_stage()
     # Back on the air: current readings again, nothing held.
     row = build_at(fb, clock, ha, 2.55, online=True, minutes=1.0)
     assert row.stage_ft == 2.55 and not row.stage_held
+
+
+def test_the_held_stage_survives_an_add_on_restart_mid_outage():
+    """An update or the service-stale restart must not forget the reading and drop the
+    tier while the node is still silent."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "last_stage.json"
+        ha = FakeHA()
+        clock = Clock()
+        fb = builder(ha, clock, state_path=path)
+        settle(fb, clock, ha, stage=2.60)
+        build_at(fb, clock, ha, None, age_s=300.0, online=False, minutes=5.0)
+
+        restarted = builder(ha, clock, state_path=path)
+        row = build_at(restarted, clock, ha, None, age_s=600.0, online=False, minutes=5.0)
+        assert row.stage_ft == 2.60 and row.stage_held is True
+        assert compute_tier(row, 0.0)[0] == 4
+
+        # No state file at all (first start) is simply nothing to hold.
+        fresh = builder(ha, clock, state_path=Path(d) / "missing.json")
+        assert build_at(fresh, clock, ha, None, online=False, minutes=5.0).stage_ft is None
 
 
 def test_a_blank_stage_on_a_live_link_is_not_held():
