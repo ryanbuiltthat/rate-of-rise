@@ -769,17 +769,18 @@ class Rfm69Gateway : public Component {
   }
 
   // BinarySensor::publish_state() forwards every call, so track transitions here rather than
-  // republishing "offline" on each loop iteration once the node goes quiet.
+  // republishing "offline" on each loop iteration once the node goes quiet. The transition is
+  // tracked even without a node_status sensor, because clearing the measurements hangs off
+  // it too and must not depend on that entity being configured.
   void publish_node_status_(bool online) {
-    if (this->node_status_sensor_ == nullptr) {
-      return;
-    }
     if (this->node_status_known_ && this->node_online_ == online) {
       return;
     }
     this->node_online_ = online;
     this->node_status_known_ = true;
-    this->node_status_sensor_->publish_state(online);
+    if (this->node_status_sensor_ != nullptr) {
+      this->node_status_sensor_->publish_state(online);
+    }
     if (!online) {
       this->clear_measurements_();
     }
