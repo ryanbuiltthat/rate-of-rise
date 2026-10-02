@@ -328,6 +328,69 @@ def test_stage_stale_watchdog_sees_a_dead_link_holding_a_stale_number():
     assert h.evaluate(row, {}, set())["stage_stale"] is True
 
 
+def test_a_node_lost_at_the_crest_keeps_the_tier_when_the_gateway_blanks_stage():
+    """The gateway blanks stage to unknown once the node is offline, so an outage is a gap
+    in HA's history instead of a flat line. A node that goes silent at the crest — the
+    water over the bank, the pole or radio under it — must not take Emergency down with
+    it and let the all-clear replace the critical push (open-questions #14)."""
+    ha = FakeHA()
+    clock = Clock()
+    fb = builder(ha, clock)
+    settle(fb, clock, ha, stage=2.60)
+    assert compute_tier(build_at(fb, clock, ha, 2.60, minutes=5.0), 0.0)[0] == 4
+
+    for _ in range(12):                                   # an hour with the node silent
+        row = build_at(fb, clock, ha, None, age_s=300.0, online=False, minutes=5.0)
+        assert row.stage_ft == 2.60 and row.stage_held is True
+        assert row.rate_of_rise_in_min is None, "a held reading is not a rate"
+        assert row.stage_change_1h_in is None or row.stage_change_1h_in == 0.0
+        tier, label, reasons = compute_tier(row, 0.0)
+        assert (tier, label) == (4, "Emergency"), (tier, reasons)
+        assert "node offline" in reasons[0], reasons
+
+    # Back on the air: current readings again, nothing held.
+    row = build_at(fb, clock, ha, 2.55, online=True, minutes=1.0)
+    assert row.stage_ft == 2.55 and not row.stage_held
+
+
+def test_a_blank_stage_on_a_live_link_is_not_held():
+    """Link up and no reading is a lost radar target, not an outage. That stays None, as it
+    always has — holding it would mask the gauge going blind on a working radio."""
+    ha = FakeHA()
+    clock = Clock()
+    fb = builder(ha, clock)
+    settle(fb, clock, ha, stage=2.60)
+    row = build_at(fb, clock, ha, None, online=True, minutes=5.0)
+    assert row.stage_ft is None and not row.stage_held
+
+
+def test_older_gateway_firmware_that_holds_stage_is_unchanged():
+    """A gateway not yet reflashed still serves the held number itself. That passes through
+    exactly as before, and is not marked held — the add-on cannot tell it from HA."""
+    ha = FakeHA()
+    clock = Clock()
+    fb = builder(ha, clock)
+    settle(fb, clock, ha, stage=2.60)
+    row = build_at(fb, clock, ha, 2.60, age_s=900.0, online=False, minutes=5.0)
+    assert row.stage_ft == 2.60 and row.stage_held is None
+    assert compute_tier(row, 0.0)[0] == 4
+
+
+def test_a_held_stage_still_trips_the_stale_watchdog():
+    """Holding the number for the tiers must not hide the outage from the health flags."""
+    ha = FakeHA()
+    clock = Clock()
+    fb = builder(ha, clock)
+    settle(fb, clock, ha, stage=2.60)
+    now = [0.0]
+    h = HealthTracker(now_fn=lambda: now[0])
+    h.evaluate(build_at(fb, clock, ha, 2.60, minutes=5.0), {}, set())
+    now[0] += 1801.0
+    row = build_at(fb, clock, ha, None, age_s=1800.0, online=False, minutes=30.0)
+    assert row.stage_held is True
+    assert h.evaluate(row, {}, set())["stage_stale"] is True
+
+
 def test_rows_without_the_new_fields_behave_as_before():
     """Old dataset rows and hand-built rows carry no sample count; absence of evidence of
     a dropout is not evidence of one, so the rate is trusted exactly as it used to be."""

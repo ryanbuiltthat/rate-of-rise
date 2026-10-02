@@ -35,9 +35,11 @@ What to do when a storm hits. Checklist form — meant to be readable on a phone
 - [ ] Check **Ingestion health → Creek node link**. If it's OFF (or **Creek stage stale** is
       ON), the radio link is down. The gateway blanks stage to unknown five minutes after the
       last packet, but if the gateway itself has stopped publishing it keeps serving the
-      last stage the node sent, so a number on screen may be stale, not current. Tiers 3–4
-      go dormant for real (not just quiet) until it reconnects. **Stage reading age** says
-      how stale. This is exactly the failure mode the offline-pattern firmware fixes
+      last stage the node sent, so a number on screen may be stale, not current. Rate of
+      rise goes dormant until it reconnects; the stage tiers hold at the last reading (the
+      reason says "last reading, node offline"), so a tier can neither rise nor clear from
+      the gauge meanwhile. **Stage reading age** counts from the last change, so it can read
+      up to five minutes short of the real outage. This is exactly the failure mode the offline-pattern firmware fixes
       target, so it should be rare — but the storm is the test of that, not the bench.
 - [ ] Don't act on the tier itself. Treat it as *go look*, not an alarm.
 - [ ] **Ignore QPF for thunderstorms.** Gridded forecast, 6-hour blocks — it cannot resolve
@@ -188,7 +190,7 @@ creek, press **Rollback** and note it — that observation is worth more than th
 
 | | |
 |---|---|
-| Creek node | reports stage + rate of rise every 60 s over the RFM69 link; a dropout freezes the reading rather than blanking it, so **Creek node link** / **Stage reading age** are what tell you it's stale |
+| Creek node | reports stage + rate of rise every 60 s over the RFM69 link; five minutes into a dropout the gateway blanks the reading to unknown (a gap in history, not a flat line), while the tiers keep the last reading so a node lost at the crest does not send the all-clear. **Creek node link** is what tells you it's down |
 | Storm detection | opens at 0.10 in/h rain (on-site or upstream), closes after 6 h quiet — all three tunable (`storm_start_rain_1h_in`, `storm_continue_rain_1h_in`, `storm_quiet_hours`) |
 | Event log | peaks + onset conditions written to `/share/rate_of_rise/events.sqlite`, survives restarts |
 | Tier evaluation | every 5 min; active NWS products floor the tier |
