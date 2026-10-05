@@ -295,7 +295,10 @@ the calibration phase.
   **~2 mA** (#17, measured 2026-09-25), so the charger's efficiency still is not
   load-bearing, and the bq24074 stays. It is simpler and has proven reliable in field
   operation.
-  Pair with low-voltage protection on the pack. Choose the 5 V boost with an enable pin — 
+  Pair with low-voltage protection on the pack. **As built (2026-10-04) there is none, by
+  decision, and the bq24074 has no battery-side cutoff of its own** — see
+  `docs/node-hardware.md`, "What the bq24074 does and does not protect".
+  Choose the 5 V boost with an enable pin — 
   that EN line is the radar load switch, so duty-cycling costs a GPIO and a 100 ms settle 
   rather than a separate MOSFET.
   **OTA over winter:** bring the node indoors with the pack; on USB it stays on WiFi and
