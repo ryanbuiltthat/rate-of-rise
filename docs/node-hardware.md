@@ -189,9 +189,11 @@ night means something has started drawing again.
 > must not be used for state of charge, alerting, or any part of this calculation. Night
 > values, with no input, are the real thing.
 >
-> The flip side is a free panel check: **a reading well below ~4.4 V in full sun means the
-> charger is not getting panel input**, because the rail is then just the cell. That is how
-> the post-rework panel question on 2026-10-05 showed up (4.08 V at 762 W/m²).
+> The flip side is a free panel check: **a reading well below ~4.4 V in full sun means
+> either the charger is not getting panel input, or voltage is being lost between the
+> charger and the Moteino.** On 2026-10-05 it read 4.08 V at 762 W/m², and a meter showed
+> the panel fine (6.3 V at the barrel jack, 4.3 V leaving the charger), so it was the
+> second: the shared cable's drop (see "As-built power wiring").
 
 ### A 7 W panel covers the season
 
@@ -316,8 +318,20 @@ devkit, where a boost on 3V3 saved ~27 mA over the devkit's LDO) does not apply 
 
 - **The Moteino is fed on its VIN/GND pins, not its JST battery connector.** On the M0 the
   two are the same rail (USB reaches it through a Schottky), and A5 reads that rail halved
-  through two 1 MΩ resistors. So the move changed nothing about the battery reading: it is
-  still the charger's LOAD output.
+  through two 1 MΩ resistors. Moving from the JST to VIN changed nothing about what A5
+  measures.
+- **The power split is at the node end now, and that shifts the battery reading.** Before
+  the rework the boost ran from the charger's OUT pins and the Moteino from its LOAD
+  connector, so the Moteino's own wire carried only its ~10 mA. Now one 2-wire cable carries
+  everything: the input connector's leads are solid-core wire soldered straight to the
+  Moteino's VIN/GND, with the boost soldered onto those wires. The Moteino therefore sees
+  the charger's output minus the whole cable's drop at the combined current, and it reads
+  the battery while the radar is powered (~60 mA). Measured 2026-10-05: 4.3 V leaving the
+  charger, 4.08 V reported, about 0.2 V or ~3.5 Ω round trip. Consequences: every
+  reading, day or night, sits ~0.2 V under the true value, so sunny middays read ~4.18 V
+  instead of 4.40 and the pack-health check's "> 4.25 V means the charger had input" test
+  stops firing; a radio transmit (~130 mA, ~190 mA with the radar up in fast mode) sags the
+  Moteino's VIN further, which only matters once the pack is low.
 - **What was wrong (9/27–10/1).** The node went silent five times between 2026-09-27 and
   10-01, always after dark, and twice came back on its own after strong sun. The owner's
   strongest explanation, from the site, is a bad connector on the power line to the Moteino
