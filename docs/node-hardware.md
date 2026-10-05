@@ -95,7 +95,8 @@ drawing current continuously that should not be. The likeliest candidates, in or
    read 0. The node now polls until the reading settles (`main.cpp`, "Radar warm-up").
 2. **`LowPower.standby()` is not being entered**, leaving the SAMD21 spinning at ~12 mA.
 3. **Quiescent draw of the two boosts plus the charger and protection board**, which is
-   budgeted at nothing anywhere in this file and never verified.
+   budgeted at nothing anywhere in this file and never verified. (As built there is one
+   boost and no protection board; see "As-built power wiring".)
 
 *Resolved 2026-09-25: (1) was the whole of it. (2) is ruled out, and (3) is at most
 ~1 mA. The sizing conclusions below were worked at 80 mA and hold with a wide margin at
@@ -182,11 +183,15 @@ states it compares sat at 4.0–4.1 V and 4.19 V. A slope creeping past ~1 mV/h 
 night means something has started drawing again.
 
 > **The battery sensor does not read the cell during daylight.** The Moteino M0's divider is
-> on VIN, which sits on the charger's OUT rail, and with the panel up that rail is held
-> above the cell by the bq24074's power path. Readings reach **4.83 V**, which is impossible
-> for 1S Li-ion. Daytime values are not pack voltage and must not be used for state of
-> charge, alerting, or any part of this calculation. Night values, with no input, are the
-> real thing.
+> on VIN, which sits on the charger's LOAD (OUT) rail, and with the panel up the bq24074
+> regulates that rail to a fixed **4.4 V** above the cell. Sunny middays read 4.39–4.41 V
+> (an earlier note recorded readings up to 4.83 V). Daytime values are not pack voltage and
+> must not be used for state of charge, alerting, or any part of this calculation. Night
+> values, with no input, are the real thing.
+>
+> The flip side is a free panel check: **a reading well below ~4.4 V in full sun means the
+> charger is not getting panel input**, because the rail is then just the cell. That is how
+> the post-rework panel question on 2026-10-05 showed up (4.08 V at 762 W/m²).
 
 ### A 7 W panel covers the season
 
@@ -275,6 +280,9 @@ real:
 3. **Low-voltage protection on the pack — required either way.** Without a cutoff the C6
    will drag cells into deep discharge and ruin them, which converts "node is down" into
    "pack is scrap, discovered in March." With one, going flat is survivable.
+   *As-built: not fitted, by decision (see "Selected power parts"). At ~1.7 mA a full pack
+   is ~100+ days, so the exposure is a long sunless stretch, and the "replace now" push at
+   3.50 V is what covers it.*
 
 ### Selected power parts
 
@@ -285,16 +293,56 @@ Settled after working the budget; see open questions #11–12 for the reasoning.
 | Panel | 6 V, 7 W | Covers Mar–Nov; only early Dec is marginal |
 | Charger | **[Adafruit Universal USB / DC / Solar Lithium Ion/Polymer charger](https://www.adafruit.com/product/4755) (bq24074)** — **deployed** | Linear charger (~67 % efficiency going 6 V → 4 V). At the measured ~1.7 mA load (#17) the third of the harvest it burns does not matter, so it stays; no MPPT upgrade. |
 | Pack | **1S4P 18650, 1500 mAh/cell (6 Ah total, as-built)** | Compact and lightweight for pole mounting. At the measured ~1.7 mA, a full pack is **~100+ days** with no charging. A storm day in fast mode (radar rail held up, 35 mA) costs ~14 % of it per 24 h. |
-| Pack protection | 1S protection board (over-discharge / over-current) | Separates "node down" from "pack scrap". **Cell to B+/B− only; charger *and* loads both to P+/P−** — the MOSFETs sit between B− and P−, so a charger on B+/B− bypasses over-charge and over-current entirely |
+| Pack protection | **None, as-built.** | No 1S protection board with a high enough current rating was on hand, and the owner has decided against adding one. The bq24074 does **not** stand in for it — see "What the bq24074 does and does not protect" below. |
 | Radar rail | **Pololu U1V11F5** (5 V step-up, product 2562) | **True shutdown**: SHDN low disconnects the load rather than leaking input through, so it *is* the duty-cycle switch. <100 µA off, <1 mA running |
-| MCU rail | **Pololu U1V11F3** (3.3 V step-up, product 2561) | Boosts below 3.3 V and linearly down-regulates above, so it holds 3.3 V across the whole 1S range |
+| MCU rail | **The Moteino M0's own regulator, fed on VIN** | The charger's LOAD output (≤ 4.4 V) goes to the Moteino's VIN/GND pins, inside its 3–6 V VIN range. |
 
-**Two independent rails off the pack**, not one 5 V rail feeding both — the C6 must stay
-awake to turn the radar back on, so it cannot sit downstream of the radar's switch.
+The two rows above used to read "1S protection board, cell to B+/B−, loads to P+/P−" and
+"Pololu U1V11F3 3.3 V step-up on the 3V3 pin". Both were the plan for the retired ESP32-C6
+node and never described the Moteino as built. The C6 reasoning they carried (a 45 mA
+devkit, where a boost on 3V3 saved ~27 mA over the devkit's LDO) does not apply at ~1.7 mA.
 
-Feeding the devkit 5 V and letting its onboard LDO drop to 3.3 V is ~56 % end-to-end
-(72 mA from the pack for a 45 mA load). Driving the 3V3 pin from a U1V11F3 is 79–89 %
-(45–51 mA). That is ~27 mA of pure heat avoided on the budget's largest single load.
+### As-built power wiring (since 2026-10-04)
+
+```text
+6 V panel ── KSD9700 (5 °C N/O) ── barrel jack ──► bq24074 IN
+                                                    bq24074 BATT (JST-PH) ── 1S4P pack, no BMS
+                                                    bq24074 LOAD (JST-PH) ── 2-wire cable down the pole arm
+                                                                               │
+                                              protoboard JST-PH ◄──────────────┘
+                                                 ├── Pololu U1V11F5 5 V boost ── SEN0676 radar (SHDN = D4)
+                                                 └── Moteino M0 VIN / GND
+```
+
+- **The Moteino is fed on its VIN/GND pins, not its JST battery connector.** On the M0 the
+  two are the same rail (USB reaches it through a Schottky), and A5 reads that rail halved
+  through two 1 MΩ resistors. So the move changed nothing about the battery reading: it is
+  still the charger's LOAD output.
+- **What was wrong (9/27–10/1).** The node went silent five times between 2026-09-27 and
+  10-01, always after dark, and twice came back on its own after strong sun. The owner's
+  strongest explanation, from the site, is a bad connector on the power line to the Moteino
+  that was shorting at the charger. The rework above replaced it. The remote evidence is
+  consistent with it: with PR #46's watchdog in place, a hung processor would have come
+  back reporting a watchdog reset within a minute, and the 10/1 outage never did.
+
+### What the bq24074 does and does not protect
+
+From TI's datasheet (SLUS810N):
+
+| | |
+|---|---|
+| LOAD (OUT) with panel input | Regulated to a **fixed 4.4 V** |
+| LOAD with no input (battery only) | Follows the cell, minus the BATFET drop |
+| Undervoltage lockout, 3.2–3.4 V | **On the input only.** It does not disconnect the battery |
+| Battery disconnect | **Not on the bq24074.** The SYSOFF disconnect exists only on the BQ24075/79 |
+| Short on LOAD | Protected: off after 250 µs, retries every 60 ms until the short clears |
+| Short on BATT or in the pack | **Nothing.** Only a BMS or a per-cell fuse would catch it |
+
+Two consequences. With no BMS, nothing stops the node from running the pack to empty; the
+only safeguard is the Home Assistant "replace now" push at a pre-dawn reading below 3.50 V
+(see "Pack health" below). And the LOAD-side short protection is likely why the 9/27–10/1
+connector fault cost an outage rather than a fire. The same fault on the battery side of
+the charger would have had no current limit at all.
 
 **Not a fit, checked and rejected:** Pololu U5Z6F12 / TI UCC33420 (product 5759). It is a
 *galvanically isolated* 12 V step-up — 4.5–5.5 V input (a 1S pack never reaches it), ~50 %
@@ -405,7 +453,8 @@ margin. The bq24074 stays: it is simple, robust and field-proven here.
    2026-09-20; commit `0b1eba3` corrected the pack to 1500 mAh/cell elsewhere in this file
    but missed this line and the charger note above. 5800 mAh is not a real 18650 capacity;
    the largest genuine cells are ~3500 mAh.)
-3. **Low-voltage protection.** Required for either chemistry.
+3. **Low-voltage protection.** Recommended for either chemistry. Not fitted as-built; the
+   bq24074 has no battery-side cutoff, so the HA "replace now" push is the only guard.
 4. **Pick the 5 V boost with an enable pin.** That EN line *is* the radar load switch —
    duty-cycling then costs a GPIO and a 100 ms settle, with no separate MOSFET. Choose a
    boost with genuine shutdown (µA-level) rather than one that idles at mA.
