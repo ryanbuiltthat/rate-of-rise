@@ -844,6 +844,18 @@ void loop() {
   }
 #endif
 
+  // Battery first, before the radar rail comes up. Since the 2026-10-04 rework one cable down
+  // the pole arm feeds the radar boost and the Moteino together, so VIN here is the charger's
+  // output minus that cable's drop at whatever is flowing. With the radar powered (~60 mA)
+  // that was ~0.2 V (4.3 V leaving the charger, 4.08 V read on 2026-10-05), enough to hide the
+  // charger's 4.4 V daytime rail from the pack-health check. Now only the Moteino's own
+  // ~10 mA is flowing, and the error is a few hundredths of a volt.
+  //
+  // Fast mode keeps the rail up between cycles, so readings taken during a rise still carry
+  // the drop. That is acceptable: the pack-health slope already skips any night with fast
+  // sampling, and rises are short.
+  uint16_t batt_mv = readBatteryMv();
+
   int32_t distance_mm = -1;
   if (diagHold) {
     // Leave the rail low for the whole cycle -- that is the entire experiment. The null
@@ -870,11 +882,10 @@ void loop() {
   }
 #endif
 
-  uint16_t batt_mv = readBatteryMv();
-
 #if DIAG_RADAR_WINDOW_ENABLE
   // Track the window's first and latest pack reading, for the fell-across-the-window test
-  // above. Taken on every in-window cycle, peeks included: they are the same measurement.
+  // above. Taken on every in-window cycle, peeks included: they are the same measurement --
+  // and now genuinely so, because the battery is read before a peek powers the rail.
   if (diagWindow) {
     if (diagStartMv == 0) diagStartMv = batt_mv;
     diagLastMv = batt_mv;

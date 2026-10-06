@@ -670,6 +670,19 @@ def test_radio_init_retries_before_skipping_a_transmit():
     assert _node_define(src, "RADIO_INIT_ATTEMPTS") >= 2
 
 
+def test_battery_is_read_before_the_radar_rail_comes_up():
+    """Since the 2026-10-04 rework one cable down the pole arm carries the radar boost and the
+    Moteino together, so the Moteino's VIN sits below the charger's output by the cable's drop
+    at whatever current is flowing. Read with the radar powered (~60 mA) that was ~0.2 V, which
+    hid the charger's 4.4 V daytime rail from the pack-health check. Read before the rail comes
+    up, only the Moteino's own ~10 mA flows and the error is a few hundredths of a volt."""
+    src = NODE_SRC.read_text(encoding="utf-8")
+    loop = src[src.index("void loop() {"):]
+    battery = loop.index("readBatteryMv()")
+    radar = loop.index("readRadarDistance()")
+    assert battery < radar, "loop() reads the battery after powering the radar rail"
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

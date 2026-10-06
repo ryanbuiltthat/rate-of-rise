@@ -27,7 +27,8 @@ def test_topics_and_counts():
     # + 1 storm-to-annotate (dashboard annotation)
     # + 2 (2j Google flash flood) + 1 ML shadow probability
     # + 2 rise probabilities (1h/3h) + 2 stage history (change 1h, above 6h low)
-    assert len(sensors) == 63, len(sensors)
+    # + 2 crest (time to crest, crest outlook)
+    assert len(sensors) == 65, len(sensors)
     # 3 NWS flags + rain-on-snow + ponding + storm-in-progress + 11 watchdogs
     # + 2 gauge-fault watchdogs (stage frozen, stage implausible) + candidate ready
     assert len(binaries) == 21, len(binaries)
@@ -162,7 +163,7 @@ def test_local_gauge_rate_of_rise_sensor_present():
 def test_publish_all_emits_retained_json():
     pub, published = build()
     pub.publish_all()
-    assert len(published) == 89
+    assert len(published) == 91
     for topic, payload, retain in published:
         assert retain is True
         json.loads(payload)  # valid JSON
@@ -184,6 +185,8 @@ def test_every_value_template_resolves_against_a_published_payload():
     # What the service actually publishes on creek/rise/<h> — taken from a real payload
     # rather than listed, so a renamed key cannot leave the sensor reading nothing.
     RISE_KEYS = set(RiseModels(Path(tempfile.mkdtemp()), {60: 0.5, 180: 1.0}).predict({})[60])
+    from app.crest import CrestModel
+    CREST_KEYS = set(CrestModel(Path(tempfile.mkdtemp())).predict({}))
 
     payloads = {
         "features": set(FEATURE_KEYS) | set(DERIVED_KEYS),
@@ -195,6 +198,7 @@ def test_every_value_template_resolves_against_a_published_payload():
         "flood_probability": {"value", "method", "ml_value", "ml_version"},
         "rise/1h": RISE_KEYS,
         "rise/3h": RISE_KEYS,
+        "predicted_crest": CREST_KEYS,
     }
     pub, _ = build()
     missing = []
@@ -251,6 +255,22 @@ def test_rise_probability_renders_a_percentage_or_nothing():
     assert _render("creek_rise_probability_1h", {"value": 0.934}) == "93.0"
     assert _render("creek_rise_probability_3h", {"value": None}) == "None"
     assert _render("creek_stage_change_1h", {"stage_change_1h_in": -0.25}) == "-0.25"
+
+
+def test_crest_entities_render_the_crest_its_timing_and_the_outlook():
+    payload = {"value": 2.31, "time_to_crest_min": 45, "reaches": "warning",
+               "may_reach": "emergency"}
+    assert _render("creek_predicted_crest", payload) == "2.31"
+    assert _render("creek_time_to_crest", payload) == "45"
+    assert _render("creek_crest_outlook", payload) == "Reaches Warning"
+    assert _render("creek_crest_outlook", {**payload, "reaches": None}) == "May reach Emergency"
+    assert _render("creek_crest_outlook", {**payload, "reaches": None, "may_reach": "bank"}) == (
+        "May reach the bank top")
+    assert _render("creek_crest_outlook", {**payload, "reaches": None, "may_reach": None}) == (
+        "Below Warning")
+    # No model, no stage: HA turns a rendered "None" into unknown, not a word.
+    assert _render("creek_crest_outlook", {"value": None}) == "None"
+    assert _render("creek_time_to_crest", {"time_to_crest_min": None}) == "None"
 
 
 def test_shadow_probability_renders_a_percentage_or_nothing():
