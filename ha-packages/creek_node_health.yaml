@@ -221,6 +221,24 @@ template:
           reserve_days: "{{ reserve_days }}"
           capacity_mah: "{{ capacity_mah }}"
 
+# Battery pack icon template
+  - sensor:
+      - name: "Creek Node Battery Level"
+        unique_id: creek_node_battery_level
+        unit_of_measurement: V
+        device_class: voltage
+        state_class: measurement
+        state: "{{ states('sensor.creek_gateway_creek_node_battery') }}"
+        availability: "{{ states('sensor.creek_gateway_creek_node_battery') | is_number }}"
+        icon: >
+          {% set v = states('sensor.creek_gateway_creek_node_battery') | float(0) %}
+          {% if v >= 4.05 %}fas:battery-full
+          {% elif v >= 3.85 %}fas:battery-three-quarters
+          {% elif v >= 3.7 %}fas:battery-half
+          {% elif v >= 3.55 %}fas:battery-quarter
+          {% else %}fas:battery-empty
+          {% endif %}
+
 # Inputs to the 04:30 pack verdict above.
 sensor:
   # Mean of the last hour, so a single 6.45 mV ADC step does not decide anything.
