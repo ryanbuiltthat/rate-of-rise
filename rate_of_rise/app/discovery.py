@@ -105,11 +105,38 @@ class DiscoveryPublisher:
                     "icon": "mdi:arrow-up-bold-circle-outline"})
                 for label in ("1h", "3h")
             ),
+            # How high the creek is expected to get within 3 h, and how soon (crest.py).
+            # Informational like the rise probabilities: nothing reads these to raise a
+            # tier. Attributes carry the 80 % range, the rise in inches, which named level
+            # the crest reaches, whether it is past anything the model was trained on, and
+            # the held-out scores.
             ("sensor", "creek_predicted_crest", {
                 "name": "Creek Predicted Crest",
                 "state_topic": f"{b}/predicted_crest",
                 "value_template": "{{ value_json.value if value_json.value is not none else none }}",
+                "json_attributes_topic": f"{b}/predicted_crest",
                 "unit_of_measurement": "ft", "state_class": "measurement", "icon": "mdi:wave"}),
+            ("sensor", "creek_time_to_crest", {
+                "name": "Creek Time to Crest",
+                "state_topic": f"{b}/predicted_crest",
+                "value_template": ("{{ value_json.time_to_crest_min "
+                                   "if value_json.time_to_crest_min is not none else none }}"),
+                "unit_of_measurement": "min", "state_class": "measurement",
+                "icon": "mdi:timer-arrow-up-outline"}),
+            # The predicted crest against the surveyed levels, in words: the median crest
+            # ("Reaches ..."), else the top of its range ("May reach ..."), else neither.
+            ("sensor", "creek_crest_outlook", {
+                "name": "Creek Crest Outlook",
+                "state_topic": f"{b}/predicted_crest",
+                "value_template": (
+                    "{% set n = {'warning': 'Warning', 'emergency': 'Emergency', "
+                    "'bank': 'the bank top'} %}"
+                    "{% if value_json.value is none %}{{ none }}"
+                    "{% elif value_json.reaches %}Reaches {{ n[value_json.reaches] }}"
+                    "{% elif value_json.may_reach %}May reach {{ n[value_json.may_reach] }}"
+                    "{% else %}Below Warning{% endif %}"),
+                "json_attributes_topic": f"{b}/predicted_crest",
+                "icon": "mdi:waves-arrow-up"}),
             ("sensor", "creek_lag_estimate", {
                 "name": "Creek Lag Estimate",
                 "state_topic": f"{b}/lag_estimate",

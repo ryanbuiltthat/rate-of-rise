@@ -135,6 +135,10 @@ WARNING_RATE_OF_RISE_CONFIRM_SAMPLES = 2
 # --- Tier 4 Emergency: overbank imminent (gauge required) ---
 EMERGENCY_STAGE_FT = 2.5           # bank top (3.69 ft, surveyed 2026-09-14) minus ~14 in margin
 EMERGENCY_PROBABILITY = 0.80
+# The bank top itself (44.25 in above the creekbed, surveyed 2026-09-14). No tier keys on
+# it — Emergency is meant to fire before it — but crest.py reports a predicted crest
+# against it, since "will it leave the channel?" is the question that crest answers.
+BANK_TOP_FT = 44.25 / 12
 
 # --- NWS product force-promotion floors (spec §6) ---
 # §6 states only "NWS Flood Warning for the county force-promotes to >= Tier 1", which in
