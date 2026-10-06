@@ -20,6 +20,7 @@ from datetime import datetime
 
 from .commands import CommandProcessor, CommandQueue
 from .config import DATA_DIR, SHARE_DIR, Config
+from .crest import TOLERANCE_IN as CREST_TOLERANCE_IN, CrestModel, train_crest
 from .dataset import DatasetWriter
 from .discovery import DiscoveryPublisher
 from .features import DERIVED_KEYS, FeatureBuilder
@@ -68,6 +69,7 @@ def _run_inference_once(
     mqtt: MqttClient, status: dict, health: HealthTracker = None, sources=None,
     storms: StormLog = None, ror_confirm_samples: int | None = None,
     rise_models: RiseModels = None, radar_hold: RadarWatchHold = None,
+    crest_model: CrestModel = None,
 ) -> str:
     row = features.build()
     pred = model.predict(row)
@@ -78,7 +80,8 @@ def _run_inference_once(
     rise = rise_models.predict(row) if rise_models is not None else {}
     for horizon, payload in rise.items():
         mqtt.publish(f"rise/{RISE_LABELS[horizon]}", payload)
-    mqtt.publish("predicted_crest", {"value": pred.predicted_crest_ft})
+    crest = crest_model.predict(row) if crest_model is not None else {"value": None}
+    mqtt.publish("predicted_crest", crest)
     tier, label, reasons = compute_tier(row, pred.flood_probability, ror_confirm_samples,
                                         radar_hold)
     mqtt.publish("alert_tier", {"value": tier, "label": label, "reasons": reasons,
@@ -98,7 +101,11 @@ def _run_inference_once(
                              "probability_method": pred.method, "ml_probability": ml_value,
                              "ml_version": ml_version,
                              **{f"rise_p_{RISE_LABELS[h]}": v["value"]
-                                for h, v in rise.items()}})
+                                for h, v in rise.items()},
+                             "predicted_crest_ft": crest.get("value"),
+                             "predicted_crest_high_ft": crest.get("high_ft"),
+                             "predicted_time_to_crest_min": crest.get("time_to_crest_min"),
+                             "crest_version": crest.get("version")})
     if storms is not None:
         if storms.observe(row, tier) is not None:
             _publish_storms(mqtt, storms)
@@ -210,10 +217,33 @@ def _retrain_rise(cfg: Config, dataset: DatasetWriter, rise_models: RiseModels |
     return "; ".join(parts)
 
 
+def _retrain_crest(cfg: Config, dataset: DatasetWriter, crest_model: CrestModel | None,
+                   storms: StormLog | None, data_dir) -> str:
+    """Refit the crest model (crest.py). Like the rise models: not gated on
+    min_events_for_ml, used at once, never drives a tier."""
+    if crest_model is None:
+        return "off"
+    try:
+        result = train_crest(dataset.frame(), data_dir, _storm_windows(storms),
+                             cfg.rate_of_rise_confirm_samples, cfg.stage_max_age_minutes)
+    except Exception:     # a failed fit leaves the previous model answering
+        log.exception("crest model training failed")
+        return "failed (see log)"
+    if result.version:
+        m = result.metrics
+        out = (f"{result.version} skill={m.get('skill')} rises={m.get('episodes')} "
+               f"within_{CREST_TOLERANCE_IN:g}in={m.get('episodes_within_tolerance')}")
+    else:
+        crest_model.set_reason(result.reason)
+        out = result.reason
+    crest_model.reload()
+    return out
+
+
 def _nightly_batch(
     cfg: Config, dataset: DatasetWriter, mqtt: MqttClient, model: Model,
     registry: ModelRegistry, status: dict, storms: StormLog = None,
-    rise_models: RiseModels = None,
+    rise_models: RiseModels = None, crest_model: CrestModel = None,
 ) -> str:
     # Fold yesterday's part files into the Parquet dataset (§4 "append day's data").
     rows = dataset.consolidate()
@@ -230,15 +260,18 @@ def _nightly_batch(
 
     retrain_result = _retrain(cfg, dataset, registry, model, DATA_DIR)
     rise_result = _retrain_rise(cfg, dataset, rise_models, storms, DATA_DIR)
+    crest_result = _retrain_crest(cfg, dataset, crest_model, storms, DATA_DIR)
 
-    log.info("Nightly batch: dataset=%d rows, events=%d, lag=%s, retrain=%s, rise=%s",
-             rows, model.event_count(), lag["lag_minutes"], retrain_result, rise_result)
+    log.info("Nightly batch: dataset=%d rows, events=%d, lag=%s, retrain=%s, rise=%s, "
+             "crest=%s", rows, model.event_count(), lag["lag_minutes"], retrain_result,
+             rise_result, crest_result)
     ran_at = _now_iso()
     status["last_nightly_at"] = ran_at
     method = _publish_model_health(cfg, mqtt, rows, model, ran_at)
     _publish_registry(mqtt, registry)
     return (f"rows={rows} events={model.event_count()} lag={lag['lag_minutes']} "
-            f"method={method} retrain={retrain_result} rise=[{rise_result}]")
+            f"method={method} retrain={retrain_result} rise=[{rise_result}] "
+            f"crest=[{crest_result}]")
 
 
 def _process_commands(
@@ -286,6 +319,7 @@ def main() -> int:
     health = HealthTracker()
     model = Model(cfg, registry, data_dir)
     rise_models = RiseModels(data_dir, cfg.rise_thresholds, cfg.rate_of_rise_confirm_samples)
+    crest_model = CrestModel(data_dir, cfg.rate_of_rise_confirm_samples)
     radar_hold = RadarWatchHold()     # one per service: the memory compute_tier lacks
     dataset = DatasetWriter(data_dir)
     storms = StormLog(
@@ -316,9 +350,10 @@ def main() -> int:
         {
             "run_inference": lambda payload: _run_inference_once(
                 features, model, dataset, mqtt, status, health, sources, storms,
-                cfg.rate_of_rise_confirm_samples, rise_models, radar_hold),
+                cfg.rate_of_rise_confirm_samples, rise_models, radar_hold, crest_model),
             "retrain": lambda payload: _nightly_batch(
-                cfg, dataset, mqtt, model, registry, status, storms, rise_models),
+                cfg, dataset, mqtt, model, registry, status, storms, rise_models,
+                crest_model),
             "promote": lambda payload: _promote(mqtt, registry, refresh_health,
                                                 cfg.ml_drives_alerts),
             "rollback": lambda payload: _rollback(mqtt, registry, refresh_health),
@@ -343,6 +378,11 @@ def main() -> int:
         log.info("Rise models missing or stale — training at startup: %s",
                  _retrain_rise(cfg, dataset, rise_models, storms, data_dir))
         _publish_pipeline(mqtt, status, "idle", "none")
+    if crest_model.needs_training():
+        _publish_pipeline(mqtt, status, "running", "retrain")
+        log.info("Crest model missing — training at startup: %s",
+                 _retrain_crest(cfg, dataset, crest_model, storms, data_dir))
+        _publish_pipeline(mqtt, status, "idle", "none")
 
     last_nightly_day: int | None = None
     interval = max(1, cfg.fast_loop_minutes) * 60
@@ -353,7 +393,7 @@ def main() -> int:
             try:
                 _run_inference_once(
                     features, model, dataset, mqtt, status, health, sources, storms,
-                    cfg.rate_of_rise_confirm_samples, rise_models, radar_hold)
+                    cfg.rate_of_rise_confirm_samples, rise_models, radar_hold, crest_model)
             except Exception:  # a transient feature/predict error must not kill the loop
                 log.exception("Inference failed")
                 status["last_error"] = "inference failed (see log)"
@@ -365,7 +405,7 @@ def main() -> int:
             if now.hour == cfg.nightly_retrain_hour and now.day != last_nightly_day:
                 _publish_pipeline(mqtt, status, "running", "retrain")
                 _nightly_batch(cfg, dataset, mqtt, model, registry, status, storms,
-                               rise_models)
+                               rise_models, crest_model)
                 _publish_pipeline(mqtt, status, "idle", "none")
                 last_nightly_day = now.day
 

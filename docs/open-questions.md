@@ -249,6 +249,16 @@ the calibration phase.
 - **#10.** Rain-on-snow thresholds (`app/features.py`: 0.20 in SWE, 34 °F) are placeholders, and
   the flag cannot be validated until a winter rain-on-snow event is actually captured.
 
+- **#18.** Is the predicted crest right where it matters? `app/crest.py` (0.25.0) is trained
+  on every rise in the record, and every rise so far is inches from a creek near 1 ft. Its
+  held-out scores say how well it calls those. Whether it calls a crest within the last foot
+  below the bank (Emergency 30 in, bank top 44.25 in) can only be answered by a storm that
+  gets there. Until then `beyond_training` is true up there, and the crest stays
+  informational. When such a storm comes, compare the card's crest and time to crest from
+  an hour or two before against the recorded peak (storm runbook, *During*). The same
+  storm is what would let a predicted crest raise a tier (spec E.4). Duration — "for how
+  long" — is also still to build (spec E.4).
+
 - *#11 is Closed, above; its load figure was settled by #17 at ~2 mA, which makes the 80 mA
   analysis below moot for the as-built node.* What follows is the
   original ESP32-C6-era sizing analysis that led to that decision — retained as background

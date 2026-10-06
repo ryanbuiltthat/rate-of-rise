@@ -44,7 +44,6 @@ log = logging.getLogger("app.model")
 @dataclass
 class Prediction:
     flood_probability: float        # 0..1
-    predicted_crest_ft: float | None
     lag_estimate_min: float | None
     method: str                     # "threshold" | "ml:<version>"
 
@@ -148,7 +147,6 @@ class Model:
             try:
                 return Prediction(
                     flood_probability=round(self._active.probability(row), 3),
-                    predicted_crest_ft=None,   # see train.py's docstring
                     lag_estimate_min=None,
                     method=f"ml:{self._active.version}",
                 )
@@ -186,7 +184,6 @@ class Model:
             p = min(1.0, p + 0.15)
         return Prediction(
             flood_probability=round(p, 3),
-            predicted_crest_ft=None,          # requires lag/response fit (Phase 3)
             lag_estimate_min=None,            # empirical, measured from storms (Phase 3)
             method="threshold",
         )

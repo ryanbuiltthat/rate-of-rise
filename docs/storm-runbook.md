@@ -62,7 +62,10 @@ reading that stops moving because the *link* dropped rather than the creek holdi
       actually moved — a real gap between the two, beyond the node's 60 s cadence, is worth
       a note)
 - [ ] Creek appears to crest — **time**, and roughly how high (compare to the depth reading
-      and to **Predicted crest** on the Now card)
+      and to **Predicted crest**, **Time to crest** and **Crest outlook** on the Now card).
+      When the crest arrives, check what the card said an hour or two before: that's the
+      crest model's real test. "beyond training" in its attributes means it was guessing
+      past anything it had seen, so a miss there is expected.
 - [ ] High-water mark (photo against a fixed reference — rock, post, tree). This is still
       the best way to catch the sensor reading low or high — cross-check it against the
       depth reading at the same moment.

@@ -5,8 +5,8 @@ The [spec](../creek-flood-warning-spec.md) is the source of truth for *what is b
 built*; this file covers *how the system fits together, what the conventions are, and
 which mistakes have already been made and paid for*.
 
-Current state: add-on **v0.23.0**. ML runs in shadow (`ml_drives_alerts` off) — alerts use
-the threshold estimate.
+Current state: add-on **v0.25.0**. Alerts use the threshold estimate. The flood model runs
+in shadow (`ml_drives_alerts` off), and the rise and crest models are informational.
 
 ---
 
@@ -16,6 +16,23 @@ A DIY flood early-warning system for a small creek in Lackawanna County, northea
 Pennsylvania (`<site lat>`, `<site lon>`). Published as **Rate of Rise** (the repo and the
 modeling add-on share the name). Small, flashy basin: rainfall-to-crest is measured in tens
 of minutes, so lead time is the entire point.
+
+**What it predicts.** The project started as "will it flood?" — a yes/no probability. It has
+become a prediction of **how much, how fast and (later) for how long the creek will rise**,
+which is what the name means. Overtopping is then read off the predicted crest against the
+surveyed levels (Warning 24 in, Emergency 30 in, bank top 44.25 in). The reason is
+data: a flood-labelled model needs floods to learn from and be tested against, which can
+take a season or more. A rise model learns from every storm. Spec Addendum E has the
+full argument. In practice:
+
+| Model | Answers | Trained on |
+|---|---|---|
+| `rise.py` | Chance of a ≥ X in rise within 1 h / 3 h | every rise |
+| `crest.py` | Crest height within 3 h (with range) and time to it | every rise |
+| `train.py` | Will it reach Warning within 3 h | Warning crossings only |
+
+None of the three drives a tier today. The first two are refitted nightly and used at once.
+The third is promoted by hand and drives alerts only with `ml_drives_alerts` on.
 
 The creek has **no USGS gauge of its own**. The on-site radar stream gauge (DFRobot
 SEN0676) **is mounted and reporting** as of 2026-09-12, so stage and rate-of-rise now
@@ -66,7 +83,9 @@ features.py     FeatureRow dataclass + derived features (temp_f, rain_on_snow_fl
 tiers.py        §6 alert-tier evaluation (0–4) with human-readable reasons
 storms.py       SQLite storm event log — detection, peaks, annotation
 dataset.py      JSONL day-parts → nightly consolidation into dataset.parquet
-train.py        xgboost pipeline; FEATURE_COLUMNS is the model's input allowlist
+train.py        Warning-crossing classifier; FEATURE_COLUMNS is its input allowlist
+rise.py         rise probabilities (1 h / 3 h), leave-one-storm-out scoring
+crest.py        predicted crest + time to crest (quantile xgboost), vs surveyed levels
 model.py        threshold vs ML inference, gated on min_events_for_ml
 registry.py     model versions: active / candidate / rollback history
 lag.py          rainfall→response lag estimation (Phase 3)
@@ -377,7 +396,14 @@ thresholds want fitting against real storms — which is what the storm event lo
 annotations exist to accumulate. `min_events_for_ml` (10) has now been **cleared** — the
 storm log passed it — so retrain produces real candidates. Clearing that gate is not the
 same as having a trustworthy model: with a record this short the held-out split still
-lands single-class, which is why promote warns rather than reassures.
+lands single-class, which is why promote warns rather than reassures. The rise and crest
+models don't share that wait. They do share a ceiling: every rise on record is inches, so
+a crest predicted near the bank is an extrapolation until a bigger storm is recorded
+(`beyond_training` says when).
+
+**Next on the modeling path (spec E.4):** a duration model ("for how long"), and, once
+the crest model has stayed `trustworthy` across several refits, letting a predicted crest
+raise a Watch with lead time behind a switch like `ml_drives_alerts`.
 
 **Available to build:** a tier hold across a stage dropout (#14's residual); more upstream
 PWS stations (#4 — two configured, spec wants 3–5, and with two, one dropout halves the
