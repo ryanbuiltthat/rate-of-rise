@@ -67,7 +67,7 @@ def test_trains_scores_and_saves_on_repeated_storms():
                 "rise_rows_skill", "episodes_within_tolerance", "time_mae_min",
                 "time_mae_climatology_min", "trustworthy"):
         assert key in m, key
-    assert m["skill"] > 0 and m["rise_rows_skill"] > 0 and m["trustworthy"]
+    assert m["skill"] > 0 and m["rise_rows_skill"] > 0
     # Timing beats always quoting the typical time to crest.
     assert m["time_mae_min"] < m["time_mae_climatology_min"]
     out = d / "models" / "crest"
@@ -76,6 +76,15 @@ def test_trains_scores_and_saves_on_repeated_storms():
     # The storms in the fixture top out ~3 in above a 1 ft creek.
     assert 1.1 < meta["max_trained_stage_ft"] < 1.3
     assert (out / f"{r.version}.time.json").exists()
+
+
+def test_enough_storms_make_it_trustworthy():
+    # Not asserted at 5 storms: there the fixture's crests are called 1 in 5 within an inch
+    # on xgboost 3.4 and 0 in 5 on 3.2 (CI), a coin toss rather than a property. At 8 both
+    # call 2.
+    df, windows = _storms(n_storms=8)
+    m = crest.train_crest(df, Path(tempfile.mkdtemp()), windows).metrics
+    assert m["episodes_within_tolerance"] >= 1 and m["trustworthy"]
 
 
 def test_old_artifacts_are_pruned():
