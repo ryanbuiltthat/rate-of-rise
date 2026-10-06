@@ -95,8 +95,14 @@ views:
         title: Now
         show_header_toggle: false
         entities:
+          # Next 3 h, from every rise on record (crest.py). Informational — not a tier.
+          # Near the bank it is extrapolating: see the sensor's beyond_training attribute.
           - entity: sensor.rate_of_rise_creek_predicted_crest
             name: Predicted crest
+          - entity: sensor.rate_of_rise_creek_time_to_crest
+            name: Time to crest
+          - entity: sensor.rate_of_rise_creek_crest_outlook
+            name: Crest outlook
           - entity: sensor.rate_of_rise_creek_lag_estimate
             name: Lag estimate
           - entity: sensor.rate_of_rise_creek_soil_moisture_mean

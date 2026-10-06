@@ -1,8 +1,8 @@
 # Rate of Rise
 
-Layer 2 of the Creek Flood Early-Warning System. Runs the flood-probability +
-predicted-stage inference (fast loop) and the nightly retrain/recalibrate batch, publishing
-results to Home Assistant over MQTT.
+Layer 2 of the Creek Flood Early-Warning System. Runs the rise-probability, predicted-crest
+and flood-probability inference (fast loop) and the nightly retrain/recalibrate batch,
+publishing results to Home Assistant over MQTT.
 
 ## Prerequisites
 
@@ -397,6 +397,36 @@ own recent movement is an input (*Creek Stage Change 1h*, *Creek Stage Above 6h 
 also published) — without it, the rows just after a crest, still raining, looked like the
 start of the next rise. Fitted on rises of an inch or two from a creek near 1 ft, these say
 nothing about what the creek does out of its banks.
+
+**Predicted crest (0.25.0).** *Creek Predicted Crest* is how high the creek is expected to
+get within the next 3 h, in feet. *Creek Time to Crest* is how many minutes away that is.
+*Creek Crest Outlook* puts the crest in words against the surveyed levels: "Reaches
+Warning" when the median crest does, "May reach Emergency" when only the top of its range
+does, and "Below Warning" otherwise. The model (`app/crest.py`) learns from every rise, as
+the rise probabilities do, so it can be scored now rather than after a flood. Like them, it
+is refitted nightly and at startup when missing, is used at once, and **never drives a
+tier**. The sensor's attributes:
+
+- `low_ft` / `high_ft` — the 80 % range around the crest; `rise_in`, `rise_low_in`,
+  `rise_high_in` — the same, as inches above the current stage.
+- `reaches` / `may_reach` — `warning`, `emergency`, `bank` or null, for the median and for
+  the top of the range.
+- `beyond_training` — the top of the range is above `max_trained_stage_ft`, the highest the
+  model has ever seen the creek. From there up the crest is an extrapolation from smaller
+  storms. Every rise on record so far is inches, so near the bank this will be true.
+- `skill` — above 0 means better than always quoting the typical rise. `rise_rows_skill` —
+  the same on rows where the creek really came up, against "no further rise".
+- `range_coverage` — the share of held-out rows whose real rise fell inside the range. Near
+  0.8 is honest; well under it means the range is too narrow.
+- `episodes_within_tolerance` — rises whose crest it called within 1 in, just before the
+  creek started up. `time_mae_min` vs `time_mae_climatology_min` — timing error against
+  always quoting the typical time to crest.
+- `trustworthy` — two rises, positive `skill` and `rise_rows_skill`, and one crest called.
+
+All three read unknown with no model yet, or with no current stage (including while the
+creek node is offline). Time to crest also reads unknown when the predicted rise is under
+half an inch, because the creek isn't expected to move. Spec Addendum E explains why the
+project now predicts the rise rather than only the flood.
 
 Since 0.24.0 an unvalidated candidate is no longer shown as *Creek ML Shadow Probability*:
 the September 2026 candidate, never tested on a real positive, read 82–99 % on ordinary

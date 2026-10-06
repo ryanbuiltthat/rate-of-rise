@@ -1,7 +1,9 @@
 # Creek Flood Early-Warning System — Project Specification
 
 **Location:** Lackawanna County, northeastern Pennsylvania (`<site lat>`,`<site lon>`), mid-watershed on the creek
-**Motivation:** Prior 100-year storm event caused 40" of basement flooding. Goal is a tiered early-warning system that predicts flood *probability* before water rises — not just threshold alarms.
+**Motivation:** Prior 100-year storm event caused 40" of basement flooding. Goal is a tiered early-warning system that warns before the water arrives — not just threshold alarms.
+
+**Goal, as it stands (revised 2026-10, add-on 0.25.0):** predict how much, how fast, and — later — for how long the creek will rise, and read "will it leave the channel?" off that prediction against the surveyed levels (§2: Warning 24 in, Emergency 30 in, bank top 44.25 in). The original framing was a yes/no flood *probability*, and that model (`train.py`, Addendum D) still exists, but it can only be validated once the creek has actually come near the bank — which can take a season or more. Every storm, by contrast, shows how far the creek rose, how fast, and when it crested, so a model of the rise can be trained and scored now. That is what the project is named for. See [Addendum E](#addendum-e--rate-of-rise-predicting-the-rise-not-the-flood).
 
 ---
 
@@ -114,7 +116,7 @@
 **Layer 1 — HA package** (`ha-packages/creek_warning.yaml`): MQTT sensors from the creek gateway, REST sensors per API, template sensors (rate-of-rise in/min, 1/6/24/72-h rain accumulations, Antecedent Precipitation Index), alert automations, sensor-fault watchdogs (stale data, radar/pressure divergence when transducer added).
 
 **Layer 2 — Modeling service** (Python, containerized as a **local Home Assistant add-on** — HA install is HAOS; see [Addendum A](#addendum-a--modeling-service-as-a-haos-add-on-resolves-open-question-1)):
-- **Fast loop (5 min):** compute flood probability + predicted stage from live features; publish via MQTT.
+- **Fast loop (5 min):** compute the rise probabilities, the predicted crest (height, range, time to crest) and the flood probability from live features; publish via MQTT.
 - **Nightly batch:** append day's data to dataset (Parquet/SQLite), recalibrate/retrain, version model artifact, log skill metrics (hit rate, false alarms, lead time), publish model_health.
 - Post-storm: manual review + model promotion step.
 - Compute: mini PC CPU is sufficient. **Explicitly out of scope: Pi5/Hailo-8 or any NPU** (tabular model, trains in seconds). Revisit only if a creek camera + Frigate vision analytics is added later.
@@ -123,7 +125,7 @@
 
 ## 5. Model Approach
 
-- Target: creek stage (and/or exceedance probability of tier thresholds) at +30 min, +1 h, +3 h horizons.
+- Target: the creek's rise — how much (crest height over the next 3 h, with a range), how fast (time to that crest; chance of a given rise within 1 h / 3 h) and, later, how long — with exceedance of the tier thresholds read off the predicted crest rather than learned directly. A direct exceedance classifier (Addendum D) is kept as the long-horizon model that waits for real Warning-level storms. Addendum E has the reasoning.
 - Features: current stage, rate-of-rise, on-site + upstream rain accumulations (1/3/6/24/72 h), API/soil moisture (WH51), QPF next 6/24 h, NWM reach forecast, Google flood status (severity, trend and distance to the gauge that set them), season, SNODAS SWE, temperature (rain-on-snow flag).
 - Start simple → escalate only as data justifies: (1) empirical lag + linear rainfall-runoff response conditioned on soil moisture; (2) gradient boosting (XGBoost/LightGBM) once ≥ ~10 significant rain events are captured; (3) revisit later.
 - Honest constraint: no meaningful model tuning until several storms are recorded. Early months = data collection + threshold-based alerting only.
@@ -739,9 +741,9 @@ in front of it, both intentional:
   trained model"), and `train()` never writes to `active`, only `set_candidate`. Promoting a
   candidate to active is the dashboard's **Promote** button, a human decision — §4's
   "post-storm: manual review + model promotion step."
-- **Not built:** `predicted_crest_ft` (stage regression). With no creek gauge there has
-  never been a real `stage_ft` sample to regress against; building one now would exercise
-  library API surface, not model anything. Revisit once real stage data exists.
+- **Stage regression is not built here.** When this addendum was written there was no
+  creek gauge and nothing to regress against. The gauge has been live since 2026-09-12,
+  and the regression now exists as its own model, `crest.py` — see Addendum E.
 
 ### D.2 A gap this closed: promote/rollback now take effect live
 
@@ -755,3 +757,66 @@ compare) and reloads when it changes, so a promotion or rollback is live on its 
 loop, no restart required. Covered by `tests/test_model.py`, including the corrupted/missing
 artifact case: the registry naming a version does not guarantee the file behind it is
 loadable, and `Model` fails open to the threshold estimate rather than crashing the loop.
+
+## Addendum E — Rate of Rise: predicting the rise, not the flood
+
+*(add-on 0.24.0 rise probabilities; 0.25.0 predicted crest)*
+
+### E.1 Why the target moved
+
+Addendum D's model answers "will the creek reach Warning in the next 3 h?". Its label is a
+Warning crossing, so it cannot learn — or be tested — until the record holds real ones. In
+September 2026 every positive it had ever trained on turned out to be a radio or radar
+artifact. A season can pass without a real one, and the only way to get them is the thing
+the project exists to warn about.
+
+Every storm does answer a smaller question: how far the creek came up, how fast, and when
+it topped out. Models of *that* train on every rain event, and they can be scored
+leave-one-storm-out now. Exceedance then becomes arithmetic. The surveyed levels are fixed
+numbers (§2, `tiers.py`: Warning 2.0 ft, Emergency 2.5 ft, bank top 44.25 in = 3.69 ft), so
+a predicted crest either reaches one or it does not. The flood question is still answered —
+it is just answered *from* the rise rather than learned on its own.
+
+### E.2 What is built
+
+| Model | Question | Entities | Since |
+|---|---|---|---|
+| `rise.py` | Chance of a rise of ≥ X in within 1 h / 3 h | *Creek Rise Probability 1h / 3h* | 0.24.0 |
+| `crest.py` | How high within 3 h (median and 80 % range), and in how many minutes | *Creek Predicted Crest*, *Creek Time to Crest*, *Creek Crest Outlook* | 0.25.0 |
+| `train.py` | Will it reach Warning within 3 h | *Creek ML Shadow Probability*; Promote to drive tiers | 0.12.0 |
+
+The rise and crest models share their inputs (`rise.FEATURES`: rain on-site and upstream,
+QPF, soil, API, radar ETA, the creek's own last hour) and their scoring (leave-one-storm-out,
+since a 5-minute series has hundreds of near-identical rows per storm). Both are refitted
+every nightly batch and at startup when missing, and both are used as soon as they are
+fitted. Neither has a Promote step, because **neither drives a tier**: they are published
+for people to read until the record shows they deserve more.
+
+`crest.py` uses xgboost's quantile objective, so one booster gives the low, middle and high
+of the rise. Its payload reports which surveyed level the median crest reaches
+(`reaches`), which one the top of the range may reach (`may_reach`), and whether that top
+is above the highest stage the model was ever trained on (`beyond_training`). Its scores:
+`skill` (against quoting the typical rise), `rise_rows_skill` (on rows where the creek
+really came up, against "no further rise"), `range_coverage` (should be near 0.8),
+`episodes_within_tolerance` (rises whose crest it called within 1 in just before the creek
+started up), and `time_mae_min` against `time_mae_climatology_min`.
+
+### E.3 The limit that matters
+
+Every rise in the record so far is inches, from a creek near 1 ft. What the creek does in
+the last foot below the bank — and over it — is not in that data, so a predicted crest up
+there is an extrapolation from small storms. That is why `beyond_training` exists, and why
+these models stay informational. The record fixes this one storm at a time. Each bigger
+storm raises `max_trained_stage_ft`, and with it the range over which the crest is a
+measured answer rather than a guess.
+
+### E.4 Not built yet
+
+- **Duration — "for how long".** Time above a level, or time to recede to near the starting
+  stage. Most storms recede over longer than 3 h, so this needs a longer horizon and a label
+  that copes with a window that ends before the creek is back down.
+- **Using the crest in the tiers.** For example, raising a Watch when the median crest
+  reaches Warning, with lead time. That should wait until `trustworthy` holds across several
+  nightly refits, and it should be gated the way `ml_drives_alerts` gates the flood model.
+- **Shorter horizons** (+30 min) for the crest, once storms show whether the 3 h model
+  already answers them.
