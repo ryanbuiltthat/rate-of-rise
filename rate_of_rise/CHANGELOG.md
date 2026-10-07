@@ -14,7 +14,7 @@ The version matches `version:` in `config.yaml`; bump it to trigger the GUI Upda
   forecast features stay empty.
 - **Off by default, and harmless against the current gateway.** With `gateway_store_url`
   blank nothing runs. Pointed at the v1 gateway, or at a gateway that is down, it reports
-  that on `sensor.rate_of_rise_creek_backfill_status` and logs nothing above DEBUG.
+  that on `sensor.rate_of_rise_creek_backfill_status` and logs no warnings or errors and nothing per poll.
 - Recorder writes only happen on a recorder schema the add-on has been checked against
   (53). Every inserted row is marked, and `creek/cmd/backfill_undo` removes them.
   `backfill_shadow_map` rehearses writes in the log without making them.

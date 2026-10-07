@@ -59,14 +59,17 @@ Runbook for running gateway v2 beside v1, proving it, and swapping it in. Design
 
 | State | Meaning |
 |---|---|
-| `off` | `gateway_store_url` is blank, or the add-on has no recorder access. Nothing runs. |
+| `off` | `gateway_store_url` is blank; nothing runs. |
 | `v1 gateway (no store)` | The URL answers but is a v1 gateway. Re-probed hourly. Silent. |
 | `unreachable` | Refused, timed out or DNS failure. Retried every pass. Silent. |
 | `idle` | Caught up with the store. |
 | `backfilling N` | N store records still to process. |
 | `waiting for live poll` | Gap rows are held until the first live rain poll after an add-on restart. |
-| `blocked: recorder schema N` | The recorder schema is not one the writer was checked against (53). Nothing is written; the dataset and stage-log passes are unaffected. |
+| `blocked: recorder schema N` | The recorder schema is not one the writer was checked against (53). Nothing is written to the recorder. Stage log and dataset rows are still written, and the cursor moves on, so history rows for batches seen while blocked are not retried later. |
 | `error: ...` | The last pass failed; the text says why. |
+
+If the add-on can't see Home Assistant's database, backfill still runs and reads `idle`, but no
+history rows are written. The add-on log says so at startup, so check it on the first trial start.
 
 Attributes: `last_run`, `cursor_node`, `cursor_ecowitt`, `inserted_states`, `shadow_states`,
 `deleted_unavailable`, `imported_stat_hours`, `stage_log_rows`, `dataset_rows`,
@@ -74,13 +77,13 @@ Attributes: `last_run`, `cursor_node`, `cursor_ecowitt`, `inserted_states`, `sha
 
 Recorder writer rules, useful when reading the history afterwards:
 
-- A reading equal to the state already in effect adds no row (numbers compare numerically).
+- A reading equal to the state already in effect adds no row (numbers compare numerically). Exception: the first reading after an `unavailable` row is always written, even if unchanged.
 - An `unavailable` row is removed only when gateway readings bracket it within 300 s on both
   sides, and never when it is the entity's newest real row.
 - Every row written is marked; `creek/cmd/backfill_undo` removes them.
 - Hourly statistics are re-imported only for measurement sensors.
 
-Gateway records with untrustworthy time (`ts_src: none`, or a timestamp more than 1 h in the
+Gateway records with untrustworthy time (`ts_src: none`, a missing or non-numeric timestamp, or a timestamp more than 1 h in the
 future) are skipped and counted in `skipped_no_time` / `skipped_bad_time`.
 
 ## 2. Acceptance checks (all required before cutover)
@@ -88,10 +91,10 @@ future) are skipped and counted in `skipped_no_time` / `skipped_bad_time`.
 | # | Check | Pass when |
 |---|---|---|
 | 1 | 24 h side by side | v2's Creek Node Packets, Stage and RSSI track v1's; Store Clock Source is `ntp`; Store Node Records keeps rising. |
-| 2 | WiFi outage | Block 192.168.30.21 at OPNsense for 30 min, then unblock. Within 10 min the status returns to `idle` with `inserted_states` > 0, and v2's Stage history shows no gap and no `unavailable` inside the outage. |
+| 2 | WiFi outage | Block 192.168.30.21 at OPNsense for 30 min, then unblock. Within 15 min (the next pass can be up to 10 min away, and the newest 2 min are held back) the status returns to `idle`. The attribute counts cover only the latest pass, so look for the first `idle` after the unblock that shows `inserted_states` > 0, or confirm in v2's Stage history that the gap is filled with no `unavailable` inside the outage. |
 | 3 | HA outage | Stop HA Core for 30 min (Settings → System → Restart → Stop), then start it. v2's history is filled; the add-on log shows `backfill shadow: would insert ...` lines for v1 and Ecowitt entities; `/share/rate_of_rise/stage/` has rows across the outage; the add-on log shows `backfill: wrote N dataset row(s)`; `rain_24h_in` in the next feature row matches the GW3000B's own 24 h total. |
 | 4 | Reboot while offline | With v2 blocked at OPNsense, power-cycle it. After it is unblocked: records continue the same seq, and the outage's records carry `ts_src` `rtc`. |
-| 5 | v1 safety | Temporarily set `gateway_store_url` to v1's IP (192.168.30.20). Status shows `v1 gateway (no store)` or `unreachable` (both are silent), nothing in the add-on log above DEBUG, and nothing written. Set it back. |
+| 5 | v1 safety | Temporarily set `gateway_store_url` to v1's IP (192.168.30.20). Status shows `v1 gateway (no store)` or `unreachable` (both are silent), no warnings or errors in the add-on log and nothing logged per poll, and nothing written. Set it back. |
 | 6 | OTA from v1 while v2 runs | Push node firmware from v1. v2 logs the telemetry before and after; neither gateway errors. |
 
 ## 3. Cutover
@@ -103,7 +106,8 @@ a file holding an admin long-lived access token.
 2. Dry run (the default, changes nothing):
    `python tools/gateway_cutover.py --ha-url http://192.168.20.3:8123 --token-file <file>`
    It runs the preflight and prints the config entries it would delete, the entity renames,
-   and the resulting `backfill_entity_map`. Fix anything it reports.
+   and the resulting `backfill_entity_map`. Fix anything it reports. The preflight requires the
+   backfill status to read exactly `idle` (it refuses during `waiting for live poll`, for example).
 3. The same command with `--apply`. It waits for v1's entities to clear, retries each rename
    (3 tries), then writes the add-on options (production `backfill_entity_map`,
    `backfill_shadow_map` cleared). On any failure it prints what completed and the steps that
