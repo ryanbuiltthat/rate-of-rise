@@ -28,6 +28,7 @@ import json
 import logging
 import struct
 import tarfile
+import threading
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -51,6 +52,9 @@ MAX_LOOKBACK_DAYS = 5
 CHUNK = 1 << 20
 
 
+_NONE_FOUND = object()
+
+
 class SnodasSwe:
     name = "snodas"
     refresh_seconds = 6 * 3600      # daily product; a few tries a day covers late posting
@@ -66,6 +70,7 @@ class SnodasSwe:
         self._today = today_fn
         self._timeout = timeout
         self._cache = self._load_cache()
+        self._lock = threading.Lock()
 
     @staticmethod
     def _cell(lat: float, lon: float) -> tuple[int, int]:
@@ -89,28 +94,46 @@ class SnodasSwe:
         if not (0 <= self._row < NROWS and 0 <= self._col < NCOLS):
             log.warning("site falls outside the SNODAS grid — SWE unavailable")
             return {"snow_water_equivalent_in": None}
+        swe = self._swe_for(self._today(), persist=True)
+        if swe is _NONE_FOUND:
+            log.warning("no SNODAS file in the last %d days", MAX_LOOKBACK_DAYS)
+            return {"snow_water_equivalent_in": None}
+        return {"snow_water_equivalent_in": swe}
 
-        today = self._today()
+    def history_between(self, start, end):
+        """SWE as of each past day. The live cache keeps only the newest days, so past days
+        are memoised here, per backfill, instead of in it."""
+        memo: dict = {}
+
+        def at(as_of):
+            day = as_of.date()
+            if day not in memo:
+                swe = self._swe_for(day, persist=False)
+                memo[day] = None if swe is _NONE_FOUND else swe
+            return {"snow_water_equivalent_in": memo[day]}
+        return at
+
+    def _swe_for(self, today: date, persist: bool):
         for back in range(MAX_LOOKBACK_DAYS):
             day = today - timedelta(days=back)
             key = day.isoformat()
-            if key in self._cache:
-                return {"snow_water_equivalent_in": self._cache[key]}
+            with self._lock:
+                if key in self._cache:
+                    return self._cache[key]
             try:
                 swe_in = self._fetch_day(day)
             except Exception as exc:  # not yet posted, or a transient network error
                 log.debug("SNODAS %s unavailable: %s", key, exc)
                 continue
-            # Keep only the newest few days so the state file cannot grow without bound.
-            self._cache[key] = swe_in
-            for stale in sorted(self._cache)[:-MAX_LOOKBACK_DAYS]:
-                del self._cache[stale]
-            self._save_cache()
-            log.info("SNODAS %s: SWE %s in", key, swe_in)
-            return {"snow_water_equivalent_in": swe_in}
-
-        log.warning("no SNODAS file in the last %d days", MAX_LOOKBACK_DAYS)
-        return {"snow_water_equivalent_in": None}
+            if persist:
+                with self._lock:
+                    self._cache[key] = swe_in
+                    for stale in sorted(self._cache)[:-MAX_LOOKBACK_DAYS]:
+                        del self._cache[stale]
+                    self._save_cache()
+                log.info("SNODAS %s: SWE %s in", key, swe_in)
+            return swe_in
+        return _NONE_FOUND
 
     def _url(self, day: date) -> str:
         return (f"{BASE_URL}/{day.year}/{day.month:02d}_{day.strftime('%b')}"
