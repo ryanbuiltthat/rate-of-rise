@@ -17,8 +17,10 @@ entity's history as inserted rows. This does that, carefully:
   that state is unreachable (unavailable), because HA itself only writes a row when the
   state changes.
 * Unavailable rows within BRACKET_S (300 s) of both an existing/batch state before and a
-  batch reading after are removed, clearing old_state_id references (Rule 3: but never if
-  a later non-backfilled row exists, to preserve HA's old_state_id pointers).
+  batch reading after are removed, clearing old_state_id references to them. Rule 3: an
+  unavailable row is deleted only if a later non-backfilled row exists for the entity.
+  Otherwise it is the newest real row, which HA holds in memory as the next write's
+  old_state_id, so deleting it would leave HA pointing at a missing row.
 * Numeric states are compared with a tolerance of half the record's quantum (FieldSpec.resolution,
   converted to the display unit), at least 1e-4 relative: HA keeps the raw float, the record
   is rounded.
