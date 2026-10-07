@@ -33,6 +33,8 @@ from .registry import ModelRegistry, promotion_readiness
 from .rise import HORIZONS_MIN, LABELS as RISE_LABELS, RiseModels, train_rise
 from .stagelog import StageLogger, stage_log_dir
 from .storms import StormLog
+from .backfill import recorder_db_path
+from .backfill.undo import undo as backfill_undo
 from .sources import FEATURE_KEYS, SourceCoordinator
 from . import train
 from .tiers import RadarWatchHold, compute_tier
@@ -358,6 +360,7 @@ def main() -> int:
                                                 cfg.ml_drives_alerts),
             "rollback": lambda payload: _rollback(mqtt, registry, refresh_health),
             "annotate": lambda payload: _annotate(mqtt, storms, payload),
+            "backfill_undo": lambda payload: _backfill_undo(payload),
         }
     )
 
@@ -448,6 +451,16 @@ def _rollback(mqtt: MqttClient, registry: ModelRegistry, refresh_health=None) ->
     # A None version is the threshold estimate, not a missing answer — say so, since
     # this is what the operator sees on the dashboard after backing out a bad model.
     return f"rolled back to {version or 'the threshold estimate (no ML model active)'}"
+
+
+def _backfill_undo(payload: str) -> str:
+    """Take every backfilled row back out of HA's recorder (app/backfill/undo.py). Payload:
+    an ISO-8601 time to undo from, or empty for all of them. Raises on a bad time or an
+    unsupported recorder schema; CommandProcessor reports either."""
+    text = payload.strip()
+    since = datetime.fromisoformat(text).timestamp() if text else 0.0
+    n = backfill_undo(recorder_db_path(), since)
+    return f"removed {n} backfilled recorder row(s) since {text or 'the beginning'}"
 
 
 def _annotate(mqtt: MqttClient, storms: StormLog, payload: str) -> str:
