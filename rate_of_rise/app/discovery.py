@@ -159,6 +159,16 @@ class DiscoveryPublisher:
                 "state_topic": f"{b}/status/pipeline",
                 "value_template": "{{ value_json.state }}",
                 "json_attributes_topic": f"{b}/status/pipeline", "icon": "mdi:cog-play"}),
+            # Gateway v2 store backfill (app/backfill/): off / v1 gateway (no store) /
+            # unreachable / idle / backfilling N / blocked: ... / error: .... Attributes carry
+            # the cursors and the last pass's counts.
+            ("sensor", "creek_backfill_status", {
+                "name": "Creek Backfill Status",
+                "state_topic": f"{b}/status/backfill",
+                "value_template": "{{ value_json.state }}",
+                "json_attributes_topic": f"{b}/status/backfill",
+                "entity_category": "diagnostic",
+                "icon": "mdi:database-sync"}),
             ("sensor", "creek_last_inference", {
                 "name": "Creek Last Inference",
                 "state_topic": f"{b}/status/pipeline", "device_class": "timestamp",

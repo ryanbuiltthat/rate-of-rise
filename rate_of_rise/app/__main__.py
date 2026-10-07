@@ -33,7 +33,7 @@ from .registry import ModelRegistry, promotion_readiness
 from .rise import HORIZONS_MIN, LABELS as RISE_LABELS, RiseModels, train_rise
 from .stagelog import StageLogger, stage_log_dir
 from .storms import StormLog
-from .backfill import recorder_db_path
+from .backfill import build_backfill, recorder_db_path
 from .backfill.undo import undo as backfill_undo
 from .sources import FEATURE_KEYS, SourceCoordinator
 from . import train
@@ -332,6 +332,9 @@ def main() -> int:
     )
     stage_log = StageLogger(ha, cfg.stage_entity, stage_log_dir(data_dir, SHARE_DIR))
     log.info("High-resolution stage record at %s", stage_log_dir(data_dir, SHARE_DIR))
+    # Gateway v2 store backfill (app/backfill/). Returns None, and starts nothing, when
+    # gateway_store_url is blank, which is the default and the v1 configuration.
+    backfill = build_backfill(cfg, mqtt.publish, dataset, sources, data_dir, SHARE_DIR)
 
     status = {
         "state": "idle",
@@ -423,6 +426,8 @@ def main() -> int:
                 except Exception:   # a record, not an input: never let it stop the loop
                     log.exception("stage log tick failed")
     finally:
+        if backfill is not None:
+            backfill.stop()
         mqtt.disconnect()
         log.info("Stopped.")
     return 0
