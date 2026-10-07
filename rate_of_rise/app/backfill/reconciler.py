@@ -38,6 +38,11 @@ PASS_INTERVAL_S = 600.0
 NO_STORE_RETRY_S = 3600.0
 MAX_PASSES_PER_TICK = 20
 BAD_TOKEN_WARN_S = 3600.0
+FUTURE_TOLERANCE_S = 3600.0   # a record further ahead than this has a garbled clock
+
+COUNT_KEYS = ("inserted_states", "shadow_states", "deleted_unavailable", "imported_stat_hours",
+              "stage_log_rows", "dataset_rows", "skipped_no_time", "skipped_bad_time",
+              "stat_errors")
 
 
 @dataclass
@@ -106,10 +111,18 @@ class Reconciler:
             recs = self._client.records(s, cur, MAX_RECORDS_PER_PASS)
             if len(recs) >= MAX_RECORDS_PER_PASS:
                 result.more = True
-            edge = self._now() - HOLDBACK_S
+            now = self._now()
+            edge = now - HOLDBACK_S
             usable, upto = [], cur
             for r in recs:
-                if float(r.get("ts", 0)) > edge:
+                ts = r.get("ts")
+                if isinstance(ts, bool) or not isinstance(ts, (int, float))                         or ts != ts or ts > now + FUTURE_TOLERANCE_S:
+                    # Missing, non-numeric or far-future time (a garbled RTC read): it can
+                    # never become live, so consume it rather than stall the stream.
+                    upto = r["seq"]
+                    result.counts["skipped_bad_time"] += 1
+                    continue
+                if ts > edge:
                     break
                 upto = r["seq"]
                 if r.get("ts_src") == "none":
@@ -272,6 +285,7 @@ class BackfillService:
         payload = {"state": state,
                    "last_run": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                    **{f"cursor_{s}": self._rec.cursor.get(s, 0) for s in STREAMS},
+                   **{k: 0 for k in COUNT_KEYS},
                    **{k: int(v) for k, v in (counts or {}).items()}}
         try:
             self._publish("status/backfill", payload)

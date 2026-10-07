@@ -216,6 +216,7 @@ def test_service_v1_gateway_is_silent_and_waits_an_hour():
     assert delay == NO_STORE_RETRY_S and not seen
     assert published[-1] == ("status/backfill", published[-1][1])
     assert published[-1][1]["state"] == "v1 gateway (no store)"
+    assert published[-1][1]["inserted_states"] == 0
     assert FakeWriter.calls == []
 
 
@@ -281,6 +282,15 @@ def test_bad_entity_map_disables_with_a_reason():
                          lambda n, p: published.append((n, p)), None, None,
                          Path(tempfile.mkdtemp()), None)
     assert svc is None and published[-1][1]["state"].startswith("error: entity map")
+
+
+def test_records_with_bad_time_are_skipped_but_consumed():
+    client = FakeClient(node=[node(1, NOW - 600), node(2, NOW + 86400 * 365 * 70),
+                              node(3, None), node(4, NOW - 500)])
+    rec, _ = make(client)
+    res = rec.run_pass(client.status())
+    assert res.ok and rec.cursor["node"] == 4 and res.counts["skipped_bad_time"] == 2
+    assert FakeWriter.calls[0][3] == [NOW - 600, NOW - 500]
 
 
 def test_deferred_gap_fill_keeps_cursor_and_is_quiet():

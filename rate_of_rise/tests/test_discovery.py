@@ -192,6 +192,7 @@ def test_every_value_template_resolves_against_a_published_payload():
         "features": set(FEATURE_KEYS) | set(DERIVED_KEYS),
         "status/health": set(WATCHDOG_KEYS),
         "soil": {"mean_pct", "ponding", "near_house_pct", "near_creek_pct"},
+        "status/backfill": {"state"},
         "status/storms": {"event_count", "open", "latest", "latest_closed"},
         "status/lag": {"lag_minutes", "correlation", "response", "rain_series",
                        "samples", "reason"},

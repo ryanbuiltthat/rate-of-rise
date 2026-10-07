@@ -334,7 +334,11 @@ def main() -> int:
     log.info("High-resolution stage record at %s", stage_log_dir(data_dir, SHARE_DIR))
     # Gateway v2 store backfill (app/backfill/). Returns None, and starts nothing, when
     # gateway_store_url is blank, which is the default and the v1 configuration.
-    backfill = build_backfill(cfg, mqtt.publish, dataset, sources, data_dir, SHARE_DIR)
+    try:
+        backfill = build_backfill(cfg, mqtt.publish, dataset, sources, data_dir, SHARE_DIR)
+    except Exception:   # backfill must never be able to take the add-on down
+        log.exception("gateway store backfill could not start; continuing without it")
+        backfill = None
 
     status = {
         "state": "idle",
