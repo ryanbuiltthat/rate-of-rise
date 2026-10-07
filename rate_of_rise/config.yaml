@@ -18,6 +18,7 @@ services:
 map:
   - addon_config:rw       # optional: human-editable configs/notes outside /data
   - share:rw              # optional: drop Parquet exports where other tools can read them
+  - homeassistant_config:rw  # backfill writes past readings into home-assistant_v2.db
 
 # --- User-configurable options (rendered as a form in the HA UI) ---
 options:
@@ -179,3 +180,7 @@ schema:
   nexrad_radar_id: str?
   wpc_ero: bool
   onsite_temp_entity: str?
+  gateway_store_url: str?
+  gateway_store_token: password?
+  backfill_entity_map: str?
+  backfill_shadow_map: str?

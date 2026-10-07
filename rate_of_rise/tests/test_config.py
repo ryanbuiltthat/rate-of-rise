@@ -101,6 +101,40 @@ def test_ml_does_not_drive_alerts_unless_asked():
     assert Config.load().ml_drives_alerts is False
 
 
+def _load_with(opts: dict):
+    import json
+    import tempfile
+    from pathlib import Path
+    from app import config as config_mod
+    d = Path(tempfile.mkdtemp())
+    (d / "options.json").write_text(json.dumps(opts), encoding="utf-8")
+    old = config_mod._OPTIONS_JSON
+    config_mod._OPTIONS_JSON = d / "options.json"
+    try:
+        return config_mod.Config.load()
+    finally:
+        config_mod._OPTIONS_JSON = old
+
+
+def test_backfill_options_default_off():
+    cfg = _load_with({})
+    assert cfg.gateway_store_url == ""
+    assert cfg.gateway_store_token == ""
+    assert cfg.backfill_entity_map == ""
+    assert cfg.backfill_shadow_map == ""
+    assert cfg.ha_ws_url == "ws://supervisor/core/websocket"
+
+
+def test_backfill_options_are_read_and_trimmed():
+    cfg = _load_with({"gateway_store_url": " http://192.168.30.21/ ",
+                      "gateway_store_token": "abc", "backfill_entity_map": '{"node": {}}',
+                      "backfill_shadow_map": None})
+    assert cfg.gateway_store_url == "http://192.168.30.21/"
+    assert cfg.gateway_store_token == "abc"
+    assert cfg.backfill_entity_map == '{"node": {}}'
+    assert cfg.backfill_shadow_map == ""
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

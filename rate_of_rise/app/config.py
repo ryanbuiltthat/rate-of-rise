@@ -153,6 +153,16 @@ class Config:
     wpc_ero: bool = True
     onsite_temp_entity: str | None = None
 
+    # Gateway v2 store backfill (app/backfill/). Blank URL = off: no thread, no requests.
+    # The token is the gateway's creek_store_token. The maps are JSON text (the add-on
+    # options form has no dict type): {"node": {"stage_ft": "sensor...."}, "ecowitt": {...}}.
+    # entity_map entities are WRITTEN into HA's recorder; shadow_map entities are only
+    # logged, which is how the trial rehearses production writes without making them.
+    gateway_store_url: str = ""
+    gateway_store_token: str = ""
+    backfill_entity_map: str = ""
+    backfill_shadow_map: str = ""
+
     # MQTT (from service discovery via run.sh)
     mqtt_host: str = "core-mosquitto"
     mqtt_port: int = 1883
@@ -162,6 +172,7 @@ class Config:
     # HA Core API via Supervisor proxy
     ha_api_url: str = "http://supervisor/core/api"
     supervisor_token: str = ""
+    ha_ws_url: str = "ws://supervisor/core/websocket"
 
     @classmethod
     def load(cls) -> "Config":
@@ -207,12 +218,17 @@ class Config:
             nexrad_radar_id=(opts.get("nexrad_radar_id") or "").strip(),
             wpc_ero=bool(opts.get("wpc_ero", True)),
             onsite_temp_entity=opts.get("onsite_temp_entity") or None,
+            gateway_store_url=(opts.get("gateway_store_url") or "").strip(),
+            gateway_store_token=(opts.get("gateway_store_token") or "").strip(),
+            backfill_entity_map=(opts.get("backfill_entity_map") or "").strip(),
+            backfill_shadow_map=(opts.get("backfill_shadow_map") or "").strip(),
             mqtt_host=env.get("MQTT_HOST", "core-mosquitto"),
             mqtt_port=int(env.get("MQTT_PORT", 1883)),
             mqtt_user=env.get("MQTT_USER", ""),
             mqtt_pass=env.get("MQTT_PASS", ""),
             ha_api_url=env.get("HA_API_URL", "http://supervisor/core/api"),
             supervisor_token=env.get("SUPERVISOR_TOKEN", ""),
+            ha_ws_url=opts.get("ha_ws_url", "ws://supervisor/core/websocket"),
         )
 
     @property
