@@ -107,6 +107,20 @@ def test_corrupt_state_file_falls_back_to_a_cold_start():
     assert api.value == 0.0
 
 
+def test_adjust_adds_and_removes_past_rain_with_decay():
+    import tempfile
+    from pathlib import Path as _P
+    clock = [1_000_000.0]
+    idx = PrecipIndex(_P(tempfile.mkdtemp()) / "api.json", k=0.5, now_fn=lambda: clock[0])
+    idx.update(0.0)                                   # anchor at t
+    idx.adjust(added=[(clock[0] - 86400.0, 1.0)], removed=[])
+    assert abs(idx.value - 0.5) < 1e-3                # a day old at k=0.5: half counts
+    idx.adjust(added=[], removed=[(clock[0] - 86400.0, 1.0)])
+    assert abs(idx.value) < 1e-3
+    idx.adjust(added=[(clock[0] + 10, 1.0)], removed=[])   # in the future: ignored
+    assert abs(idx.value) < 1e-3
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

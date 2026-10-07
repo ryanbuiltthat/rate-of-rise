@@ -87,3 +87,19 @@ class RollingAccumulator:
             w: round(sum(inc for ts, inc in self._increments if ts >= now - w * 3600), 3)
             for w in self._windows
         }
+
+    def increments(self) -> list[tuple[float, float]]:
+        return [(float(t), float(i)) for t, i in self._increments]
+
+    def replace_window(self, start: float, end: float,
+                       increments: list[tuple[float, float]]) -> list[tuple[float, float]]:
+        """Replace what was recorded in [start, end] with `increments` (backfill: the
+        Ecowitt's own counter deltas for a time this accumulator could not see). Returns
+        what was removed, so the API index can be corrected by the same amounts."""
+        removed = [(t, i) for t, i in self._increments if start <= t <= end]
+        kept = [[t, i] for t, i in self._increments if not start <= t <= end]
+        added = [[t, i] for t, i in increments if start <= t <= end and i > 0]
+        cutoff = self._now() - self._retain
+        self._increments = sorted(x for x in kept + added if x[0] >= cutoff)
+        self._save()
+        return removed

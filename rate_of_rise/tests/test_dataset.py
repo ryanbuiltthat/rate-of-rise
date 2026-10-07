@@ -102,6 +102,22 @@ def test_empty_dataset_returns_an_empty_frame_not_an_error():
     assert len(make().frame()) == 0
 
 
+def test_append_record_from_another_thread():
+    import tempfile
+    import threading
+    from pathlib import Path as _P
+    ds = DatasetWriter(_P(tempfile.mkdtemp()))
+    base = 1_791_000_000.0
+    threads = [threading.Thread(target=lambda i=i: ds.append_record(
+        {"ts": base + i, "stage_ft": 1.0, "backfilled": True})) for i in range(50)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    frame = ds.frame()
+    assert len(frame) == 50 and bool(frame["backfilled"].all())
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

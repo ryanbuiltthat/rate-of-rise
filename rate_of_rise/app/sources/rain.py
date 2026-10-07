@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from pathlib import Path
 
@@ -57,6 +58,7 @@ class RainAccumulator:
         # fell across it: (ts, inches).
         self._counter_path = data_dir / "state" / "rain_counter.json"
         self._last_total = self._load_counter()
+        self._lock = threading.RLock()
 
     def _unit_factor(self) -> float:
         """Inches per reported unit (1.0 for in/hr, 1/25.4 for mm/hr). Cached."""
@@ -120,19 +122,34 @@ class RainAccumulator:
         return delta
 
     def poll(self) -> dict:
-        now = self._now()
-        rate = self._ha.get_float(self._entity) if self._entity else None
-        rate_in = rate * self._unit_factor() if rate is not None else None
+        with self._lock:
+            now = self._now()
+            rate = self._ha.get_float(self._entity) if self._entity else None
+            rate_in = rate * self._unit_factor() if rate is not None else None
 
-        increment = self._counter_increment(now)
-        if increment is not None:
-            sums = self._acc.add(increment)
-        else:
-            sums = self._acc.update(rate_in)
-        out = {f"rain_{w}h_in": v for w, v in sums.items()}
-        # Raw rate passes through so the watchdogs can see the Ecowitt entity itself go
-        # quiet: the accumulator keeps emitting totals either way, so its output alone
-        # cannot distinguish "no rain" from "gauge stopped reporting".
-        out["rain_rate_in_hr"] = rate_in
-        out["api_index_in"] = self._api.update(self._acc.last_increment)
-        return out
+            increment = self._counter_increment(now)
+            if increment is not None:
+                sums = self._acc.add(increment)
+            else:
+                sums = self._acc.update(rate_in)
+            out = {f"rain_{w}h_in": v for w, v in sums.items()}
+            # Raw rate passes through so the watchdogs can see the Ecowitt entity itself go
+            # quiet: the accumulator keeps emitting totals either way, so its output alone
+            # cannot distinguish "no rain" from "gauge stopped reporting".
+            out["rain_rate_in_hr"] = rate_in
+            out["api_index_in"] = self._api.update(self._acc.last_increment)
+            return out
+
+    def snapshot(self) -> list[tuple[float, float]]:
+        with self._lock:
+            return self._acc.increments()
+
+    def replace_window(self, start: float, end: float,
+                       increments: list[tuple[float, float]]) -> None:
+        """Backfill's correction (app/backfill/gaprows.py): the gap's rain, from the station's
+        own counter, in place of what this accumulator recorded (nothing, or one lump at
+        restart). Runs on the backfill thread, hence the lock shared with poll()."""
+        with self._lock:
+            removed = self._acc.replace_window(start, end, increments)
+            added = [(t, i) for t, i in increments if start <= t <= end and i > 0]
+            self._api.adjust(added=added, removed=removed)

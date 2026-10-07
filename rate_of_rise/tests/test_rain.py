@@ -176,6 +176,28 @@ def test_a_millimetre_counter_is_converted():
     assert abs(acc.poll()["rain_1h_in"] - 1.0) < 1e-9
 
 
+def test_replace_window_swaps_increments_and_fixes_the_api():
+    import tempfile
+    from pathlib import Path as _P
+
+    class HA:
+        def get_float(self, _):
+            return None
+
+        def get_unit(self, _):
+            return "in/h"
+
+    clock = [2_000_000.0]
+    rain = RainAccumulator(_P(tempfile.mkdtemp()), "sensor.rate", HA(), now_fn=lambda: clock[0])
+    rain._acc.add(0.5)                                  # a "lump" counted at restart time
+    rain._api.update(0.5)
+    rain.replace_window(clock[0] - 3600, clock[0], [(clock[0] - 3000, 0.2),
+                                                    (clock[0] - 1200, 0.3)])
+    assert sorted(rain.snapshot()) == [(clock[0] - 3000, 0.2), (clock[0] - 1200, 0.3)]
+    assert rain._acc.sums()[1] == 0.5
+    assert rain._api.value < 0.5                        # same rain, but some of it is older
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
