@@ -59,6 +59,7 @@ class PassResult:
     blocked: str | None = None
     ok: bool = True
     deferred: bool = False
+    skipped_sd: bool = False        # the gateway's card is not mounted: nothing to read
     counts: Counter = field(default_factory=Counter)
 
 
@@ -72,8 +73,10 @@ class Reconciler:
         self._path = cursor_path
         self._now = now_fn
         self._writer_factory = writer_factory
+        self._store_id: str | None = None
         self._cursor = self._load()
         self._skips_noted: set[tuple[str, str]] = set()
+        self._behind_noted: set[tuple[str, int]] = set()
 
     @property
     def cursor(self) -> dict[str, int]:
@@ -82,18 +85,42 @@ class Reconciler:
     def _load(self) -> dict[str, int]:
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
-            return {s: int(data.get(s, 0)) for s in STREAMS}
-        except (FileNotFoundError, ValueError, OSError, TypeError):
+            cursor = {s: int(data.get(s, 0)) for s in STREAMS}
+        except (FileNotFoundError, ValueError, OSError, TypeError, AttributeError):
             return {s: 0 for s in STREAMS}
+        sid = data.get("store_id")
+        self._store_id = sid if isinstance(sid, str) and sid else None
+        return cursor
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self._cursor), encoding="utf-8")
+        tmp.write_text(json.dumps({**self._cursor, "store_id": self._store_id}),
+                       encoding="utf-8")
         tmp.replace(self._path)
+
+    def _adopt_store_id(self, status: dict) -> None:
+        """The card's identity. A different one is a replaced or reformatted card whose seq
+        restarted: re-read it from the start (every destination is idempotent). The first id
+        seen is adopted as is."""
+        sid = status.get("store_id")
+        if not isinstance(sid, str) or not sid or sid == self._store_id:
+            return
+        if self._store_id is not None:
+            log.warning("gateway card changed; re-reading it from the start (store id %s -> %s)."
+                        " Writes are idempotent, so nothing is duplicated.", self._store_id, sid)
+            self._cursor = {s: 0 for s in STREAMS}
+            self._behind_noted.clear()
+        self._store_id = sid
+        self._save()
 
     def run_pass(self, status: dict) -> PassResult:
         result = PassResult()
+        if status.get("sd_ok") is False:
+            log.debug("backfill: the gateway's SD card is not mounted; nothing to read")
+            result.skipped_sd = True
+            return result
+        self._adopt_store_id(status)
         batches: dict[str, list[dict]] = {}
         consumed: dict[str, int] = {}
         streams = status.get("streams") or {}
@@ -101,10 +128,14 @@ class Reconciler:
             last = int((streams.get(s) or {}).get("last", 0) or 0)
             cur = self._cursor.get(s, 0)
             if last < cur:
-                log.warning("gateway store %s stream is at seq %d, below the cursor %d (card "
-                            "replaced or reformatted?); re-reading it from the start. Writes "
-                            "are idempotent, so nothing is duplicated.", s, last, cur)
-                cur = self._cursor[s] = 0
+                # Same card (or a gateway that reports no id): a low seq is not a new card, so
+                # the cursor stays and the stream waits. Resetting here could only re-read.
+                if (s, last) not in self._behind_noted:
+                    self._behind_noted.add((s, last))
+                    log.warning("gateway store reports %s seq %d below cursor %d without a card "
+                                "change; leaving the cursor alone", s, last, cur)
+                batches[s], consumed[s] = [], cur
+                continue
             if last <= cur:
                 batches[s], consumed[s] = [], cur
                 continue
@@ -266,6 +297,9 @@ class BackfillService:
             for _ in range(MAX_PASSES_PER_TICK):
                 res = self._rec.run_pass(probe.status)
                 totals.update(res.counts)
+                if res.skipped_sd:
+                    state = "gateway SD not mounted"
+                    break
                 if res.blocked:
                     state = res.blocked
                 if res.deferred:

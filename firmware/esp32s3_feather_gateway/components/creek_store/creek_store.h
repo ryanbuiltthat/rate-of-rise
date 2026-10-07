@@ -9,12 +9,15 @@
 #pragma once
 
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <deque>
 #include <mutex>
 #include <string>
 #include <sys/time.h>
 #include <vector>
+
+#include <esp_random.h>
 
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/i2c/i2c.h"
@@ -194,54 +197,107 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
   }
 
   // --- SD --------------------------------------------------------------------------------
-  // Bus mutex held.
+  struct StreamState {
+    uint32_t last{0};
+    int64_t newest{-1};
+    bool torn{false};
+  };
+
+  // Bus mutex held. Nothing is adopted unless both streams and the store id read cleanly: a
+  // card that half-answers must not reset seq to 0 (the add-on would see the store go
+  // backwards), so it counts as not mounted and the 30 s remount retries it.
   void mount_sd_() {
-    this->sd_ok_ = SD.begin(this->sd_cs_pin_, SPI, SD_FREQ_HZ);
-    if (!this->sd_ok_) {
+    this->sd_ok_ = false;
+    if (!SD.begin(this->sd_cs_pin_, SPI, SD_FREQ_HZ)) {
       ESP_LOGE(TAG, "SD card did not mount (CS GPIO%u); live entities keep working, nothing is "
                     "being stored", this->sd_cs_pin_);
       return;
     }
-    for (uint8_t s = 0; s < STREAM_COUNT; s++) this->load_stream_(s);
+    StreamState st[STREAM_COUNT];
+    for (uint8_t s = 0; s < STREAM_COUNT; s++) {
+      if (!this->load_stream_(s, st[s])) {
+        ESP_LOGE(TAG, "SD card mounted but the %s stream could not be read; treating it as not "
+                      "mounted", STREAM_NAMES[s]);
+        return;
+      }
+    }
+    std::string id;
+    if (!this->load_store_id_(id)) {
+      ESP_LOGE(TAG, "SD card mounted but /store_id.txt could not be read or created; treating "
+                    "it as not mounted");
+      return;
+    }
+    for (uint8_t s = 0; s < STREAM_COUNT; s++) {
+      // The card is the truth: seq continues from what is on it, never from RAM.
+      this->newest_block_[s] = st[s].newest;
+      this->needs_newline_[s] = st[s].torn;
+      this->last_seq_[s] = st[s].last;
+      this->written_seq_[s] = st[s].last;
+      ESP_LOGI(TAG, "%s stream: last seq %u (newest block %lld)%s", STREAM_NAMES[s],
+               (unsigned) st[s].last, (long long) st[s].newest,
+               st[s].torn ? ", torn final line" : "");
+    }
+    {
+      std::lock_guard<std::mutex> lock(this->id_mutex_);
+      this->store_id_ = id;
+    }
+    ESP_LOGI(TAG, "store id %s", id.c_str());
+    this->sd_ok_ = true;
+  }
+
+  // Bus mutex held. The card's identity, so the add-on can tell a replaced or reformatted card
+  // (seq restarts: re-read it from the start) from a store that merely reports a low seq.
+  bool load_store_id_(std::string &id) {
+    id.clear();
+    File f = SD.open("/store_id.txt");
+    if (f) {
+      char buf[33]{};
+      const size_t n = f.read((uint8_t *) buf, sizeof buf - 1);
+      f.close();
+      for (size_t i = 0; i < n; i++)
+        if (std::isxdigit((unsigned char) buf[i])) id += buf[i];
+      if (!id.empty()) return true;
+    }
+    char fresh[17];
+    snprintf(fresh, sizeof fresh, "%08x%08x", (unsigned) esp_random(), (unsigned) esp_random());
+    File w = SD.open("/store_id.txt", FILE_WRITE);
+    if (!w) return false;
+    const bool ok = w.print(fresh) == 16;
+    w.close();
+    if (!ok) return false;
+    id = fresh;
+    ESP_LOGI(TAG, "New card: created /store_id.txt");
+    return true;
   }
 
   // Bus mutex held. Finds the newest block file and the last complete record in it, so seq
-  // continues across reboots.
-  void load_stream_(uint8_t s) {
+  // continues across reboots. False if the directory or the newest block will not open.
+  bool load_stream_(uint8_t s, StreamState &out) {
     const std::string dir = std::string("/") + STREAM_NAMES[s];
     SD.mkdir(dir.c_str());
-    int64_t newest = -1;
     File root = SD.open(dir.c_str());
-    if (root) {
-      for (File e = root.openNextFile(); e; e = root.openNextFile()) {
-        const auto b = creek_core::parse_block_name(e.name());
-        if (b && (int64_t) *b > newest) newest = *b;
-        e.close();
-      }
-      root.close();
+    if (!root) return false;
+    out = StreamState{};
+    for (File e = root.openNextFile(); e; e = root.openNextFile()) {
+      const auto b = creek_core::parse_block_name(e.name());
+      if (b && (int64_t) *b > out.newest) out.newest = *b;
+      e.close();
     }
-    this->newest_block_[s] = newest;
-    uint32_t last = 0;
-    if (newest >= 0) {
-      File f = SD.open(creek_core::block_path(STREAM_NAMES[s], (uint32_t) newest).c_str());
-      if (f) {
-        const size_t size = f.size();
-        const size_t from = size > TAIL_BYTES ? size - TAIL_BYTES : 0;
-        std::string tail(size - from, '\0');
-        f.seek(from);
-        tail.resize(f.read((uint8_t *) &tail[0], tail.size()));
-        f.close();
-        this->needs_newline_[s] = creek_core::tail_is_torn(tail);
-        const auto seq = creek_core::last_seq_in_tail(tail);
-        last = seq ? *seq : (newest > 0 ? (uint32_t) newest * creek_core::BLOCK - 1 : 0);
-      }
+    root.close();
+    if (out.newest >= 0) {
+      File f = SD.open(creek_core::block_path(STREAM_NAMES[s], (uint32_t) out.newest).c_str());
+      if (!f) return false;
+      const size_t size = f.size();
+      const size_t from = size > TAIL_BYTES ? size - TAIL_BYTES : 0;
+      std::string tail(size - from, '\0');
+      f.seek(from);
+      tail.resize(f.read((uint8_t *) &tail[0], tail.size()));
+      f.close();
+      out.torn = creek_core::tail_is_torn(tail);
+      const auto seq = creek_core::last_seq_in_tail(tail);
+      out.last = seq ? *seq : (out.newest > 0 ? (uint32_t) out.newest * creek_core::BLOCK - 1 : 0);
     }
-    // The card is the truth: seq continues from what is on it, never from RAM.
-    this->last_seq_[s] = last;
-    this->written_seq_[s] = last;
-    ESP_LOGI(TAG, "%s stream: last seq %u (newest block %lld)%s", STREAM_NAMES[s],
-             (unsigned) this->last_seq_[s], (long long) newest,
-             this->needs_newline_[s] ? ", torn final line" : "");
+    return true;
   }
 
   // Bus mutex held.
@@ -403,13 +459,18 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
 
   // Bus mutex held.
   std::string status_json_() {
-    char buf[384];
+    std::string id;  // empty while the card is not mounted
+    if (this->sd_ok_) {
+      std::lock_guard<std::mutex> lock(this->id_mutex_);
+      id = this->store_id_;
+    }
+    char buf[448];
     snprintf(buf, sizeof buf,
              "{\"store_schema\":1,\"device\":\"%s\",\"now\":%.0f,\"ts_src\":\"%s\","
-             "\"sd_ok\":%s,\"sd_free_mb\":%u,\"streams\":{"
+             "\"sd_ok\":%s,\"store_id\":\"%s\",\"sd_free_mb\":%u,\"streams\":{"
              "\"node\":{\"first\":%u,\"last\":%u},\"ecowitt\":{\"first\":%u,\"last\":%u}}}",
              this->device_name_.c_str(), now_ts_(), this->ts_src_(),
-             this->sd_ok_ ? "true" : "false", (unsigned) this->free_mb_,
+             this->sd_ok_ ? "true" : "false", id.c_str(), (unsigned) this->free_mb_,
              this->first_seq_(NODE), (unsigned) this->written_seq_[NODE],
              this->first_seq_(ECOWITT), (unsigned) this->written_seq_[ECOWITT]);
     return buf;
@@ -547,6 +608,8 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
   uint32_t free_mb_{0};
   uint32_t ecowitt_failures_{0};
   std::mutex eco_mutex_;
+  std::mutex id_mutex_;  // store_id_: written on the main task, read on the HTTP task
+  std::string store_id_;
   bool eco_ready_{false};
   bool eco_ok_{false};
   creek_core::EcowittReading eco_reading_;

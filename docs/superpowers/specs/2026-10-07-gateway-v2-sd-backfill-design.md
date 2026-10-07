@@ -144,9 +144,13 @@ the queue drains), so a power cut loses at most the record being written.
 - `GET /store/status` returns:
   ```json
   {"store_schema":1,"device":"creek-gateway-v2","fw":"<esphome version>","now":1791378660,
-   "ts_src":"ntp","sd_ok":true,"sd_free_mb":29812,
+   "ts_src":"ntp","sd_ok":true,"store_id":"3f9a0c1e7b2d4a65","sd_free_mb":29812,
    "streams":{"node":{"first":1,"last":18234},"ecowitt":{"first":1,"last":5521}}}
   ```
+  `store_id` is the card's identity: 16 hex chars in `/store_id.txt`, created on the first
+  mount of a blank card, empty while no card is mounted. A card that mounts but whose stream
+  directory or newest block will not open counts as not mounted (`sd_ok` false, retried every
+  30 s), so seq never silently restarts at 0.
 - `GET /store/records?stream=node&after=<seq>&limit=<n≤500>` returns `application/x-ndjson`,
   records with `seq > after` in ascending order, at most `limit`. The response streams from
   SD a line at a time, with no buffer bigger than one line.
@@ -209,6 +213,12 @@ writes to all destinations succeeded. Each pass (at startup, then every 10 min):
 4. Write the batch to each destination below. If every destination succeeds, advance the
    cursor to the batch's last seq. If any fails, leave the cursor where it was and retry next
    pass. Every destination is idempotent, so a retried batch inserts nothing twice.
+
+The file also keeps the gateway's `store_id`. Before a pass: `sd_ok` false skips it (status
+`gateway SD not mounted`). A different `store_id` from the saved one is a replaced or
+reformatted card: one WARNING, both cursors back to 0, the new id saved (the first id ever
+seen is adopted without a reset). A stream whose `last` is below the cursor on the same card
+is skipped and left alone, with one WARNING per (stream, last).
 
 **Destination A: HA recorder states.** This is a direct write to `/homeassistant/home-assistant_v2.db`
 (the add-on gains `homeassistant_config:rw`).
@@ -313,8 +323,8 @@ corrected accumulator state above.
 
 `sensor.creek_backfill_status`, published via the add-on's existing MQTT discovery.
 
-- **State:** `off` | `v1 gateway (no store)` | `unreachable` | `idle` | `backfilling N` |
-  `blocked: …` | `error: …`
+- **State:** `off` | `v1 gateway (no store)` | `unreachable` | `gateway SD not mounted` |
+  `idle` | `backfilling N` | `waiting for live poll` | `blocked: …` | `error: …`
 - **Attributes:**
   - `last_run`
   - `cursor_node`, `cursor_ecowitt`

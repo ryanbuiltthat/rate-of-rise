@@ -32,16 +32,25 @@ class FakeClient:
         self.recs = {"node": list(node), "ecowitt": list(eco)}
         self.state = state
         self.fail = False
+        self.store_id = None
+        self.sd_ok = None
+        self.fetched = []
 
     def status(self):
-        return {"store_schema": 1, "streams": {
+        st = {"store_schema": 1, "streams": {
             s: {"first": 1 if r else 0, "last": r[-1]["seq"] if r else 0}
             for s, r in self.recs.items()}}
+        if self.store_id is not None:
+            st["store_id"] = self.store_id
+        if self.sd_ok is not None:
+            st["sd_ok"] = self.sd_ok
+        return st
 
     def probe(self):
         return Probe(self.state, self.status() if self.state is ProbeState.OK else {})
 
     def records(self, stream, after, max_records):
+        self.fetched.append((stream, after))
         if self.fail:
             raise requests.ConnectionError("gone")
         return [r for r in self.recs[stream] if r["seq"] > after][:max_records]
@@ -114,21 +123,87 @@ def test_records_without_time_are_skipped_but_consumed():
     assert FakeWriter.calls[0][3] == [NOW - 600]
 
 
-def test_store_restart_resets_cursor():
-    client = FakeClient(node=[node(1, NOW - 600)])
-    rec, d = make(client)
-    rec._cursor["node"] = 5000                       # from the old card
+def capture(fn):
     h = []
     lg = logging.getLogger("app.backfill")
     handler = logging.Handler()
     handler.emit = h.append
     lg.addHandler(handler)
     try:
-        rec.run_pass(client.status())
+        return fn(), [r for r in h if r.levelno == logging.WARNING]
     finally:
         lg.removeHandler(handler)
-    assert rec.cursor["node"] == 1
-    assert any(r.levelno == logging.WARNING for r in h)
+
+
+def reload(rec, client):
+    return Reconciler(client, rec._dest, rec._map, rec._shadow, rec._path, now_fn=lambda: NOW,
+                      writer_factory=FakeWriter)
+
+
+def test_card_change_resets_cursor_and_warns():
+    # Replaces the old "store restart resets cursor": a lower seq alone no longer resets; a
+    # different store_id (a replaced or reformatted card) does.
+    client = FakeClient(node=[node(1, NOW - 600)])
+    client.store_id = "bbbbbbbbbbbbbbbb"
+    rec, d = make(client)
+    rec._cursor["node"], rec._cursor["ecowitt"] = 5000, 70   # from the old card
+    rec._store_id = "aaaaaaaaaaaaaaaa"
+    _, warns = capture(lambda: rec.run_pass(client.status()))
+    assert rec.cursor == {"node": 1, "ecowitt": 0}, rec.cursor
+    assert ("node", 0) in client.fetched
+    assert len(warns) == 1 and "card changed" in warns[0].getMessage()
+    saved = json.loads((d / "state" / "backfill.json").read_text())
+    assert saved["store_id"] == "bbbbbbbbbbbbbbbb" and saved["node"] == 1
+    assert reload(rec, client)._store_id == "bbbbbbbbbbbbbbbb"
+
+
+def test_same_card_with_seq_below_cursor_leaves_the_cursor_alone():
+    client = FakeClient(node=[node(1, NOW - 600)])
+    client.store_id = "aaaaaaaaaaaaaaaa"
+    rec, _ = make(client)
+    rec._cursor["node"] = 5000
+    rec._store_id = "aaaaaaaaaaaaaaaa"
+    res1, warns1 = capture(lambda: rec.run_pass(client.status()))
+    res2, warns2 = capture(lambda: rec.run_pass(client.status()))
+    assert res1.ok and res2.ok
+    assert rec.cursor["node"] == 5000 and not [f for f in client.fetched if f[0] == "node"]
+    assert len(warns1) == 1 and "below cursor" in warns1[0].getMessage() and not warns2
+
+
+def test_no_store_id_with_seq_below_cursor_leaves_the_cursor_alone():
+    client = FakeClient(node=[node(1, NOW - 600)])        # an older v2 build: no store_id
+    rec, _ = make(client)
+    rec._cursor["node"] = 5000
+    rec.run_pass(client.status())
+    assert rec.cursor["node"] == 5000 and not client.fetched
+
+
+def test_first_run_adopts_the_store_id_without_resetting():
+    client = FakeClient(node=[node(1, NOW - 900), node(2, NOW - 600)])
+    client.store_id = "cccccccccccccccc"
+    rec, d = make(client)
+    rec._cursor["node"] = 1                               # saved by a build without store_id
+    _, warns = capture(lambda: rec.run_pass(client.status()))
+    assert not warns and rec.cursor["node"] == 2 and client.fetched == [("node", 1)]
+    assert json.loads((d / "state" / "backfill.json").read_text())["store_id"] == "cccccccccccccccc"
+
+
+def test_old_cursor_file_without_store_id_loads():
+    client = FakeClient()
+    rec, d = make(client)
+    (d / "state").mkdir(parents=True, exist_ok=True)
+    (d / "state" / "backfill.json").write_text('{"node": 12, "ecowitt": 3}')
+    again = reload(rec, client)
+    assert again.cursor == {"node": 12, "ecowitt": 3} and again._store_id is None
+
+
+def test_sd_not_mounted_does_nothing():
+    client = FakeClient(node=[node(1, NOW - 600)])
+    client.sd_ok = False
+    rec, _ = make(client)
+    res, warns = capture(lambda: rec.run_pass(client.status()))
+    assert res.skipped_sd and not client.fetched and rec.cursor["node"] == 0 and not warns
+    assert FakeWriter.calls == []
 
 
 def test_failed_destination_keeps_cursor():
@@ -242,6 +317,15 @@ def test_service_ok_runs_a_pass_and_reports_idle():
     final = published[-1][1]
     assert final["state"] == "idle" and final["cursor_node"] == 1
     assert final["inserted_states"] == 1
+
+
+def test_service_reports_gateway_sd_not_mounted():
+    svc, client, published = service(ProbeState.OK)
+    client.sd_ok = False
+    _, seen = run_quietly(svc.tick)
+    assert published[-1][1]["state"] == "gateway SD not mounted"
+    assert published[-1][1]["cursor_node"] == 0 and not client.fetched
+    assert not [r for r in seen if r.levelno >= logging.WARNING]
 
 
 def test_service_network_drop_mid_pass_is_unreachable():
