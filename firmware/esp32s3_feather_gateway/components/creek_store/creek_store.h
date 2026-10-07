@@ -513,7 +513,10 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
       const uint32_t last = this->written_seq_[s];
       xSemaphoreGive(this->bus_);
       AsyncWebServerResponse *resp = request->beginResponse(200, "application/x-ndjson", body);
-      resp->addHeader("X-Store-Last", std::to_string(last).c_str());
+      // httpd_resp_set_hdr keeps the pointer, not a copy: this buffer must outlive send().
+      char last_buf[12];
+      snprintf(last_buf, sizeof last_buf, "%u", (unsigned) last);
+      resp->addHeader("X-Store-Last", last_buf);
       request->send(resp);
       return;
     }
