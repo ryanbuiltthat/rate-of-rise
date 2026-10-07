@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <utility>
 
 #include "esphome/components/binary_sensor/binary_sensor.h"
@@ -21,6 +22,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/core/component.h"
+#include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
 #include <HTTPClient.h>
@@ -161,6 +163,20 @@ class Rfm69Gateway : public Component {
   // commit as the normal image and publishes both to the same release, so pressing the
   // diagnostic button never requires anyone to build anything by hand.
   void set_ota_diag_hex_url(const std::string &url) { this->ota_diag_hex_url_ = url; }
+#ifdef USE_RFM69_PACKET_HOOK
+  // v2 gateway only (creek_store, firmware/esp32s3_feather_gateway). Defined by creek_store's
+  // codegen and by nothing else, so v1's build does not contain any of this.
+  //
+  // The callback runs inside handle_packet_(), on the main task, WITH radio_mutex_ HELD. It
+  // must not take the mutex (FreeRTOS mutexes are not recursive) or touch the SPI bus: the
+  // store queues the record and writes it from its own loop().
+  void add_on_packet_callback(std::function<void(const char *, int16_t)> &&cb) {
+    this->packet_callback_.add(std::move(cb));
+  }
+  // The SD card on the Adalogger shares this SPI bus, so the store serialises on the same
+  // mutex the OTA transfer task already holds for the radio.
+  SemaphoreHandle_t bus_mutex() const { return this->radio_mutex_; }
+#endif
 
   // Bit-banged SPI mode 0 read on the configured pins, deliberately slow (~150 kHz) and
   // completely independent of the SPI peripheral. It exists to answer the one question a
@@ -766,6 +782,9 @@ class Rfm69Gateway : public Component {
     if (!parsed) {
       ESP_LOGW(TAG, "Could not parse packet from node %u: %s", sender_id, payload);
     }
+#ifdef USE_RFM69_PACKET_HOOK
+    this->packet_callback_.call(payload, rssi);
+#endif
   }
 
   // BinarySensor::publish_state() forwards every call, so track transitions here rather than
@@ -1228,6 +1247,9 @@ class Rfm69Gateway : public Component {
   uint8_t network_id_;
   bool is_rfm69hw_;
   std::string encryption_key_;
+#ifdef USE_RFM69_PACKET_HOOK
+  CallbackManager<void(const char *, int16_t)> packet_callback_;
+#endif
 
   sensor::Sensor *distance_sensor_{nullptr};
   sensor::Sensor *battery_sensor_{nullptr};
