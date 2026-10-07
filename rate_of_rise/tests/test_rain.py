@@ -195,7 +195,53 @@ def test_replace_window_swaps_increments_and_fixes_the_api():
                                                     (clock[0] - 1200, 0.3)])
     assert sorted(rain.snapshot()) == [(clock[0] - 3000, 0.2), (clock[0] - 1200, 0.3)]
     assert rain._acc.sums()[1] == 0.5
-    assert rain._api.value < 0.5                        # same rain, but some of it is older
+    expected = 0.2 * 0.92 ** (3000 / 86400) + 0.3 * 0.92 ** (1200 / 86400)
+    assert abs(rain._api.value - expected) < 1e-3       # same rain, but some of it is older
+
+
+def _rain_with_clock(start):
+    import tempfile
+    from pathlib import Path as _P
+
+    class HA:
+        def get_float(self, _):
+            return None
+
+        def get_unit(self, _):
+            return "in/h"
+
+    clock = [start]
+    return RainAccumulator(_P(tempfile.mkdtemp()), "sensor.rate", HA(),
+                           now_fn=lambda: clock[0]), clock
+
+
+def test_replace_window_removes_a_restart_lump_after_end():
+    rain, clock = _rain_with_clock(2_000_000.0)
+    t1 = clock[0]
+    rain._acc.add(0.5)                                  # restart lump, stamped at poll time
+    rain._api.update(0.5)
+    rain.replace_window(t1 - 3600, t1 - 600, [(t1 - 3000, 0.2), (t1 - 1200, 0.3)])
+    assert sorted(rain.snapshot()) == [(t1 - 3000, 0.2), (t1 - 1200, 0.3)]
+    assert rain._acc.sums()[1] == 0.5
+
+
+def test_replace_window_does_not_add_rain_after_the_last_live_poll():
+    rain, clock = _rain_with_clock(2_000_000.0)
+    t = clock[0]
+    rain._api.update(0.0)
+    rain._acc.add(0.0)
+    rain.replace_window(t - 3600, t + 600, [(t - 1200, 0.2), (t + 300, 0.4)])
+    assert rain.snapshot() == [(t - 1200, 0.2)]
+
+
+def test_replace_window_without_a_live_poll_is_skipped():
+    rain, clock = _rain_with_clock(2_000_000.0)
+    t = clock[0]
+    rain._acc.add(0.5)
+    before = rain.snapshot()
+    rain.replace_window(t - 3600, t, [(t - 1200, 0.2)])
+    assert rain.snapshot() == before
+    assert rain._api.value == 0.0
 
 
 def main():

@@ -150,6 +150,15 @@ class RainAccumulator:
         own counter, in place of what this accumulator recorded (nothing, or one lump at
         restart). Runs on the backfill thread, hence the lock shared with poll()."""
         with self._lock:
-            removed = self._acc.replace_window(start, end, increments)
-            added = [(t, i) for t, i in increments if start <= t <= end and i > 0]
+            # Live increments are stamped at the end of the interval they cover, and rain
+            # after the last live poll (L) is the next poll's job via the counter delta, so
+            # anchor to L: drop everything in [start, max(end, L)] and add eco increments
+            # only up to min(end, L). When L > end, rain in (end, L] is dropped, bounded by
+            # one poll interval.
+            last = self._api._ts
+            if last is None:
+                log.info("rain backfill skipped: no live poll yet to anchor it")
+                return
+            added = [(t, i) for t, i in increments if start <= t <= min(end, last) and i > 0]
+            removed = self._acc.replace_window(start, max(end, last), added)
             self._api.adjust(added=added, removed=removed)

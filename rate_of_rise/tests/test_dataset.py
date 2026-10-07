@@ -118,6 +118,31 @@ def test_append_record_from_another_thread():
     assert len(frame) == 50 and bool(frame["backfilled"].all())
 
 
+def test_frame_reads_parts_before_parquet():
+    import tempfile
+    from pathlib import Path as _P
+    ds = DatasetWriter(_P(tempfile.mkdtemp()))
+    base = 1_790_000_000.0
+    for d in range(2):
+        ds.append_record({"ts": base + d * 86400, "stage_ft": 1.0})
+    real = DatasetWriter._read_part
+    calls = []
+
+    def racing(path):
+        rows = real(path)
+        if not calls:                    # consolidate lands mid-frame, after the first read
+            calls.append(1)
+            ds.consolidate(now=base + 10 * 86400)
+        return rows
+
+    DatasetWriter._read_part = staticmethod(racing)
+    try:
+        frame = ds.frame()
+    finally:
+        DatasetWriter._read_part = staticmethod(real)
+    assert len(frame) == 2
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

@@ -113,6 +113,8 @@ class DatasetWriter:
                 except ValueError:
                     # A torn final line from an unclean shutdown — skip it, keep the rest.
                     log.warning("skipping malformed row in %s", path.name)
+        except FileNotFoundError:
+            return []       # consolidated away between the glob and the read
         except OSError as exc:
             log.error("could not read %s: %s", path.name, exc)
         return rows
@@ -130,10 +132,14 @@ class DatasetWriter:
     def frame(self, columns: list[str] | None = None) -> pd.DataFrame:
         """The whole dataset — consolidated Parquet plus unconsolidated parts."""
         frames = []
-        if self._parquet.exists():
-            frames.append(pd.read_parquet(self._parquet))
+        # Parts first, then the parquet, without taking the lock (that would stall the fast
+        # loop). consolidate replaces the parquet before it deletes parts, so this order can
+        # only read a row twice (the dedupe below removes it), never miss one. The reverse
+        # order could read the old parquet, then find the parts already gone.
         part_rows = [r for p in sorted(self._parts.glob("*.jsonl"))
                      for r in self._read_part(p)]
+        if self._parquet.exists():
+            frames.append(pd.read_parquet(self._parquet))
         if part_rows:
             frames.append(pd.DataFrame(part_rows))
         if not frames:
