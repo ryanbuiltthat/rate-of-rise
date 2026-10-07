@@ -95,6 +95,8 @@ def test_eco_increments_handle_resets_and_long_gaps():
 
 def test_fills_missing_slots_from_node_and_ecowitt_records():
     ds = FakeDataset([live_row(T), live_row(T + 300), live_row(T + 2400), live_row(T + 2700)])
+    # Set live predecessor at T+300 to non-capped count to test increment logic
+    ds.rows[1]["rate_of_rise_sample_count"] = 3.0
     rain = FakeRain()
     n = GapFiller(CFG, ds, soil_channels={"near_creek": "2"}, rain=rain, now_fn=lambda: T + 3600).fill(
         node_records(), eco_records())
@@ -111,34 +113,36 @@ def test_fills_missing_slots_from_node_and_ecowitt_records():
     assert r["api_index_in"] is not None and r["api_index_in"] > 1.0
     assert r["qpf_6h_in"] is None and r["nwm_flow_cfs"] is None        # forecasts stay empty
     assert rain.calls and rain.calls[0][0] == T and rain.calls[0][1] == T + 2700
-    # Sample counts: first gap row inherits from live row at T+300 (capped at 10),
-    # then consecutive gap rows stay capped at 10 since they can't increment further
+    # Sample counts: all gap rows have rates and increment from live row at T+300 (count 3.0)
+    # Expected sequence: 4.0, 5.0, 6.0, 7.0, 8.0, 9.0 (capped at 10)
+    expected_counts = [4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
     sorted_ts = sorted(rows.keys())
-    for ts in sorted_ts:
-        if rows[ts]["rate_of_rise_in_min"] is not None:
-            # All gap rows have rates; first gets live row count incremented/capped,
-            # rest stay at cap due to consecutive spacing <= 1.5*interval
-            assert rows[ts]["rate_of_rise_sample_count"] == 10.0
+    for ts, expected_count in zip(sorted_ts, expected_counts):
+        assert rows[ts]["rate_of_rise_in_min"] is not None
+        assert rows[ts]["rate_of_rise_sample_count"] == expected_count
 
 
 def test_blind_rows_are_reissued_with_the_same_ts():
     rows = [live_row(T + i * 300) for i in range(10)]
+    # Blind rows (HA Core down): no rate, no count. Update realistic zeros, not None.
     for r in rows[2:8]:
-        r.update(stage_ft=None, creek_node_online=None)
+        r.update(stage_ft=None, creek_node_online=None, rate_of_rise_in_min=None, rate_of_rise_sample_count=0.0)
+    # Live predecessor at T+300 has a non-capped count (3.0) to test increment logic
+    rows[1]["rate_of_rise_sample_count"] = 3.0
     ds = FakeDataset(rows)
     n = GapFiller(CFG, ds, rain=FakeRain(), now_fn=lambda: T + 3600).fill(node_records(), eco_records())
     assert n == 6
     assert sorted(r["ts"] for r in ds.appended) == [T + i * 300 for i in range(2, 8)]
     assert all(r["stage_ft"] is not None and r["alert_tier"] == 0 and r["backfilled"]
                for r in ds.appended)
-    # Re-issued blind rows that have rates should have counts >= 2 and <= 10
-    for r in ds.appended:
-        if r.get("rate_of_rise_in_min") is not None:
-            count = r.get("rate_of_rise_sample_count")
-            assert 2.0 <= count <= 10.0, f"ts {r['ts']}: rate_of_rise_sample_count {count} out of range [2, 10]"
-    # All 6 re-issued rows should have rate and count at cap (10.0) due to live predecessor with cap
-    assert all(r.get("rate_of_rise_in_min") is not None and r.get("rate_of_rise_sample_count") == 10.0
-               for r in ds.appended)
+    # Re-issued blind rows should have rates and sample counts incremented from live predecessor
+    # Each blind row (T+600, T+900, ..., T+2100) has a node record at least 540s earlier, so has rate.
+    # Counts increment from rows[1] = 3.0: they should be 4.0, 5.0, 6.0, 7.0, 8.0, 9.0
+    expected_counts = [4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
+    for r, expected_count in zip(sorted(ds.appended, key=lambda x: x["ts"]), expected_counts):
+        assert r.get("rate_of_rise_in_min") is not None, f"ts {r['ts']}: expected rate"
+        assert r.get("rate_of_rise_sample_count") == expected_count, \
+            f"ts {r['ts']}: count {r.get('rate_of_rise_sample_count')} != {expected_count}"
 
 
 def test_no_gap_appends_nothing_and_leaves_rain_alone():
