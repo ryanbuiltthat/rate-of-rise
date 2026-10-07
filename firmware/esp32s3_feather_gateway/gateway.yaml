@@ -1,0 +1,16 @@
+# Creek gateway v2 — local CLI wrapper (trial: no node-OTA buttons).
+#   cp secrets.yaml.example secrets.yaml   # then fill in (gitignored)
+#   esphome run gateway.yaml
+# rfm69_gateway comes from v1's directory (shared, unchanged for v1); creek_store from here.
+packages:
+  base: !include gateway.base.yaml
+
+external_components:
+  - source:
+      type: local
+      path: ../esp32_rfm69_gateway/components
+    components: [rfm69_gateway]
+  - source:
+      type: local
+      path: components
+    components: [creek_store]

@@ -1,0 +1,232 @@
+# Creek RFM69 gateway v2 — shared configuration (Feather ESP32-S3 + RFM69HCW + Adalogger).
+#
+# v1 (../esp32_rfm69_gateway/gateway.base.yaml) is the reference for every behaviour carried
+# over here, and its comments explain why each piece exists; they are not repeated. What is
+# new in v2 is the store (components/creek_store/): every node packet and Ecowitt reading is
+# written to SD with a real timestamp, and the add-on backfills anything HA missed. See
+# docs/superpowers/specs/2026-10-07-gateway-v2-sd-backfill-design.md.
+#
+# WIRING (Adafruit 5885 Feather ESP32-S3, 8 MB, no PSRAM). Both FeatherWings sit on the
+# Feather's hardware SPI bus; the store and the radio share it under one mutex.
+#   SPI SCK/MOSI/MISO  GPIO36 / GPIO35 / GPIO37   (Feather SCK/MO/MI)
+#   SD CS              GPIO10  (Adalogger default, D10)
+#   RFM69 CS           GPIO6   (D6, wing jumper pad)
+#   RFM69 DIO0 (IRQ)   GPIO5   (D5, wing jumper pad)
+#   RFM69 RST          GPIO9   (D9, wing jumper pad) — active HIGH, idles low, as v1
+#   I2C SDA / SCL      GPIO3 / GPIO4 (PCF8523 RTC on the Adalogger)
+#   I2C_POWER          GPIO7   — powers the Feather's I2C pull-ups; driven high at boot
+# The S3's strapping pins are GPIO0, 3, 45 and 46. GPIO3 (SDA) only selects the JTAG source,
+# and only when the STRAP_JTAG_SEL eFuse is burned, which it is not on the Feather; Adafruit
+# routes SDA there by design. Nothing here can hold the chip in download mode the way the
+# XIAO C3's default SPI pins did (see v1).
+
+substitutions:
+  device_name: creek-gateway-v2
+  friendly_name: Creek Gateway v2
+
+  rfm69_cs_pin: "6"
+  rfm69_sck_pin: "36"
+  rfm69_miso_pin: "37"
+  rfm69_mosi_pin: "35"
+  rfm69_irq_pin: "5"
+  rfm69_reset_pin: "9"
+  # MUST match FREQUENCY in moteino_creek_node/src/main.cpp (see v1).
+  rfm69_frequency: "915"
+  rfm69_node_id: "2"
+  rfm69_network_id: "100"
+
+  sd_cs_pin: "10"
+  i2c_power_pin: "7"
+  ecowitt_host: "192.168.30.7"
+
+  node_hex_url: "https://github.com/ryanbuiltthat/rate-of-rise/releases/download/node-firmware-latest/firmware.hex"
+  node_diag_hex_url: "https://github.com/ryanbuiltthat/rate-of-rise/releases/download/node-firmware-latest/firmware-diag.hex"
+
+  blanking_mm: "150"
+  overrange_slack_mm: "1000"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  # Task 4 replaces this with the creek_store component, whose header includes it.
+  includes:
+    - components/creek_store/store_core.h
+  # The Feather S3 board JSON enables CDC-on-boot, which maps `Serial` to `USBSerial`; that is
+  # undeclared in ESPHome's selective Arduino build and breaks the RFM69 library. Turn it off so
+  # `Serial` is plain UART0 (the library's few prints go to the unused TX pin).
+  platformio_options:
+    build_unflags:
+      - -DARDUINO_USB_CDC_ON_BOOT=1
+    build_flags:
+      - -DARDUINO_USB_CDC_ON_BOOT=0
+  on_boot:
+    # Before the I2C bus (setup priority 1000) comes up: the Feather's I2C pull-ups are
+    # powered from GPIO7, and with them off the PCF8523 never answers.
+    - priority: 1100
+      then:
+        - lambda: |-
+            pinMode(${i2c_power_pin}, OUTPUT);
+            digitalWrite(${i2c_power_pin}, HIGH);
+
+esp32:
+  board: adafruit_feather_esp32s3_nopsram
+  variant: esp32s3
+  flash_size: 8MB
+  framework:
+    type: arduino
+    sdkconfig_options:
+      CONFIG_APP_REPRODUCIBLE_BUILD: "n"   # Windows CreateProcess limit; see v1
+  toolchain: platformio                    # RFM69's stale library.json; see v1
+
+logger:
+  level: INFO
+  # CDC-on-boot is off (platformio_options above) so the RFM69 library's `Serial` is UART0;
+  # ESPHome's own logs go out the native USB port through the USB-Serial-JTAG peripheral.
+  hardware_uart: USB_SERIAL_JTAG
+
+api:
+  encryption:
+    key: !secret creek_gateway_v2_api_key
+  # ESPHome's default reboots the device after 15 min with no API client. v2 exists to keep
+  # recording while Home Assistant is down, so that reboot would loop through every outage.
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 0s        # same reason as api: above
+  ap:
+    ssid: ${friendly_name} Fallback
+    password: !secret ap_password
+
+captive_portal:
+
+# The store's clock. SNTP sets the system clock; creek_store copies it into the PCF8523 on
+# every sync and restores the system clock from the PCF8523 at boot. The router first, so a
+# LAN with no internet still syncs.
+time:
+  - platform: sntp
+    id: sntp_time
+    servers:
+      - 192.168.30.1
+      - 0.pool.ntp.org
+      - 1.pool.ntp.org
+
+i2c:
+  id: i2c_bus
+  sda: 3
+  scl: 4
+  scan: true
+
+rfm69_gateway:
+  id: creek_radio
+  cs_pin: ${rfm69_cs_pin}
+  sck_pin: ${rfm69_sck_pin}
+  miso_pin: ${rfm69_miso_pin}
+  mosi_pin: ${rfm69_mosi_pin}
+  irq_pin: ${rfm69_irq_pin}
+  reset_pin: ${rfm69_reset_pin}
+  frequency: ${rfm69_frequency}
+  node_id: ${rfm69_node_id}
+  network_id: ${rfm69_network_id}
+  is_rfm69hw: true
+  encryption_key: !secret rfm69_encrypt_key
+  ota_hex_url: ${node_hex_url}
+  ota_diag_hex_url: ${node_diag_hex_url}
+  distance:
+    id: creek_distance_mm
+    name: Sensor Distance
+    entity_category: diagnostic
+    on_value:
+      then:
+        - lambda: |-
+            const float mount = id(mount_height_mm).state;
+            if (isnan(mount)) return;
+            const auto r = creek_core::stage_from_distance(
+                mount, isnan(x) ? std::optional<float>() : std::optional<float>(x),
+                ${blanking_mm}, ${overrange_slack_mm});
+            if (r.lost_target) ESP_LOGW("creek", "distance %.0f mm implausible - target lost", x);
+            if (r.clamped) ESP_LOGW("creek", "distance %.0f mm inside blanking zone - depth "
+                                    "clamped (at or above range ceiling)", x);
+            id(creek_stage).publish_state(r.stage_ft ? *r.stage_ft : NAN);
+            id(creek_depth_in).publish_state(r.depth_in ? *r.depth_in : NAN);
+  battery_voltage:
+    name: Creek Node Battery
+  rssi:
+    name: Creek Node RSSI
+  packet_count:
+    name: Creek Node Packets
+  fast_mode:
+    name: Creek Node Fast Sampling
+  diag_active:
+    name: Creek Node Diagnostic Active
+  radar_fault:
+    name: Creek Node Radar Fault
+  radar_failures:
+    name: Creek Node Radar Failures
+  node_status:
+    name: Creek Node Status
+  ota_status:
+    name: Node OTA Status
+  reset_cause:
+    name: Creek Node Reset Cause
+  cycle:
+    name: Creek Node Cycle
+  radio_init_failures:
+    name: Creek Node Radio Init Failures
+
+number:
+  - platform: template
+    id: mount_height_mm
+    name: Installation Height
+    icon: mdi:arrow-expand-vertical
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_value: "1105"
+    min_value: 500
+    max_value: 6000
+    step: 1
+    unit_of_measurement: mm
+    mode: box
+
+sensor:
+  - platform: template
+    id: creek_stage
+    name: Stage
+    unit_of_measurement: ft
+    device_class: distance
+    state_class: measurement
+    accuracy_decimals: 2
+
+  - platform: template
+    id: creek_depth_in
+    name: Creek Depth
+    unit_of_measurement: in
+    device_class: distance
+    state_class: measurement
+    accuracy_decimals: 1
+    icon: mdi:waves-arrow-up
+
+  - platform: wifi_signal
+    name: WiFi Signal
+    entity_category: diagnostic
+    update_interval: 300s
+
+  - platform: uptime
+    name: Uptime
+    entity_category: diagnostic
+    update_interval: 300s
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: IP Address
+      entity_category: diagnostic
+
+button:
+  - platform: restart
+    name: "Restart Creek Gateway"

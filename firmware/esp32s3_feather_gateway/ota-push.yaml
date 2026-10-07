@@ -1,0 +1,15 @@
+# The two node-OTA buttons, kept out of gateway.base.yaml so the trial build can omit them:
+# while v1 and v2 both run, only v1 may push to the node. creek-gateway-v2.prod.yaml adds
+# this package back at cutover. Button semantics: see v1's gateway.base.yaml.
+button:
+  - platform: template
+    name: Push Node Firmware
+    entity_category: config
+    on_press:
+      - lambda: id(creek_radio).start_ota_push();
+
+  - platform: template
+    name: Push Node Diagnostic Firmware
+    entity_category: config
+    on_press:
+      - lambda: id(creek_radio).start_ota_push(true);
