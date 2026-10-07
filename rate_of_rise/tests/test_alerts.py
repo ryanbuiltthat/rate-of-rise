@@ -84,6 +84,55 @@ def test_history_between_uses_effective_and_expiry_windows():
     assert len(calls) == 1
 
 
+URL = "https://api.weather.gov/alerts/"
+
+
+def _feature(urn, event, msg, start, end, refs=()):
+    # Shaped like api.weather.gov: feature id and properties.@id are URLs, properties.id the
+    # URN; references carry both (@id and identifier).
+    return {"id": URL + urn, "properties": {
+        "@id": URL + urn, "id": urn, "event": event, "messageType": msg,
+        "onset": start, "ends": end,
+        "references": [{"@id": URL + r, "identifier": r} for r in refs]}}
+
+
+def _history(features):
+    from datetime import datetime, timezone
+    return NwsAlerts(41.5, -75.9, fetch=lambda url, timeout=15.0: {"features": features})         .history_between(datetime(2026, 10, 7, 12, tzinfo=timezone.utc),
+                         datetime(2026, 10, 8, tzinfo=timezone.utc))
+
+
+def test_history_drops_a_cancelled_alert_and_the_cancel_itself():
+    from datetime import datetime, timezone
+    at = _history([
+        _feature("urn:oid:1", "Flood Warning", "Alert", "2026-10-07T10:00:00-04:00",
+                 "2026-10-07T20:00:00-04:00"),
+        _feature("urn:oid:2", "Flood Warning", "Cancel", "2026-10-07T11:00:00-04:00",
+                 "2026-10-07T20:00:00-04:00", refs=["urn:oid:1"])])
+    out = at(datetime(2026, 10, 7, 17, tzinfo=timezone.utc))            # 13:00 EDT
+    assert out["nws_flood_warning"] == 0.0 and out["nws_alert_count"] == 0.0, out
+
+
+def test_history_counts_an_updated_alert_once():
+    from datetime import datetime, timezone
+    at = _history([
+        _feature("urn:oid:1", "Flood Watch", "Alert", "2026-10-07T10:00:00-04:00",
+                 "2026-10-07T20:00:00-04:00"),
+        _feature("urn:oid:3", "Flood Watch", "Update", "2026-10-07T12:00:00-04:00",
+                 "2026-10-07T22:00:00-04:00", refs=["urn:oid:1"])])
+    during = at(datetime(2026, 10, 7, 17, tzinfo=timezone.utc))         # 13:00 EDT
+    assert during["nws_flood_watch"] == 1.0 and during["nws_alert_count"] == 1.0, during
+    extended = at(datetime(2026, 10, 8, 1, tzinfo=timezone.utc))        # 21:00 EDT
+    assert extended["nws_flood_watch"] == 1.0, extended
+
+
+def test_history_update_of_an_absent_alert_still_counts():
+    from datetime import datetime, timezone
+    at = _history([_feature("urn:oid:3", "Flood Watch", "Update", "2026-10-07T12:00:00-04:00",
+                            "2026-10-07T22:00:00-04:00", refs=["urn:oid:0"])])
+    assert at(datetime(2026, 10, 7, 17, tzinfo=timezone.utc))["nws_alert_count"] == 1.0
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
