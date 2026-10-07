@@ -34,6 +34,36 @@ def test_pairs_by_domain_and_original_name():
     assert only_v2 == ["sensor.creek_gateway_v2_store_free_space"]
 
 
+V1_BUTTONS = [ent("button.creek_gateway_push_node_firmware", "Push Node Firmware"),
+              ent("button.outside_creek_gateway_push_node_diagnostic_firmware",
+                  "Push Node Diagnostic Firmware")]
+
+
+def test_v1_ota_buttons_pair_with_the_prod_v2_buttons():
+    # The prod wrapper (creek-gateway-v2.prod.yaml) is installed on v2 BEFORE the cutover
+    # script runs, so its buttons inherit v1's ids and nothing is left unpaired.
+    v1 = [ent("sensor.creek_gateway_stage", "Stage")] + V1_BUTTONS
+    v2 = [ent("sensor.creek_gateway_v2_stage", "Stage"),
+          ent("button.creek_gateway_v2_push_node_firmware", "Push Node Firmware"),
+          ent("button.creek_gateway_v2_push_node_diagnostic_firmware",
+              "Push Node Diagnostic Firmware")]
+    pairs, only_v1, only_v2 = pair_entities(v1, v2)
+    assert ("button.creek_gateway_push_node_firmware",
+            "button.creek_gateway_v2_push_node_firmware") in pairs
+    assert ("button.outside_creek_gateway_push_node_diagnostic_firmware",
+            "button.creek_gateway_v2_push_node_diagnostic_firmware") in pairs
+    assert only_v1 == [] and only_v2 == []
+
+
+def test_trial_v2_without_buttons_leaves_them_in_only_v1():
+    v1 = [ent("sensor.creek_gateway_stage", "Stage")] + V1_BUTTONS
+    v2 = [ent("sensor.creek_gateway_v2_stage", "Stage")]
+    pairs, only_v1, _ = pair_entities(v1, v2)
+    assert pairs == [("sensor.creek_gateway_stage", "sensor.creek_gateway_v2_stage")]
+    assert only_v1 == ["button.creek_gateway_push_node_firmware",
+                       "button.outside_creek_gateway_push_node_diagnostic_firmware"]
+
+
 def test_production_map_swaps_v2_ids_for_v1_ids():
     m = {"node": {"stage_ft": "sensor.creek_gateway_v2_stage"},
          "ecowitt": {"rain_total_in": "sensor.outside_weather_station_rain_total"}}

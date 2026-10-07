@@ -307,7 +307,8 @@ power cut.
 
 **Build:** `esphome run esp32s3_feather_gateway/gateway.yaml` (trial: no node-OTA buttons).
 `creek-gateway-v2.yaml` is the Device Builder trial wrapper, and `creek-gateway-v2.prod.yaml`
-adds the OTA buttons back after cutover. `rfm69_gateway` is shared with v1 from
+adds the OTA buttons; it is installed at cutover, after v1 is unplugged and before the cutover
+script runs (see docs/gateway-v2-trial.md §3). `rfm69_gateway` is shared with v1 from
 `esp32_rfm69_gateway/components/`. Its v2-only packet hook compiles in only when
 `creek_store` defines `USE_RFM69_PACKET_HOOK`, and CI checks v1's build never does. USB CDC
 on boot is disabled (`platformio_options` unflags `-DARDUINO_USB_CDC_ON_BOOT=1` and sets

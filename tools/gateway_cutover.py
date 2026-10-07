@@ -1,5 +1,10 @@
 """Swap gateway v2 in for v1 in Home Assistant, keeping v1's entity IDs and history.
 
+Order: unplug v1; install creek-gateway-v2.prod.yaml (the node-OTA buttons) on v2; dry run
+this script; run it with --apply; restart the add-on. The production build goes on v2 first
+because v1's two OTA buttons need v2 counterparts to pair with: a v2 button renamed to v1's id
+keeps v1's id and history. Against the trial build (no buttons) preflight stops on them.
+
 Run from a laptop with an admin long-lived access token in a file:
 
     python tools/gateway_cutover.py --ha-url http://192.168.20.3:8123 --token-file ~/.ha_token
@@ -21,7 +26,6 @@ it would delete, the renames, and the resulting backfill_entity_map. With --appl
      backfill_shadow_map cleared.
 If any step fails, the script prints what completed and the exact remaining steps (including
 the options JSON) and exits non-zero. There is no resume mode.
-Flashing the production wrapper (OTA buttons back) is the last, manual, step.
 See docs/gateway-v2-trial.md.
 """
 from __future__ import annotations
@@ -157,7 +161,7 @@ def apply_plan(ha, plan, sleep=time.sleep, out=print) -> int:
         ha.call({"type": "supervisor/api", "endpoint": f"/addons/{plan['slug']}/options",
                  "method": "post", "data": {"options": plan["options"]}})
         options_pending = False
-        out("add-on options updated; restart the add-on, then install creek-gateway-v2.prod.yaml")
+        out("add-on options updated; restart the add-on")
         return 0
     except (Exception, SystemExit) as e:
         out(f"\nAPPLY FAILED: {e!r}")

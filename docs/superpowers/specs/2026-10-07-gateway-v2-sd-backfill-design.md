@@ -74,7 +74,7 @@ firmware/esp32s3_feather_gateway/
   gateway.base.yaml          the whole v2 device
   gateway.yaml               local CLI wrapper (components from ../ and ./components)
   creek-gateway-v2.yaml      Device Builder wrapper, trial (no OTA push buttons)
-  creek-gateway.prod.yaml    Device Builder wrapper, post-cutover (OTA buttons included)
+  creek-gateway-v2.prod.yaml Device Builder wrapper, for cutover (OTA buttons included)
   secrets.yaml.example
   components/creek_store/    new: clock, SD log, Ecowitt poll, replay API
 ```
@@ -356,7 +356,12 @@ corrected accumulator state above.
 6. Push node firmware from v1 while v2 runs: v2 keeps logging the telemetry around it, and
    neither gateway errors.
 
-**Cutover.** `tools/gateway_cutover.py` drives HA's websocket API:
+**Cutover.** Order: unplug v1, install `creek-gateway-v2.prod.yaml` (OTA buttons) on v2, dry
+run the script, run it with `--apply`, restart the add-on. The production build goes on first
+because v1's two OTA buttons must have v2 counterparts to pair with and inherit their ids;
+against the trial build (no buttons) the preflight stops on the unpaired v1 buttons.
+
+`tools/gateway_cutover.py` drives HA's websocket API:
 1. **Preflight.** v1's device is offline (you unplug it first), v2's store is reconciled up to
    2 min ago, and every v1 entity_id has a v2 counterpart. It prints the mapping and stops on
    any mismatch.
@@ -365,8 +370,7 @@ corrected accumulator state above.
    entity_id string, so the renamed entities continue v1's history. The plan verifies this on a
    scratch HA instance before it is run for real.
 4. Write the production entity map into `backfill_entity_map` and clear `backfill_shadow_map`.
-5. You switch the Device Builder to `creek-gateway.prod.yaml` (OTA buttons back) and install
-   over OTA.
+5. You restart the add-on.
 
 **Rollback.** Plug v1 back in. Its firmware and YAML were never changed.
 

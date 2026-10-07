@@ -102,20 +102,31 @@ future) are skipped and counted in `skipped_no_time` / `skipped_bad_time`.
 Prerequisites on the machine running the script: `pip install requests websocket-client`, and
 a file holding an admin long-lived access token.
 
+Order matters: the production firmware goes on v2 **before** the script runs. v1 has two
+node-OTA buttons (`button.creek_gateway_push_node_firmware`,
+`button.outside_creek_gateway_push_node_diagnostic_firmware`). The script pairs every v1
+entity with a v2 entity of the same domain and name, and renames the v2 one to inherit v1's
+id. The trial build has no buttons, so run against it the preflight stops with "v1 entities
+with no v2 counterpart". With the production build installed first, the buttons pair like
+everything else and keep their ids. v1 is unplugged first so that only one gateway can ever
+push to the node.
+
 1. Unplug v1.
-2. Dry run (the default, changes nothing):
+2. Install `creek-gateway-v2.prod.yaml` on v2 in the Device Builder (copy it to
+   `/config/esphome/` first; OTA). v2 now has the node-OTA buttons.
+3. Dry run (the default, changes nothing):
    `python tools/gateway_cutover.py --ha-url http://192.168.20.3:8123 --token-file <file>`
    It runs the preflight and prints the config entries it would delete, the entity renames,
    and the resulting `backfill_entity_map`. Fix anything it reports. The preflight requires the
    backfill status to read exactly `idle` (it refuses during `waiting for live poll`, for example).
-3. The same command with `--apply`. It waits for v1's entities to clear, retries each rename
+4. The same command with `--apply`. It waits for v1's entities to clear, retries each rename
    (3 tries), then writes the add-on options (production `backfill_entity_map`,
    `backfill_shadow_map` cleared). On any failure it prints what completed and the steps that
    remain, including the options JSON, and exits non-zero; there is no resume mode, so finish
    the remaining steps by hand.
-4. Restart the add-on. Install `creek-gateway-v2.prod.yaml` in the Device Builder (copy it to
-   `/config/esphome/` first) so the node-OTA buttons come back.
+5. Restart the add-on.
 
-**Rollback:** plug v1 back in. Its firmware and YAML were never changed. Undo backfilled
+**Rollback:** plug v1 back in. Its firmware and YAML were never changed. If v2 already has the
+production build (step 2), reinstall the trial wrapper on it, so only v1 can push to the node. Undo backfilled
 recorder rows with an MQTT publish to `creek/cmd/backfill_undo` (payload: an ISO time to
 undo from, or empty for all).
