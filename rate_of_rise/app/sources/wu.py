@@ -54,8 +54,12 @@ def _safe(station_id: str) -> str:
 def _history_series(observations: list[dict]) -> tuple[list[tuple[float, float]],
                                                        list[tuple[float, float]]]:
     """(increments, totals) from one station's history observations, sorted by time.
-    precipTotal restarts at local midnight, so a new local day's first total is all new rain;
-    a dip within a day is a feed glitch and counts as nothing."""
+
+    The same rules as the live poll (_total_increment), so a replayed hour reads as it would
+    have live: a step longer than COUNTER_MAX_GAP_S re-baselines (rain that cannot be placed
+    in time); precipTotal restarts at local midnight, so a new local day's first total is all
+    new rain; within a day the baseline is the high-water mark, so a dip and its recovery count
+    nothing."""
     pts = []
     for o in observations:
         try:
@@ -66,20 +70,21 @@ def _history_series(observations: list[dict]) -> tuple[list[tuple[float, float]]
         pts.append((ts, str(o.get("obsTimeLocal") or "")[:10], total))
     pts.sort()
     incs, totals = [], []
-    prev = None
+    prev = None                       # (ts, local day, baseline)
     for ts, day, total in pts:
         if prev is not None and ts == prev[0]:
             continue
-        if prev is None:
-            inc = 0.0
-        elif day != prev[1]:
-            inc = max(0.0, total)
+        if prev is None or ts - prev[0] > COUNTER_MAX_GAP_S:
+            inc, base = 0.0, total
+        elif day and prev[1] and day != prev[1]:
+            inc, base = max(0.0, total), total
         else:
-            inc = max(0.0, total - prev[2])
+            inc, base = max(0.0, total - prev[2]), max(prev[2], total)
+            day = day or prev[1]
         if inc > 0:
             incs.append((ts, inc))
         totals.append((ts, total))
-        prev = (ts, day, total)
+        prev = (ts, day, base)
     return incs, totals
 
 

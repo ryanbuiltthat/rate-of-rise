@@ -181,6 +181,38 @@ def test_history_between_sums_station_totals_up_to_as_of():
     assert late["upstream_rain_1h_in"] is None
 
 
+def _obs(utc, local, total):
+    return {"obsTimeUtc": utc, "obsTimeLocal": local, "imperial": {"precipTotal": total}}
+
+
+def _close(incs, expected):
+    return len(incs) == len(expected) and all(
+        a[0] == b[0] and abs(a[1] - b[1]) < 1e-9 for a, b in zip(incs, expected))
+
+
+def test_history_holds_the_high_water_mark_like_the_live_poll():
+    from datetime import datetime
+    from app.sources.wu import _history_series
+    incs, _ = _history_series([
+        _obs("2026-10-07T12:00:00Z", "2026-10-07 08:00:00", 0.5),
+        _obs("2026-10-07T12:10:00Z", "2026-10-07 08:10:00", 0.2),   # feed glitch
+        _obs("2026-10-07T12:20:00Z", "2026-10-07 08:20:00", 0.5),   # recovery: not new rain
+        _obs("2026-10-07T12:30:00Z", "2026-10-07 08:30:00", 0.6)])
+    t4 = datetime.fromisoformat("2026-10-07T12:30:00+00:00").timestamp()
+    assert _close(incs, [(t4, 0.1)]), incs
+
+
+def test_history_rebaselines_across_a_long_hole_like_the_live_poll():
+    from datetime import datetime
+    from app.sources.wu import _history_series
+    incs, _ = _history_series([
+        _obs("2026-10-07T12:00:00Z", "2026-10-07 08:00:00", 0.1),
+        _obs("2026-10-07T17:00:00Z", "2026-10-07 13:00:00", 0.6),   # 5 h hole: unplaceable
+        _obs("2026-10-07T17:10:00Z", "2026-10-07 13:10:00", 0.7)])
+    t3 = datetime.fromisoformat("2026-10-07T17:10:00+00:00").timestamp()
+    assert _close(incs, [(t3, 0.1)]), incs
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
