@@ -171,6 +171,97 @@ def test_large_batch_is_chunked():
     assert len(res.inserted) == 1200 and len(rows(c, 1)) == 1201
 
 
+def test_flat_gap_is_filled_and_its_unavailable_removed():
+    db, c = make_db()
+    add(c, 3, "on", T0, 30)
+    add(c, 3, "unavailable", T0 + 30, 30)
+    add(c, 3, "on", T0 + 1800, 30)
+    pts = [Point(T0 + 60 + 60*i, True) for i in range(29)]  # 29 readings at T0+60, +120, ... +1740
+    res = RecorderWriter(db).write("binary_sensor.node", "binary", None, pts)
+    assert res.inserted == [T0 + 60]  # only first one inserted (flat, all True = "on")
+    assert res.deleted_unavailable == 1
+    states = [r[0] for r in rows(c, 3)]
+    assert states == ["on", "on", "on"] and "unavailable" not in states
+
+
+def test_unavailable_between_two_separate_fills_is_kept():
+    db, c = make_db()
+    add(c, 1, "0.9", T0, 10)
+    add(c, 1, "0.95", T0 + 3000, 10)
+    add(c, 1, "unavailable", T0 + 5000, 10)
+    add(c, 1, "0.99", T0 + 9500, 10)
+    res = RecorderWriter(db).write("sensor.stage", "number", "ft",
+                                   [Point(T0 + 60, 0.91), Point(T0 + 9000, 0.98)])
+    assert "unavailable" in [r[0] for r in rows(c, 1)]
+
+
+def test_newest_unavailable_row_is_never_deleted():
+    db, c = make_db()
+    add(c, 1, "0.9", T0, 10)
+    add(c, 1, "unavailable", T0 + 30, 10)
+    res = RecorderWriter(db).write("sensor.stage", "number", "ft", [Point(T0 + 90, 0.92)])
+    states = [r[0] for r in rows(c, 1)]
+    assert "unavailable" in states and res.inserted == [T0 + 90]
+
+
+def test_ha_float_text_counts_as_unchanged():
+    db, c = make_db()
+    # Store the formatted value that HA would have (high precision)
+    add(c, 2, "31.968503937007874", T0, 20)  # distance in inches
+    # Write 812 mm twice; should format to ~31.968504 in (same within tolerance)
+    res = RecorderWriter(db).write("sensor.distance", "number", "mm",
+                                   [Point(T0 + 60, 812), Point(T0 + 120, 812)])
+    assert res.inserted == []  # numeric compression: both are unchanged
+
+
+def test_non_finite_and_none_are_unknown():
+    db, c = make_db()
+    add(c, 1, "0.9", T0, 10)
+    add(c, 3, "off", T0, 30)
+    w = RecorderWriter(db)
+    w.write("sensor.stage", "number", "ft", [Point(T0 + 60, float("nan"))])
+    w.write("binary_sensor.node", "binary", None, [Point(T0 + 60, None)])
+    assert rows(c, 1)[-1][0] == "unknown"
+    assert rows(c, 3)[-1][0] == "unknown"
+
+
+def test_rollback_after_failed_insert_preserves_original_error():
+    db, c = make_db()
+    add(c, 1, "0.9", T0, 10)
+
+    # Monkeypatch the module's connect function to return a proxy that fails on executemany
+    import app.backfill.recorder as rec
+    original_connect = rec.connect
+
+    class FailingConnection:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+        def executemany(self, sql, params):
+            # Execute ROLLBACK first (simulating SQLite ending transaction)
+            if self._conn.in_transaction:
+                self._conn.execute("ROLLBACK")
+            # Then raise the disk error
+            raise sqlite3.OperationalError("disk I/O error")
+
+    def failing_connect(db_path):
+        return FailingConnection(original_connect(db_path))
+
+    rec.connect = failing_connect
+    try:
+        w = RecorderWriter(db)
+        try:
+            w.write("sensor.stage", "number", "ft", [Point(T0 + 60, 0.95)])
+            raise AssertionError("should have raised")
+        except sqlite3.OperationalError as exc:
+            assert "disk I/O error" in str(exc)
+    finally:
+        rec.connect = original_connect
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
