@@ -158,6 +158,9 @@ the queue drains), so a power cut loses at most the record being written.
     boot.
   - Header `X-Store-Last` carries the stream's current last seq, so the client knows whether
     to page again.
+- Only `/store/records` takes the SPI bus (a 3 s wait, then 503 `bus busy`). `/store/status`
+  reads cached values and never waits on it; an unknown path is 404 and an unknown stream 400
+  before the bus is touched.
 
 **Entities** (new, diagnostic): SD OK, Store Free Space (MB), Clock Source (`ntp|rtc|none`),
 Node Records (last seq), Ecowitt Records (last seq), Ecowitt Poll Failures.
@@ -194,7 +197,7 @@ Behaviour by case:
 |---|---|
 | URL blank | No backfill object is created. No requests, no files, no log lines. The status entity reads `off`. |
 | Any response to `/store/status` that isn't a valid `store_schema` 1 document (404, HTML, ESPHome's own web page, a JSON without `store_schema`) | Treated as "no store". This is what v1 looks like, and what v2 looks like if its web server is off. One DEBUG log line, status `v1 gateway (no store)`, re-probed hourly. |
-| Connection refused, timeout, DNS failure | Treated as "unreachable": the gateway is down or the network is. DEBUG log, status `unreachable`, re-probed every 10 min. Not an error. |
+| Connection refused, timeout, DNS failure, HTTP 5xx | Treated as "unreachable": the gateway is down or the network is. DEBUG log, status `unreachable`, re-probed every 10 min. Not an error. |
 | 401 | Status `error: bad token`, one WARNING per hour |
 | Valid status | Reconcile (section 5) |
 

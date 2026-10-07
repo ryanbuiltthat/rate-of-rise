@@ -4,6 +4,9 @@ Feature detection is the point of this module. The `gateway_store_url` option ca
 v2 gateway, at a v1 gateway (no store), at a gateway that is down, or at nothing, and only
 the first is a path to backfill. Everything else must leave the add-on behaving as it did
 before backfill existed: no exception escapes probe(), and nothing here logs above DEBUG.
+
+A v2 status document may also carry `sd_ok` and `store_id` (the card's identity); the
+reconciler uses both, and the client passes the document through unchanged.
 """
 from __future__ import annotations
 
@@ -24,7 +27,7 @@ TIMEOUT_S = 10.0
 class ProbeState(Enum):
     OK = "ok"
     NO_STORE = "no_store"          # answered, but not a v2 store: v1, or web server off
-    UNREACHABLE = "unreachable"    # refused / timed out / DNS: gateway or network down
+    UNREACHABLE = "unreachable"    # refused / timed out / DNS / HTTP 5xx: down or busy
     BAD_TOKEN = "bad_token"
 
 
@@ -51,6 +54,11 @@ class StoreClient:
             return Probe(ProbeState.UNREACHABLE)
         if r.status_code == 401:
             return Probe(ProbeState.BAD_TOKEN)
+        if r.status_code >= 500:
+            # A store that is there but busy (bus held by a node OTA push) or failing: retry
+            # on the pass interval, not the hourly v1 re-probe.
+            log.debug("gateway store probe got HTTP %s: treating as unreachable", r.status_code)
+            return Probe(ProbeState.UNREACHABLE)
         if r.status_code != 200:
             log.debug("gateway store probe got HTTP %s: not a v2 store", r.status_code)
             return Probe(ProbeState.NO_STORE)

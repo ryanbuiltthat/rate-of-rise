@@ -61,7 +61,7 @@ Runbook for running gateway v2 beside v1, proving it, and swapping it in. Design
 |---|---|
 | `off` | `gateway_store_url` is blank; nothing runs. |
 | `v1 gateway (no store)` | The URL answers but is a v1 gateway. Re-probed hourly. Silent. |
-| `unreachable` | Refused, timed out or DNS failure. Retried every pass. Silent. |
+| `unreachable` | Refused, timed out, DNS failure, or an HTTP 5xx from the gateway. Retried every pass. Silent. |
 | `idle` | Caught up with the store. |
 | `backfilling N` | N store records still to process. |
 | `waiting for live poll` | Gap rows are held until the first live rain poll after an add-on restart. |

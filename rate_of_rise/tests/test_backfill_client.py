@@ -25,7 +25,7 @@ TOKEN = "t" * 32
 
 
 class Gateway(BaseHTTPRequestHandler):
-    mode = "v2"          # v2 | 404 | html | sleep | wrongschema
+    mode = "v2"          # v2 | 404 | html | sleep | wrongschema | 503
     records = {"node": [], "ecowitt": []}
     page_size = 500
 
@@ -48,6 +48,8 @@ class Gateway(BaseHTTPRequestHandler):
             time.sleep(1.0)
         if mode == "404":
             return self._send(404, "not found", "text/plain")
+        if mode == "503":
+            return self._send(503, "bus busy", "text/plain")
         if mode == "html":
             return self._send(200, "<html><body>ESPHome</body></html>", "text/html")
         if self.headers.get("Authorization") != f"Bearer {TOKEN}":
@@ -161,6 +163,18 @@ def test_timeout_is_unreachable_and_silent():
         probe = quietly(lambda: StoreClient(url, TOKEN, timeout=0.2).probe())
         assert probe.state is ProbeState.UNREACHABLE
     finally:
+        srv.shutdown()
+
+
+def test_server_error_is_unreachable_and_silent():
+    # A v2 gateway whose bus is busy (or any 5xx) is a v2 gateway having a bad moment, not a
+    # v1 gateway: retry next pass, not in an hour.
+    Gateway.mode = "503"
+    srv, url = serve()
+    try:
+        assert quietly(lambda: StoreClient(url, TOKEN).probe()).state is ProbeState.UNREACHABLE
+    finally:
+        Gateway.mode = "v2"
         srv.shutdown()
 
 

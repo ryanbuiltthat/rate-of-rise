@@ -6,6 +6,8 @@
 //    They are encoded and queued there, never written there.
 //  * loop() writes the queue to SD with a NON-BLOCKING take, as rfm69_gateway's loop does,
 //    so an OTA transfer holding the bus for minutes never stalls the main task.
+//  * HTTP requests run on the httpd task. Only /store/records takes the bus (3 s wait);
+//    /store/status reads atomics and the mutex-guarded store id, so it never waits on it.
 #pragma once
 
 #include <atomic>
@@ -185,7 +187,7 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
   }
 
   const char *ts_src_() const {
-    if (this->ever_ntp_ && millis() - this->last_ntp_ms_ < NTP_FRESH_MS) return "ntp";
+    if (this->ever_ntp_ && millis() - this->last_ntp_ms_.load() < NTP_FRESH_MS) return "ntp";
     if (this->clock_set_) return "rtc";
     return "none";
   }
@@ -371,7 +373,8 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
       xSemaphoreGive(this->bus_);
     }
     if (this->sd_fault_ != nullptr) this->sd_fault_->publish_state(!this->sd_ok_);
-    if (this->free_space_ != nullptr && this->sd_ok_) this->free_space_->publish_state(this->free_mb_);
+    if (this->free_space_ != nullptr && this->sd_ok_)
+      this->free_space_->publish_state(this->free_mb_.load());
     if (this->clock_source_ != nullptr) {
       const char *src = this->ts_src_();
       if (this->clock_source_->state != src) this->clock_source_->publish_state(src);
@@ -457,7 +460,7 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
     web_server_base::global_web_server_base->add_handler(this);
   }
 
-  // Bus mutex held.
+  // Any task, no bus: atomics, the constant device name and the mutex-guarded store id only.
   std::string status_json_() {
     std::string id;  // empty while the card is not mounted
     if (this->sd_ok_) {
@@ -470,7 +473,7 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
              "\"sd_ok\":%s,\"store_id\":\"%s\",\"sd_free_mb\":%u,\"streams\":{"
              "\"node\":{\"first\":%u,\"last\":%u},\"ecowitt\":{\"first\":%u,\"last\":%u}}}",
              this->device_name_.c_str(), now_ts_(), this->ts_src_(),
-             this->sd_ok_ ? "true" : "false", id.c_str(), (unsigned) this->free_mb_,
+             this->sd_ok_ ? "true" : "false", id.c_str(), (unsigned) this->free_mb_.load(),
              this->first_seq_(NODE), (unsigned) this->written_seq_[NODE],
              this->first_seq_(ECOWITT), (unsigned) this->written_seq_[ECOWITT]);
     return buf;
@@ -542,47 +545,50 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
     }
     char urlbuf[AsyncWebServerRequest::URL_BUF_SIZE];
     const std::string url(request->url_to(urlbuf));
+    // Status reads only atomics and the mutex-guarded store id, never the card, so it answers
+    // even while a node OTA push holds the bus.
+    if (url == "/store/status") {
+      const std::string body = this->status_json_();
+      request->send(200, "application/json", body.c_str());
+      return;
+    }
+    if (url != "/store/records") {
+      request->send(404, "text/plain", "not found");
+      return;
+    }
+    const AsyncWebParameter *sp = request->getParam("stream");
+    const std::string name = sp != nullptr ? sp->value() : "";
+    const int s = name == "node" ? NODE : name == "ecowitt" ? ECOWITT : -1;
+    if (s < 0) {
+      request->send(400, "text/plain", "unknown stream");
+      return;
+    }
     // The card shares the radio's bus. A node OTA push holds it for minutes, so give up after
     // 3 s rather than tie up the HTTP task; the add-on retries next pass.
     if (xSemaphoreTake(this->bus_, HTTP_BUS_WAIT) != pdTRUE) {
       request->send(503, "text/plain", "bus busy");
       return;
     }
-    if (url == "/store/status") {
-      const std::string body = this->status_json_();
+    if (!this->sd_ok_) {
       xSemaphoreGive(this->bus_);
-      request->send(200, "application/json", body.c_str());
+      request->send(503, "text/plain", "sd unavailable");
       return;
     }
-    if (url == "/store/records") {
-      const AsyncWebParameter *sp = request->getParam("stream");
-      const std::string name = sp != nullptr ? sp->value() : "";
-      const int s = name == "node" ? NODE : name == "ecowitt" ? ECOWITT : -1;
-      if (s < 0 || !this->sd_ok_) {
-        xSemaphoreGive(this->bus_);
-        if (s < 0) request->send(400, "text/plain", "unknown stream");
-        else request->send(503, "text/plain", "sd unavailable");
-        return;
-      }
-      const AsyncWebParameter *ap = request->getParam("after");
-      const uint32_t after = ap != nullptr ? (uint32_t) strtoul(ap->value().c_str(), nullptr, 10) : 0;
-      const AsyncWebParameter *lp = request->getParam("limit");
-      uint32_t limit = lp != nullptr ? (uint32_t) strtoul(lp->value().c_str(), nullptr, 10)
-                                     : PAGE_MAX_LINES;
-      if (limit == 0 || limit > PAGE_MAX_LINES) limit = PAGE_MAX_LINES;
-      const std::string body = this->read_page_((uint8_t) s, after, limit);
-      const uint32_t last = this->written_seq_[s];
-      xSemaphoreGive(this->bus_);
-      AsyncWebServerResponse *resp = request->beginResponse(200, "application/x-ndjson", body);
-      // httpd_resp_set_hdr keeps the pointer, not a copy: this buffer must outlive send().
-      char last_buf[12];
-      snprintf(last_buf, sizeof last_buf, "%u", (unsigned) last);
-      resp->addHeader("X-Store-Last", last_buf);
-      request->send(resp);
-      return;
-    }
+    const AsyncWebParameter *ap = request->getParam("after");
+    const uint32_t after = ap != nullptr ? (uint32_t) strtoul(ap->value().c_str(), nullptr, 10) : 0;
+    const AsyncWebParameter *lp = request->getParam("limit");
+    uint32_t limit = lp != nullptr ? (uint32_t) strtoul(lp->value().c_str(), nullptr, 10)
+                                   : PAGE_MAX_LINES;
+    if (limit == 0 || limit > PAGE_MAX_LINES) limit = PAGE_MAX_LINES;
+    const std::string body = this->read_page_((uint8_t) s, after, limit);
+    const uint32_t last = this->written_seq_[s];
     xSemaphoreGive(this->bus_);
-    request->send(404, "text/plain", "not found");
+    AsyncWebServerResponse *resp = request->beginResponse(200, "application/x-ndjson", body);
+    // httpd_resp_set_hdr keeps the pointer, not a copy: this buffer must outlive send().
+    char last_buf[12];
+    snprintf(last_buf, sizeof last_buf, "%u", (unsigned) last);
+    resp->addHeader("X-Store-Last", last_buf);
+    request->send(resp);
   }
 
  protected:
@@ -598,14 +604,15 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
   float overrange_slack_mm_{1000};
   std::string device_name_;
 
-  bool sd_ok_{false};
-  bool clock_set_{false};
-  bool ever_ntp_{false};
-  uint32_t last_ntp_ms_{0};
+  // Atomic: written on the main task, read by /store/status on the HTTP task without the bus.
+  std::atomic<bool> sd_ok_{false};
+  std::atomic<bool> clock_set_{false};
+  std::atomic<bool> ever_ntp_{false};
+  std::atomic<uint32_t> last_ntp_ms_{0};
+  std::atomic<uint32_t> free_mb_{0};
   uint32_t last_health_ms_{0};
   uint32_t last_free_ms_{0};
   uint32_t last_remount_ms_{0};
-  uint32_t free_mb_{0};
   uint32_t ecowitt_failures_{0};
   std::mutex eco_mutex_;
   std::mutex id_mutex_;  // store_id_: written on the main task, read on the HTTP task
