@@ -123,9 +123,11 @@ loop.
 - Node fields are the decoded packet fields with the wire keys (`d v f g r n i`). Missing fields
   are omitted, and a null distance is `"d":null`.
 - `stage_ft`/`depth_in` are computed with **the same rules as v1's `on_value` lambda**: NaN
-  on null distance or a lost target, clamped to the floor in the blanking zone. The rules move
-  into one shared header used by both the lambda and the store, so they cannot drift. NaN is
-  written as `null`.
+  on null distance or a lost target, clamped to the floor in the blanking zone. In v2 those
+  rules live in one header (`creek_store/stage_math.h`) called by both v2's `on_value` lambda
+  and the store, so v2's live entities and its records cannot drift apart. v1's lambda is not
+  touched; a host test pins the header against a table of v1-lambda outputs. NaN is written as
+  `null`.
 - Ecowitt: `GET http://<ecowitt_host>/get_livedata_info` every 60 s (configurable), parsed by
   id (`0x0D` event, `0x0E` rate, `0x10` day, `0x7C` 24 h, `0x13` year, `0x02` outdoor temp,
   `ch_soil[].humidity` keyed by channel). A failed poll writes nothing and increments a
@@ -179,8 +181,8 @@ New add-on options:
 |---|---|---|
 | `gateway_store_url` | blank | e.g. `http://192.168.30.21`. Blank turns backfill off entirely. |
 | `gateway_store_token` | blank | Bearer token, same value as the gateway secret |
-| `backfill_entity_map` | trial map | Which HA entity each record field writes to (section 5) |
-| `backfill_dry_run` | `true` | Log intended recorder writes without writing them |
+| `backfill_entity_map` | blank | Record field → HA entity the recorder destinations **write** (section 5). Blank: recorder destinations A/B do nothing; C and D still run. |
+| `backfill_shadow_map` | blank | Same shape; recorder writes for these entities are **logged only**, never written |
 
 Behaviour by case:
 
@@ -252,11 +254,14 @@ writes to all destinations succeeded. Each pass (at startup, then every 10 min):
 
 **Destination D: training dataset and live accumulators.** This one is described in section 6.
 
-**Entity map.** Record field → entity_id, one map per stream.
-- **During the trial** it targets v2's own entities (`sensor.creek_gateway_v2_stage`, …)
-  plus the Ecowitt entities (`sensor.outside_weather_station_rain_total`, …), and
-  `backfill_dry_run: true` logs what it would write into v1's.
-- **After cutover** it targets the production ids.
+**Entity maps.** Record field → entity_id, per stream. Both options are JSON objects:
+`{"node": {"stage_ft": "sensor.creek_gateway_v2_stage", ...}, "ecowitt": {...}}`.
+- **During the trial** `backfill_entity_map` targets v2's own entities
+  (`sensor.creek_gateway_v2_stage`, …) and nothing else. `backfill_shadow_map` holds v1's
+  entities and the Ecowitt entities (`sensor.outside_weather_station_rain_total`, …), so the
+  production writes are rehearsed in the log on real gaps without touching production history.
+- **After cutover** the production ids (v1's names plus Ecowitt) move into
+  `backfill_entity_map` and the shadow map is cleared.
 - Node status (`binary_sensor`) is backfilled as `on` for any span with node records.
 
 ### 6. Dataset gap rows and source re-fetch
@@ -309,12 +314,13 @@ corrected accumulator state above.
 `sensor.creek_backfill_status`, published via the add-on's existing MQTT discovery.
 
 - **State:** `off` | `v1 gateway (no store)` | `unreachable` | `idle` | `backfilling N` |
-  `dry run` | `blocked: …` | `error: …`
+  `blocked: …` | `error: …`
 - **Attributes:**
   - `last_run`
   - `cursor_node`, `cursor_ecowitt`
-  - `inserted_states`, `deleted_unavailable`, `imported_stat_hours`, `stage_log_rows`,
-    `dataset_rows` (all for the last pass)
+  - `inserted_states`, `shadow_states` (would-insert count from the shadow map),
+    `deleted_unavailable`, `imported_stat_hours`, `stage_log_rows`, `dataset_rows` (all for
+    the last pass)
   - `skipped_no_time`
 
 ### 8. Trial and cutover
@@ -322,15 +328,16 @@ corrected accumulator state above.
 **Trial.**
 - v2 runs as `creek-gateway-v2` beside v1. Both hear every packet: the node sends with
   `radio.send()` and requests no ACK, so a second receiver cannot collide.
-- The add-on's live path keeps reading v1's entities. Backfill targets v2's entities, with
-  dry-run on for v1's.
+- The add-on's live path keeps reading v1's entities. Backfill writes v2's entities and
+  shadows (logs only) v1's and the Ecowitt entities.
 
 **Acceptance checks**, all required before cutover:
 1. 24 h side by side: v2 packet count, stage and RSSI track v1's. Every packet is on SD with
    `ts_src` `ntp` or `rtc`.
 2. WiFi outage: block v2 at OPNsense for 30 min. After it reconnects, v2's HA history has
    no gap and no `unavailable` rows inside it.
-3. HA outage: stop HA Core for 30 min. After restart: history filled, stage log filled,
+3. HA outage: stop HA Core for 30 min. After restart: v2's history filled, the shadow log
+   lists the v1 and Ecowitt rows it would have written, stage log filled,
    dataset gap rows present with `backfilled=True`, rain accumulator totals match the GW3000's
    own 24 h counter.
 4. Power-cycle v2 while it is offline: seq continues, and records carry `ts_src: rtc`.
@@ -347,7 +354,7 @@ corrected accumulator state above.
 3. Rename each v2 entity to the matching v1 entity_id. The recorder keys history by the
    entity_id string, so the renamed entities continue v1's history. The plan verifies this on a
    scratch HA instance before it is run for real.
-4. Write the production entity map into the add-on options and set `backfill_dry_run: false`.
+4. Write the production entity map into `backfill_entity_map` and clear `backfill_shadow_map`.
 5. You switch the Device Builder to `creek-gateway.prod.yaml` (OTA buttons back) and install
    over OTA.
 
@@ -396,7 +403,7 @@ corrected accumulator state above.
 | Risk | Mitigation |
 |---|---|
 | ESPHome Arduino build excludes FATFS/SD | Compile spike is the first task; fallback is ESP-IDF `sdmmc`/`esp_vfs_fat` via sdkconfig, decided before other work |
-| Direct recorder writes break on an HA upgrade | Schema allow-list, idempotent inserts, marker + undo tool, dry-run default |
+| Direct recorder writes break on an HA upgrade | Schema allow-list, idempotent inserts, marker + undo tool, blank-map default, shadow map to rehearse |
 | HA's recorder holding a write lock during a big backfill | `BEGIN IMMEDIATE`, 500-row transactions, 30 s busy timeout |
 | Add-on (USER VLAN) blocked from gateway port 80 (IoT VLAN) | Plan verifies the OPNsense rule; HA already reaches the gateway's 6053 |
 | Entity rename at cutover not carrying history as expected | Verified on a scratch HA instance first; preflight stops on any mismatch |
