@@ -424,7 +424,8 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
     }
     const String body = http.getString();
     http.end();
-    return json::parse_json(std::string(body.c_str()), [&out](JsonObject root) -> bool {
+    const std::string text(body.c_str());
+    const bool parsed = json::parse_json(text, [&out](JsonObject root) -> bool {
       for (JsonObject item : root["common_list"].as<JsonArray>())
         creek_core::apply_ecowitt_item(out, item["id"] | "", item["val"] | "", item["unit"] | "");
       for (JsonObject item : root["rain"].as<JsonArray>())
@@ -436,6 +437,11 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
       }
       return true;
     });
+    if (parsed && !creek_core::ecowitt_has_data(out)) {
+      ESP_LOGD(TAG, "Ecowitt poll: HTTP 200 but no known fields");
+      return false;
+    }
+    return parsed;
   }
 
  public:

@@ -105,6 +105,22 @@ static void test_ecowitt_items_and_encoding() {
         "\"rain_year_in\":null,\"temp_f\":null,\"soil\":{}}\n");
 }
 
+static void test_ecowitt_empty_poll() {
+  EcowittReading none;
+  CHECK(!ecowitt_has_data(none));
+  apply_ecowitt_item(none, "0x07", "96%", "");       // humidity only: not a known field
+  CHECK(!ecowitt_has_data(none));
+  EcowittReading rain;
+  apply_ecowitt_item(rain, "0x13", "29.84 in", "");
+  CHECK(ecowitt_has_data(rain));
+  EcowittReading soil;
+  soil.soil.emplace_back(2, 61.0f);
+  CHECK(ecowitt_has_data(soil));
+  EcowittReading temp;
+  apply_ecowitt_item(temp, "0x02", "45.9", "F");
+  CHECK(ecowitt_has_data(temp));
+}
+
 static void test_leading_float() {
   CHECK(leading_float("0.00 in") && *leading_float("0.00 in") == 0.0f);
   CHECK(leading_float("61%") && *leading_float("61%") == 61.0f);
@@ -160,6 +176,7 @@ int main() {
   test_stage_matches_v1_lambda();
   test_node_record_encoding();
   test_ecowitt_items_and_encoding();
+  test_ecowitt_empty_poll();
   test_leading_float();
   test_parse_seq_and_tail();
   test_blocks();

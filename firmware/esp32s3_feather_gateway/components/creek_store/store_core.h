@@ -174,6 +174,13 @@ inline void apply_ecowitt_item(EcowittReading &e, const char *id, const char *va
   else if (std::strcmp(id, "0x13") == 0) e.rain_year_in = to_inches(v, u);
 }
 
+// A 200 from the console that set none of the recorded fields (an empty or reshaped
+// livedata document) is a failed poll, not a record of nothing.
+inline bool ecowitt_has_data(const EcowittReading &e) {
+  return e.rain_event_in || e.rain_rate_in_hr || e.rain_day_in || e.rain_24h_in ||
+         e.rain_year_in || e.temp_f || !e.soil.empty();
+}
+
 inline std::string encode_ecowitt_body(double ts, const char *ts_src, const EcowittReading &e) {
   std::string out = body_head(ts, ts_src);
   append_num(out, "rain_event_in", e.rain_event_in, 3);

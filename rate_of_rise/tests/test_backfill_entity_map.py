@@ -61,6 +61,17 @@ def test_ecowitt_soil_channels():
     assert field_spec("ecowitt", "rain_total_in").extract(rec) == 29.84
 
 
+def test_ecowitt_null_is_not_reported_not_unknown():
+    # The console's null means "no reading this poll" (the live Ecowitt entity keeps its
+    # value), so it writes no row. Node nulls stay None, which is `unknown`.
+    rec = {"seq": 4, "ts": 6.0, "rain_year_in": None, "temp_f": None, "soil": {"2": None}}
+    assert field_spec("ecowitt", "rain_total_in").extract(rec) is MISSING
+    assert field_spec("ecowitt", "temp_f").extract(rec) is MISSING
+    assert field_spec("ecowitt", "soil_ch2").extract(rec) is MISSING
+    assert points_for("ecowitt", "rain_total_in", [rec]) == []
+    assert field_spec("node", "stage_ft").extract({"stage_ft": None}) is None
+
+
 def test_points_for_skips_missing():
     recs = [{"seq": 1, "ts": 1.0, "n": 5}, {"seq": 2, "ts": 2.0}, {"seq": 3, "ts": 3.0, "n": 6}]
     pts = points_for("node", "cycle", recs)

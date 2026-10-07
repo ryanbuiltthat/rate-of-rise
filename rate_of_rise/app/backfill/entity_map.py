@@ -5,9 +5,11 @@ written, `backfill_shadow_map` only logged). The fields themselves are fixed her
 knows how to pull its value out of a record, what kind of HA state it is, and the unit the
 gateway records it in.
 
-Absent and null are different. A key the record does not carry (an older node build, a
-console with no such sensor) is MISSING: no row. A key carried as null (a failed radar read)
-is None: the row says `unknown`, as the live entity did.
+Absent and null are different for the node. A key the record does not carry (an older node
+build) is MISSING: no row. A key carried as null (a failed radar read) is None: the row says
+`unknown`, as the live entity did. For the Ecowitt console both are MISSING: a null there
+means the console did not report that value this poll, and HA's Ecowitt entity keeps its last
+value rather than going unknown.
 """
 from __future__ import annotations
 
@@ -57,6 +59,13 @@ def _key(name: str):
     return lambda r: r[name] if name in r else MISSING
 
 
+def _eco(name: str):
+    def get(r):
+        v = r.get(name)
+        return MISSING if v is None else v
+    return get
+
+
 def _flag(name: str):
     def get(r):
         v = r.get(name)
@@ -85,15 +94,22 @@ NODE_FIELDS: dict[str, FieldSpec] = {
 }
 
 ECOWITT_FIELDS: dict[str, FieldSpec] = {
-    "rain_total_in": FieldSpec("number", "in", _key("rain_year_in"), 0.001),
-    "rain_rate_in_hr": FieldSpec("number", "in/h", _key("rain_rate_in_hr"), 0.001),
-    "rain_24h_in": FieldSpec("number", "in", _key("rain_24h_in"), 0.001),
-    "rain_day_in": FieldSpec("number", "in", _key("rain_day_in"), 0.001),
-    "rain_event_in": FieldSpec("number", "in", _key("rain_event_in"), 0.001),
-    "temp_f": FieldSpec("number", "°F", _key("temp_f"), 0.1),
+    "rain_total_in": FieldSpec("number", "in", _eco("rain_year_in"), 0.001),
+    "rain_rate_in_hr": FieldSpec("number", "in/h", _eco("rain_rate_in_hr"), 0.001),
+    "rain_24h_in": FieldSpec("number", "in", _eco("rain_24h_in"), 0.001),
+    "rain_day_in": FieldSpec("number", "in", _eco("rain_day_in"), 0.001),
+    "rain_event_in": FieldSpec("number", "in", _eco("rain_event_in"), 0.001),
+    "temp_f": FieldSpec("number", "°F", _eco("temp_f"), 0.1),
 }
 
 _SOIL = re.compile(r"^soil_ch(\d+)$")
+
+
+def _soil(ch: str):
+    def get(r):
+        v = (r.get("soil") or {}).get(ch)
+        return MISSING if v is None else v
+    return get
 
 
 def field_spec(stream: str, field: str) -> FieldSpec:
@@ -105,7 +121,7 @@ def field_spec(stream: str, field: str) -> FieldSpec:
         m = _SOIL.match(field)
         if m:
             ch = m.group(1)
-            return FieldSpec("number", "%", lambda r: (r.get("soil") or {}).get(ch, MISSING), 1.0)
+            return FieldSpec("number", "%", _soil(ch), 1.0)
     raise KeyError(f"{stream}.{field}")
 
 
