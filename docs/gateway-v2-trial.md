@@ -6,6 +6,11 @@ Runbook for running gateway v2 beside v1, proving it, and swapping it in. Design
 
 ## 1. Set up the trial
 
+The Device Builder wrappers (`creek-gateway-v2.yaml`, `creek-gateway-v2.prod.yaml`) pull the
+packages and components from GitHub at `ref: main`, so merge the branch before building the
+trial in the Device Builder. A local CLI build (`esphome run gateway.yaml` in
+`firmware/esp32s3_feather_gateway/`) uses the working tree and works from the branch.
+
 1. Flash v2 with the **trial** wrapper (`creek-gateway-v2.yaml`, no node-OTA buttons): first
    flash over USB (COM17 on the dev PC), later flashes over the air. Adopt it in HA's ESPHome
    integration as `Creek Gateway v2`.
@@ -62,11 +67,21 @@ Runbook for running gateway v2 beside v1, proving it, and swapping it in. Design
 | `off` | `gateway_store_url` is blank; nothing runs. |
 | `v1 gateway (no store)` | The URL answers but is a v1 gateway. Re-probed hourly. Silent. |
 | `unreachable` | Refused, timed out, DNS failure, or an HTTP 5xx from the gateway. Retried every pass. Silent. |
+| `gateway SD not mounted` | The gateway answers but its card is not mounted (`sd_ok` false). Nothing is read and the cursors stay put; the gateway retries the mount every 30 s. Check v2's `Store SD Fault` entity and the card. |
 | `idle` | Caught up with the store. |
 | `backfilling N` | N store records still to process. |
 | `waiting for live poll` | Gap rows are held until the first live rain poll after an add-on restart. |
 | `blocked: recorder schema N` | The recorder schema is not one the writer was checked against (53). Nothing is written to the recorder. Stage log and dataset rows are still written, and the cursor moves on, so history rows for batches seen while blocked are not retried later. |
 | `error: ...` | The last pass failed; the text says why. |
+
+The gateway's status also carries `store_id`, the card's identity (16 hex characters in
+`/store_id.txt`, created the first time a blank card mounts). The add-on saves it next to the
+cursors in `/data/state/backfill.json`. A different id means the card was replaced or
+reformatted: one WARNING (`gateway card changed; re-reading it from the start`), both cursors
+back to 0, and the new card is read from the start (writes are idempotent, so nothing is
+duplicated). A stream that reports a seq below the cursor on the same card is left alone and
+skipped, with one WARNING (`... below cursor ... without a card change; leaving the cursor
+alone`); that is not expected and worth a look.
 
 If the add-on can't see Home Assistant's database, backfill still runs and reads `idle`, but no
 history rows are written. The add-on log says so at startup, so check it on the first trial start.
@@ -129,4 +144,6 @@ push to the node.
 **Rollback:** plug v1 back in. Its firmware and YAML were never changed. If v2 already has the
 production build (step 2), reinstall the trial wrapper on it, so only v1 can push to the node. Undo backfilled
 recorder rows with an MQTT publish to `creek/cmd/backfill_undo` (payload: an ISO time to
-undo from, or empty for all).
+undo from, or empty for all). Give the time an explicit offset or `Z`
+(`2026-10-07T14:00:00-04:00`, `2026-10-07T18:00:00Z`): a time without one is read as the
+add-on's local time, which is UTC unless the add-on's timezone was changed.

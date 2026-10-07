@@ -177,16 +177,24 @@ gap in HA's entity history, hourly statistics, the stage log and the dataset. Bl
 |---|---|
 | `gateway_store_url` | Base URL of the v2 gateway, e.g. `http://192.168.30.21`. Blank disables backfill. Pointed at a v1 gateway it only reports that and stays silent |
 | `gateway_store_token` | The gateway's `creek_store_token` |
-| `backfill_entity_map` | JSON: the entities that receive written history (`{"node": {"stage_ft": "sensor...", ...}}`) |
+| `backfill_entity_map` | JSON: the entities that receive written history, per stream: `node` and, after cutover, `ecowitt` (`{"node": {"stage_ft": "sensor...", ...}, "ecowitt": {"rain_total_in": "sensor...", ...}}`) |
 | `backfill_shadow_map` | JSON, same shape plus an `ecowitt` stream: entities whose rows are only logged as `backfill shadow: would insert ...`, never written. For rehearsal |
 
 `sensor.rate_of_rise_creek_backfill_status` reads `off`, `v1 gateway (no store)`, `unreachable`,
-`idle`, `backfilling N`, `waiting for live poll`, `blocked: recorder schema N` or `error: ...`.
-Its attributes carry the cursors and the last pass's counts. The writer only runs on recorder
-schema 53; every row it inserts is marked.
+`gateway SD not mounted`, `idle`, `backfilling N`, `waiting for live poll`,
+`blocked: recorder schema N` or `error: ...`. Its attributes carry the cursors and the last
+pass's counts. The writer only runs on recorder schema 53; every row it inserts is marked.
+
+The gateway reports a `store_id`, its SD card's identity, which the add-on keeps with the
+cursors in `/data/state/backfill.json`. When it changes (card replaced or reformatted) the
+add-on logs one WARNING and re-reads the new card from the start; writes are idempotent, so
+nothing is duplicated. While the gateway's card is not mounted the status reads
+`gateway SD not mounted` and nothing is read.
 
 To take the backfilled recorder rows back out, publish to `creek/cmd/backfill_undo` (payload:
-an ISO-8601 time to undo from, or empty for all).
+an ISO-8601 time to undo from, or empty for all). Give the time an explicit offset or `Z`
+(`2026-10-07T18:00:00Z`): a time without one is read as the add-on's local time, which is UTC
+unless the add-on's timezone was changed.
 
 ## How it talks to Home Assistant
 
