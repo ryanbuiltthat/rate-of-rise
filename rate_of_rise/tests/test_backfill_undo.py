@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_backfill_recorder import T0, add, make_db, rows  # noqa: E402
 
 from app.backfill.entity_map import Point  # noqa: E402
-from app.backfill.recorder import RecorderWriter  # noqa: E402
+from app.backfill.recorder import RecorderWriter, SchemaUnsupported  # noqa: E402
 from app.backfill.undo import undo  # noqa: E402
 
 
@@ -30,6 +30,16 @@ def test_removes_only_marked_rows_since_the_given_time():
                      (live,)).fetchone()[0] is None
     assert undo(db) == 1
     assert [r[0] for r in rows(c, 1)] == ["0.9", "1.5"]
+
+
+def test_unsupported_schema_is_refused():
+    db, _ = make_db(54)
+    try:
+        undo(db)
+    except SchemaUnsupported as exc:
+        assert exc.version == 54
+        return
+    raise AssertionError("schema 54 was accepted")
 
 
 def main():

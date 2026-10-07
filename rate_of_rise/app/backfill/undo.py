@@ -29,6 +29,7 @@ def undo(db_path: Path, since_ts: float = 0.0) -> int:
                 conn.execute(f"DELETE FROM states WHERE state_id IN ({marks})", chunk)
                 conn.execute("COMMIT")
             except Exception:
-                conn.execute("ROLLBACK")
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
                 raise
     return len(ids)
