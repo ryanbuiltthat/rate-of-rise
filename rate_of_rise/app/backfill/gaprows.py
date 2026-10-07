@@ -15,6 +15,18 @@ cannot be fetched afterwards. Every row it writes carries backfilled=True.
 It also corrects the live on-site rain accumulator for the gap. Without that, the 24 h and
 72 h totals and the API index read short for days after an outage, and in the add-on-
 restarted-within-the-hour case one lump of rain lands at restart time.
+
+Key rules for gap rows:
+- rate_of_rise_sample_count increments across consecutive rows with valid rates, capped at
+  RATE_OF_RISE_SAMPLE_CAP. Re-issued blind rows carry over the count from their immediate
+  predecessor.
+- Rain windows older than the live ring's horizon (time - RETAIN_S) are None, even if Ecowitt
+  records cover them. This expresses uncertainty past the point where live data can anchor them.
+- Node records carry forward across passes within NODE_CONTEXT_S of the max ts, so that rate
+  calculations have the full history available. The de-duplicated context + current batch is
+  used for lookups; only the current batch defines the gap bounds.
+- Backfill defers until the live rain accumulator has polled once, so that its correction can
+  anchor to a known baseline (anchor_ts). The `GapFillDeferred` exception signals a retry.
 """
 from __future__ import annotations
 
@@ -27,9 +39,9 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
-from ..features import (PONDING_SATURATION_PCT, RATE_WINDOW_SLACK_S, FeatureBuilder,
-                        FeatureRow, stage_history_features)
-from ..sources.accumulator import WINDOWS_H
+from ..features import (PONDING_SATURATION_PCT, RATE_OF_RISE_SAMPLE_CAP, RATE_WINDOW_SLACK_S,
+                        FeatureBuilder, FeatureRow, stage_history_features)
+from ..sources.accumulator import RETAIN_S, WINDOWS_H
 from ..sources.apindex import DEFAULT_K
 
 log = logging.getLogger("app.backfill.gaprows")
@@ -37,8 +49,18 @@ log = logging.getLogger("app.backfill.gaprows")
 NODE_FRESH_S = 6 * 60.0       # a node record this recent counts as the link being up
 ECO_FRESH_S = 5 * 60.0
 STAGE_CONTEXT_S = 6 * 3600.0  # stage_history_features looks back 6 h
+NODE_CONTEXT_S = 15 * 60.0    # node records carry forward within this window of the max ts
 COUNTER_MAX_GAP_S = 3600.0    # as rain.py: a counter delta across a longer gap cannot be placed
 FIELD_NAMES = [f.name for f in fields(FeatureRow)]
+
+
+class GapFillDeferred(Exception):
+    """Backfill cannot proceed because the live rain accumulator has not polled yet.
+
+    The correction anchors to the accumulator's baseline (anchor_ts). Until the live path
+    has seen at least one update, that baseline does not exist.
+    """
+    pass
 
 
 def missing_slots(existing_ts, start: float, end: float, interval: float) -> list[float]:
@@ -98,14 +120,17 @@ def _opt(v):
 
 
 class GapFiller:
-    def __init__(self, cfg, dataset, sources=None, soil_channels: dict | None = None, rain=None):
+    def __init__(self, cfg, dataset, sources=None, soil_channels: dict | None = None, rain=None, now_fn=None):
         self._cfg = cfg
         self._dataset = dataset
         self._sources = sources
         self._soil = soil_channels or {}
         self._rain = rain
+        self._now_fn = now_fn or time.time
         self._interval = max(1, cfg.fast_loop_minutes) * 60.0
         self._last_eco: dict | None = None   # so a counter delta can span two passes
+        self._started = self._now_fn()
+        self._node_context: list[dict] = []  # node records carry forward within NODE_CONTEXT_S
 
     def fill(self, node: list[dict], eco: list[dict]) -> int:
         node = sorted(node, key=lambda r: r["ts"])
@@ -114,7 +139,21 @@ class GapFiller:
         stamps = [r["ts"] for r in node] + [r["ts"] for r in eco]
         if not stamps:
             return 0
+
+        # Check if rain accumulator is ready before updating context or last_eco
+        if self._rain is not None:
+            anchor = self._rain.anchor_ts()
+            if anchor is None or anchor < self._started:
+                raise GapFillDeferred("waiting for the first live rain poll")
+
         start, end = min(stamps), max(stamps)
+
+        # Merge previous node context with current batch; de-duplicate by ts
+        # Prefer new batch records over context records at the same ts
+        by_ts = {}
+        for r in self._node_context + node:
+            by_ts[r["ts"]] = r
+        node = sorted(by_ts.values(), key=lambda r: r["ts"])
 
         frame = self._dataset.frame()
         ctx_rows: list[dict] = []
@@ -128,6 +167,12 @@ class GapFiller:
         blind = [r for r in ctx_rows
                  if start <= r["ts"] <= end and r.get("stage_ft") is None
                  and r.get("creek_node_online") is not True and self._fresh(node_ts, r["ts"])]
+
+        # Update node context even if there's no gap (for the next call)
+        if node:
+            max_node_ts = max(r["ts"] for r in node)
+            self._node_context = [r for r in node if r["ts"] >= max_node_ts - NODE_CONTEXT_S]
+
         if not slots and not blind:
             return 0
 
@@ -167,6 +212,25 @@ class GapFiller:
         change, above = stage_history_features(
             order, [np.nan if series[t] is None else series[t] for t in order])
         index = {t: i for i, t in enumerate(order)}
+
+        # Calculate rate_of_rise_sample_count for all rows (context + built)
+        all_rows = sorted(ctx_rows + list(built.values()), key=lambda r: r["ts"])
+        row_by_ts = {r["ts"]: r for r in all_rows}
+        for i, row in enumerate(all_rows):
+            if row["ts"] in built:  # only update built rows
+                rate = row.get("rate_of_rise_in_min")
+                prev = all_rows[i - 1] if i > 0 else None
+                if rate is not None and prev and row["ts"] - prev["ts"] <= 1.5 * self._interval:
+                    prev_rate = prev.get("rate_of_rise_in_min")
+                    if prev_rate is not None:
+                        prev_count = prev.get("rate_of_rise_sample_count") or 0.0
+                        row["rate_of_rise_sample_count"] = min(prev_count + 1.0, RATE_OF_RISE_SAMPLE_CAP)
+                    else:
+                        row["rate_of_rise_sample_count"] = 1.0
+                elif rate is not None:
+                    row["rate_of_rise_sample_count"] = 1.0
+                else:
+                    row["rate_of_rise_sample_count"] = 0.0
 
         for ts in sorted(built):
             row = built[ts]
@@ -220,7 +284,14 @@ class GapFiller:
         if k < 0 or ts - eco_ts[k] > ECO_FRESH_S:
             return {}
         rec = eco[k]
-        out = {f"rain_{w}h_in": _window_sum(incs, ts, w) for w in WINDOWS_H}
+        # Compute horizon: rain windows older than this are None
+        horizon = self._now_fn() - RETAIN_S if self._rain is not None else float('-inf')
+        out = {}
+        for w in WINDOWS_H:
+            if ts - w * 3600 < horizon:
+                out[f"rain_{w}h_in"] = None
+            else:
+                out[f"rain_{w}h_in"] = _window_sum(incs, ts, w)
         out["rain_rate_in_hr"] = rec.get("rain_rate_in_hr")
         out["temp_f"] = rec.get("temp_f")
         out["api_index_in"] = _api_at(api_base, incs, ts)

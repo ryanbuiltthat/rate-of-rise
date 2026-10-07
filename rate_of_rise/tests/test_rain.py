@@ -244,6 +244,20 @@ def test_replace_window_without_a_live_poll_is_skipped():
     assert rain._api.value == 0.0
 
 
+def test_anchor_ts_returns_none_until_first_poll():
+    acc, clock, _ = make(1.0)
+    # Before any poll, anchor_ts is None
+    assert acc.anchor_ts() is None
+    # After a poll, anchor_ts returns the poll timestamp
+    clock.t = 100.0
+    acc.poll()
+    assert acc.anchor_ts() == 100.0
+    # Subsequent polls update the anchor
+    clock.t = 200.0
+    acc.poll()
+    assert acc.anchor_ts() == 200.0
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

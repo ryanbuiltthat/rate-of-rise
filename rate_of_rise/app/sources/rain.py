@@ -162,3 +162,11 @@ class RainAccumulator:
             added = [(t, i) for t, i in increments if start <= t <= min(end, last) and i > 0]
             removed = self._acc.replace_window(start, max(end, last), added)
             self._api.adjust(added=added, removed=removed)
+
+    def anchor_ts(self) -> float | None:
+        """Timestamp of the last live rain update. Backfill anchors its correction here.
+
+        Returns None until the live path has polled at least once.
+        """
+        with self._lock:
+            return self._api._ts

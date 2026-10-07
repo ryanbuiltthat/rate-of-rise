@@ -90,7 +90,8 @@ class DatasetWriter:
             if self._parquet.exists():
                 merged = pd.concat([pd.read_parquet(self._parquet), merged], ignore_index=True)
             # Sort and de-duplicate so a replayed part or a clock step cannot double-count.
-            merged = merged.sort_values("ts").drop_duplicates(subset=["ts"], keep="last")
+            # Use stable sort so drop_duplicates keeps the last appended row (the contract).
+            merged = merged.sort_values("ts", kind="stable").drop_duplicates(subset=["ts"], keep="last")
 
             tmp = self._parquet.with_suffix(".tmp")
             merged.to_parquet(tmp, index=False)
@@ -145,7 +146,7 @@ class DatasetWriter:
         if not frames:
             return pd.DataFrame(columns=columns or ["ts"])
 
-        df = pd.concat(frames, ignore_index=True).sort_values("ts")
+        df = pd.concat(frames, ignore_index=True).sort_values("ts", kind="stable")
         df = df.drop_duplicates(subset=["ts"], keep="last").reset_index(drop=True)
         if columns:
             for c in columns:

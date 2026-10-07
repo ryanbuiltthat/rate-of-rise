@@ -143,6 +143,39 @@ def test_frame_reads_parts_before_parquet():
     assert len(frame) == 2
 
 
+def test_reissued_row_wins_over_the_original():
+    """Stable sort ensures that drop_duplicates(keep='last') keeps the re-appended row."""
+    d = make()
+    base = DAY1 + 3600
+    # Append 300 rows (every 300s)
+    for i in range(300):
+        ts = base + i * 300
+        d.append_record({"ts": ts, "stage_ft": None, "creek_node_online": None})
+    # Re-append every 5th one (indices 0, 5, 10, ..., 295) with stage_ft=1.0
+    reissued_indices = list(range(0, 300, 5))
+    for i in reissued_indices:
+        ts = base + i * 300
+        d.append_record({"ts": ts, "stage_ft": 1.0, "backfilled": True})
+
+    # Check frame before consolidate
+    frame = d.frame()
+    assert len(frame) == 300, f"Expected 300 rows, got {len(frame)}"
+    reissued_ts = [base + i * 300 for i in reissued_indices]
+    for ts in reissued_ts:
+        rows = frame[frame["ts"] == ts]
+        assert len(rows) == 1, f"Expected 1 row at ts {ts}, got {len(rows)}"
+        assert rows.iloc[0]["stage_ft"] == 1.0, f"Row at ts {ts} should have stage_ft=1.0"
+
+    # Consolidate and check again
+    d.consolidate()
+    frame = d.frame()
+    assert len(frame) == 300, f"After consolidate: expected 300 rows, got {len(frame)}"
+    for ts in reissued_ts:
+        rows = frame[frame["ts"] == ts]
+        assert len(rows) == 1, f"After consolidate: expected 1 row at ts {ts}, got {len(rows)}"
+        assert rows.iloc[0]["stage_ft"] == 1.0, f"After consolidate: row at ts {ts} should have stage_ft=1.0"
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
