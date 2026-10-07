@@ -29,6 +29,8 @@
 
 #include <FS.h>
 #include <SD.h>
+#include <HTTPClient.h>
+#include <WiFiClient.h>
 
 #include "store_core.h"
 
@@ -48,6 +50,9 @@ static const uint8_t PCF8523_SECONDS = 0x03;
 
 enum StreamId : uint8_t { NODE = 0, ECOWITT = 1, STREAM_COUNT = 2 };
 static const char *const STREAM_NAMES[STREAM_COUNT] = {"node", "ecowitt"};
+
+class CreekStore;
+inline void ecowitt_task_trampoline(void *arg);
 
 struct Pending {
   uint8_t stream;
@@ -317,9 +322,76 @@ class CreekStore : public Component, public i2c::I2CDevice {
       this->ecowitt_failures_sensor_->publish_state(this->ecowitt_failures_);
   }
 
-  // Tasks 5 and 6 replace these three stubs.
-  void setup_ecowitt_() {}
-  void collect_ecowitt_() {}
+  // The GW3000B is polled on its own task: an HTTP GET can block for seconds, and the main
+  // task is the one servicing the radio. This reads the console's local API, so HA's Ecowitt
+  // webhook path is untouched.
+  void setup_ecowitt_() {
+    if (this->ecowitt_host_.empty()) return;
+    if (xTaskCreate(ecowitt_task_trampoline, "ecowitt", 8192, this, 1, nullptr) != pdPASS)
+      ESP_LOGE(TAG, "Could not start the Ecowitt poll task");
+  }
+
+  // Main task: hand the latest poll result to the store queue.
+  void collect_ecowitt_() {
+    creek_core::EcowittReading r;
+    {
+      std::lock_guard<std::mutex> lock(this->eco_mutex_);
+      if (!this->eco_ready_) return;
+      this->eco_ready_ = false;
+      if (!this->eco_ok_) {
+        this->ecowitt_failures_++;
+        return;
+      }
+      r = this->eco_reading_;
+    }
+    this->enqueue_(ECOWITT, creek_core::encode_ecowitt_body(now_ts_(), this->ts_src_(), r));
+  }
+
+  bool poll_ecowitt_(const std::string &url, creek_core::EcowittReading &out) {
+    WiFiClient client;
+    HTTPClient http;
+    http.setTimeout(5000);
+    if (!http.begin(client, url.c_str())) return false;
+    const int code = http.GET();
+    if (code != 200) {
+      http.end();
+      ESP_LOGD(TAG, "Ecowitt poll: HTTP %d", code);
+      return false;
+    }
+    const String body = http.getString();
+    http.end();
+    return json::parse_json(std::string(body.c_str()), [&out](JsonObject root) -> bool {
+      for (JsonObject item : root["common_list"].as<JsonArray>())
+        creek_core::apply_ecowitt_item(out, item["id"] | "", item["val"] | "", item["unit"] | "");
+      for (JsonObject item : root["rain"].as<JsonArray>())
+        creek_core::apply_ecowitt_item(out, item["id"] | "", item["val"] | "", item["unit"] | "");
+      for (JsonObject ch : root["ch_soil"].as<JsonArray>()) {
+        const auto c = creek_core::leading_float(ch["channel"] | "");
+        const auto h = creek_core::leading_float(ch["humidity"] | "");
+        if (c && h) out.soil.emplace_back((int) *c, *h);
+      }
+      return true;
+    });
+  }
+
+ public:
+  void ecowitt_task() {
+    const std::string url = "http://" + this->ecowitt_host_ + "/get_livedata_info";
+    for (;;) {
+      creek_core::EcowittReading r;
+      const bool ok = this->poll_ecowitt_(url, r);
+      {
+        std::lock_guard<std::mutex> lock(this->eco_mutex_);
+        this->eco_reading_ = r;
+        this->eco_ok_ = ok;
+        this->eco_ready_ = true;
+      }
+      vTaskDelay(pdMS_TO_TICKS(this->ecowitt_interval_ms_));
+    }
+  }
+
+ protected:
+  // Task 6 replaces this stub.
   void setup_http_() {}
 
   rfm69_gateway::Rfm69Gateway *radio_{nullptr};
@@ -343,6 +415,10 @@ class CreekStore : public Component, public i2c::I2CDevice {
   uint32_t last_remount_ms_{0};
   uint32_t free_mb_{0};
   uint32_t ecowitt_failures_{0};
+  std::mutex eco_mutex_;
+  bool eco_ready_{false};
+  bool eco_ok_{false};
+  creek_core::EcowittReading eco_reading_;
 
   // last_seq_: last seq on the card, set when a record is written (main task only).
   // written_seq_: the same value, also read by the HTTP task.
@@ -359,6 +435,8 @@ class CreekStore : public Component, public i2c::I2CDevice {
   sensor::Sensor *ecowitt_records_{nullptr};
   sensor::Sensor *ecowitt_failures_sensor_{nullptr};
 };
+
+inline void ecowitt_task_trampoline(void *arg) { static_cast<CreekStore *>(arg)->ecowitt_task(); }
 
 }  // namespace creek_store
 }  // namespace esphome

@@ -87,6 +87,8 @@ static void test_ecowitt_items_and_encoding() {
         "{\"seq\":5521,\"ts\":1791378600.1,\"ts_src\":\"ntp\",\"rain_event_in\":0.000,"
         "\"rain_rate_in_hr\":0.000,\"rain_day_in\":0.000,\"rain_24h_in\":0.000,"
         "\"rain_year_in\":29.840,\"temp_f\":45.9,\"soil\":{\"2\":61}}\n");
+  CHECK(with_seq(5521, encode_ecowitt_body(1791378600.1, "ntp", e)) ==
+        encode_ecowitt_record(5521, 1791378600.1, "ntp", e));
 
   EcowittReading metric;  // a console set to metric units
   apply_ecowitt_item(metric, "0x13", "25.4 mm", "");
