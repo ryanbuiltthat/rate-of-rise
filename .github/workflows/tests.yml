@@ -46,6 +46,7 @@ jobs:
             if python "$t"; then :; else echo "::error file=$t::test suite failed"; fail=1; fi
             echo "::endgroup::"
           done
+          python tools/test_gateway_cutover.py || { echo "::error file=tools/test_gateway_cutover.py::failed"; fail=1; }
           exit $fail
 
       - name: Validate YAML and shell syntax
