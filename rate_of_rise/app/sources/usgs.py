@@ -30,7 +30,7 @@ strings, newest last, with -999999 marking "no reading".
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -65,6 +65,10 @@ def _default_fetch(url: str, timeout: float = 15.0) -> dict:
     return r.json()
 
 
+def _iso(when: datetime) -> str:
+    return when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+
+
 class UsgsDownstream:
     name = "usgs"
     refresh_seconds = 15 * 60
@@ -73,19 +77,33 @@ class UsgsDownstream:
         self._fetch = fetch
         self._sites = dict(sites) if sites else dict(SITES)
 
-    def poll(self) -> dict:
-        url = (
-            "https://waterservices.usgs.gov/nwis/iv/?format=json"
-            f"&sites={','.join(self._sites)}"
-            f"&parameterCd={DISCHARGE},{GAGE_HEIGHT}"
-            f"&period=PT{RISE_WINDOW_H * 2}H"
-        )
-        series = ((self._fetch(url).get("value") or {}).get("timeSeries")) or []
+    def _base_url(self) -> str:
+        return ("https://waterservices.usgs.gov/nwis/iv/?format=json"
+                f"&sites={','.join(self._sites)}"
+                f"&parameterCd={DISCHARGE},{GAGE_HEIGHT}")
 
+    def _series(self, url: str) -> list:
+        series = ((self._fetch(url).get("value") or {}).get("timeSeries")) or []
+        return [self._describe(ts) for ts in series]
+
+    def poll(self) -> dict:
+        return self._features(self._series(self._base_url() + f"&period=PT{RISE_WINDOW_H * 2}H"),
+                              None)
+
+    def history_between(self, start: datetime, end: datetime):
+        """One fetch covering [start - 6 h, end]; the evaluator answers as poll() would have."""
+        described = self._series(self._base_url()
+                                 + f"&startDT={_iso(start - timedelta(hours=RISE_WINDOW_H * 2))}"
+                                 + f"&endDT={_iso(end)}")
+        return lambda as_of: self._features(described, as_of)
+
+    def _features(self, described, as_of: datetime | None) -> dict:
         out: dict[str, float | None] = {k: None for k in feature_keys()}
-        for ts in series:
-            site, param, points = self._describe(ts)
+        for site, param, points in described:
             label = self._sites.get(site)
+            if as_of is not None:
+                lo = as_of - timedelta(hours=RISE_WINDOW_H * 2)
+                points = [p for p in points if lo <= p[0] <= as_of]
             if label is None or not points:
                 continue
             latest = points[-1][1]
