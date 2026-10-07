@@ -15,7 +15,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.backfill.gaprows import GapFiller, eco_increments, missing_slots  # noqa: E402
+from app.backfill.gaprows import GapFiller, GapFillDeferred, eco_increments, missing_slots  # noqa: E402
 
 T = 1_791_300_000.0
 CFG = SimpleNamespace(fast_loop_minutes=5, rate_of_rise_window_minutes=10.0,
@@ -68,8 +68,13 @@ def eco_records(t0=T, t1=T + 2700, rain_from=T + 900):
 
 
 def live_row(ts, stage=1.0, online=True):
-    return {"ts": ts, "stage_ft": stage, "creek_node_online": online, "api_index_in": 1.0,
-            "alert_tier": 0}
+    row = {"ts": ts, "stage_ft": stage, "creek_node_online": online, "api_index_in": 1.0,
+           "alert_tier": 0}
+    # Live rows from the loop have rates and sample counts at cap
+    if stage is not None:
+        row["rate_of_rise_in_min"] = 0.01  # small rate to indicate it was computed
+        row["rate_of_rise_sample_count"] = 10.0
+    return row
 
 
 def test_missing_slots():
@@ -106,14 +111,14 @@ def test_fills_missing_slots_from_node_and_ecowitt_records():
     assert r["api_index_in"] is not None and r["api_index_in"] > 1.0
     assert r["qpf_6h_in"] is None and r["nwm_flow_cfs"] is None        # forecasts stay empty
     assert rain.calls and rain.calls[0][0] == T and rain.calls[0][1] == T + 2700
-    # Sample counts should increase by 1 across consecutive slots (all have rate and are <= 1.5*interval apart)
-    for ts in sorted(rows):
+    # Sample counts: first gap row inherits from live row at T+300 (capped at 10),
+    # then consecutive gap rows stay capped at 10 since they can't increment further
+    sorted_ts = sorted(rows.keys())
+    for ts in sorted_ts:
         if rows[ts]["rate_of_rise_in_min"] is not None:
-            prev_ts = max(t for t in sorted(rows) if t < ts) if any(t < ts for t in sorted(rows)) else None
-            if prev_ts and rows[prev_ts]["rate_of_rise_in_min"] is not None:
-                assert rows[ts]["rate_of_rise_sample_count"] == rows[prev_ts]["rate_of_rise_sample_count"] + 1.0
-            else:
-                assert rows[ts]["rate_of_rise_sample_count"] == 1.0
+            # All gap rows have rates; first gets live row count incremented/capped,
+            # rest stay at cap due to consecutive spacing <= 1.5*interval
+            assert rows[ts]["rate_of_rise_sample_count"] == 10.0
 
 
 def test_blind_rows_are_reissued_with_the_same_ts():
@@ -125,6 +130,14 @@ def test_blind_rows_are_reissued_with_the_same_ts():
     assert n == 6
     assert sorted(r["ts"] for r in ds.appended) == [T + i * 300 for i in range(2, 8)]
     assert all(r["stage_ft"] is not None and r["alert_tier"] == 0 and r["backfilled"]
+               for r in ds.appended)
+    # Re-issued blind rows that have rates should have counts >= 2 and <= 10
+    for r in ds.appended:
+        if r.get("rate_of_rise_in_min") is not None:
+            count = r.get("rate_of_rise_sample_count")
+            assert 2.0 <= count <= 10.0, f"ts {r['ts']}: rate_of_rise_sample_count {count} out of range [2, 10]"
+    # All 6 re-issued rows should have rate and count at cap (10.0) due to live predecessor with cap
+    assert all(r.get("rate_of_rise_in_min") is not None and r.get("rate_of_rise_sample_count") == 10.0
                for r in ds.appended)
 
 
@@ -208,21 +221,24 @@ def test_node_context_carries_across_passes():
 def test_fill_defers_until_the_first_live_poll():
     ds = FakeDataset([live_row(T), live_row(T + 300), live_row(T + 2400), live_row(T + 2700)])
     rain = FakeRain(anchor_ts_value=None)
+    gf = GapFiller(CFG, ds, rain=rain, now_fn=lambda: T + 3600)
 
     # Defer when anchor_ts is None
     try:
-        GapFiller(CFG, ds, rain=rain, now_fn=lambda: T + 3600).fill(node_records(), eco_records())
+        gf.fill(node_records(), eco_records())
         assert False, "Should have raised GapFillDeferred"
-    except Exception as e:
-        assert type(e).__name__ == "GapFillDeferred"
+    except GapFillDeferred as e:
         assert "waiting for the first live rain poll" in str(e)
 
     # Nothing appended
     assert ds.appended == []
+    # State should be unchanged after deferral
+    assert gf._last_eco is None
+    assert gf._node_context == []
 
-    # Now anchor_ts is set to a value after started time
+    # Now anchor_ts is set to a value after started time; retry on same instance
     rain._anchor_ts_value = T + 3600 + 1
-    n = GapFiller(CFG, ds, rain=rain, now_fn=lambda: T + 3600).fill(node_records(), eco_records())
+    n = gf.fill(node_records(), eco_records())
     assert n == 6  # Should proceed and fill gaps
 
 

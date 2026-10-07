@@ -18,8 +18,8 @@ restarted-within-the-hour case one lump of rain lands at restart time.
 
 Key rules for gap rows:
 - rate_of_rise_sample_count increments across consecutive rows with valid rates, capped at
-  RATE_OF_RISE_SAMPLE_CAP. Re-issued blind rows carry over the count from their immediate
-  predecessor.
+  RATE_OF_RISE_SAMPLE_CAP. When re-issuing blind rows, the original stale row is dropped,
+  so the count increments from the live row that precedes the blind ts.
 - Rain windows older than the live ring's horizon (time - RETAIN_S) are None, even if Ecowitt
   records cover them. This expresses uncertainty past the point where live data can anchor them.
 - Node records carry forward across passes within NODE_CONTEXT_S of the max ts, so that rate
@@ -135,7 +135,6 @@ class GapFiller:
     def fill(self, node: list[dict], eco: list[dict]) -> int:
         node = sorted(node, key=lambda r: r["ts"])
         eco = sorted(eco, key=lambda r: r["ts"])
-        prev_eco, self._last_eco = self._last_eco, (eco[-1] if eco else self._last_eco)
         stamps = [r["ts"] for r in node] + [r["ts"] for r in eco]
         if not stamps:
             return 0
@@ -146,6 +145,7 @@ class GapFiller:
             if anchor is None or anchor < self._started:
                 raise GapFillDeferred("waiting for the first live rain poll")
 
+        prev_eco, self._last_eco = self._last_eco, (eco[-1] if eco else self._last_eco)
         start, end = min(stamps), max(stamps)
 
         # Merge previous node context with current batch; de-duplicate by ts
@@ -178,6 +178,7 @@ class GapFiller:
 
         eco_incs = eco_increments(([prev_eco] if prev_eco else []) + eco)
         ring = self._rain.snapshot() if self._rain is not None else []
+        horizon = self._now_fn() - RETAIN_S if self._rain is not None else float('-inf')
         if eco_ts:
             ring = [x for x in ring if not eco_ts[0] <= x[0] <= eco_ts[-1]]
         incs = sorted(ring + eco_incs)
@@ -195,13 +196,13 @@ class GapFiller:
             row = {k: None for k in FIELD_NAMES}
             row.update(ts=ts, ponding_flag=False, rain_on_snow_flag=False)
             row.update(self._node_features(ts, node, node_ts))
-            row.update(self._eco_features(ts, eco, eco_ts, incs, api_base))
+            row.update(self._eco_features(ts, eco, eco_ts, incs, api_base, horizon))
             row.update(self._refetched(ts, evaluators))
             built[ts] = row
         for orig in blind:
             row = dict(orig)
             row.update(self._node_features(orig["ts"], node, node_ts))
-            row.update(self._eco_features(orig["ts"], eco, eco_ts, incs, api_base))
+            row.update(self._eco_features(orig["ts"], eco, eco_ts, incs, api_base, horizon))
             built[orig["ts"]] = row
 
         series = {r["ts"]: (r.get("stage_ft") if r.get("creek_node_online") is True else None)
@@ -214,8 +215,10 @@ class GapFiller:
         index = {t: i for i, t in enumerate(order)}
 
         # Calculate rate_of_rise_sample_count for all rows (context + built)
-        all_rows = sorted(ctx_rows + list(built.values()), key=lambda r: r["ts"])
-        row_by_ts = {r["ts"]: r for r in all_rows}
+        # Drop ctx rows that are being re-issued (same ts in built) to avoid stale prev data
+        built_ts = set(built.keys())
+        ctx_for_count = [r for r in ctx_rows if r["ts"] not in built_ts]
+        all_rows = sorted(ctx_for_count + list(built.values()), key=lambda r: r["ts"])
         for i, row in enumerate(all_rows):
             if row["ts"] in built:  # only update built rows
                 rate = row.get("rate_of_rise_in_min")
@@ -279,13 +282,11 @@ class GapFiller:
             return None
         return round((s1 - s0) * 12.0 / ((t1 - t0) / 60.0), 4)
 
-    def _eco_features(self, ts, eco, eco_ts, incs, api_base) -> dict:
+    def _eco_features(self, ts, eco, eco_ts, incs, api_base, horizon) -> dict:
         k = bisect.bisect_right(eco_ts, ts) - 1
         if k < 0 or ts - eco_ts[k] > ECO_FRESH_S:
             return {}
         rec = eco[k]
-        # Compute horizon: rain windows older than this are None
-        horizon = self._now_fn() - RETAIN_S if self._rain is not None else float('-inf')
         out = {}
         for w in WINDOWS_H:
             if ts - w * 3600 < horizon:

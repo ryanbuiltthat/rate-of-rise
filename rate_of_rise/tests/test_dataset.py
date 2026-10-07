@@ -166,8 +166,10 @@ def test_reissued_row_wins_over_the_original():
         assert len(rows) == 1, f"Expected 1 row at ts {ts}, got {len(rows)}"
         assert rows.iloc[0]["stage_ft"] == 1.0, f"Row at ts {ts} should have stage_ft=1.0"
 
-    # Consolidate and check again
-    d.consolidate()
+    # Consolidate and check again (with now set to one day after the last row)
+    last_ts = base + (299 * 300)  # last row timestamp
+    one_day_after = last_ts + 86400  # DAY constant
+    d.consolidate(now=one_day_after)
     frame = d.frame()
     assert len(frame) == 300, f"After consolidate: expected 300 rows, got {len(frame)}"
     for ts in reissued_ts:
