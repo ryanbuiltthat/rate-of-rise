@@ -24,6 +24,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/time/real_time_clock.h"
+#include "esphome/components/web_server_base/web_server_base.h"
 #include "esphome/core/component.h"
 #include "esphome/core/log.h"
 
@@ -47,6 +48,10 @@ static const uint32_t SD_FREQ_HZ = 10000000;
 static const size_t TAIL_BYTES = 2048;
 static const uint8_t PCF8523_CONTROL_3 = 0x02;
 static const uint8_t PCF8523_SECONDS = 0x03;
+static const size_t PAGE_MAX_BYTES = 32 * 1024;
+static const uint32_t PAGE_MAX_LINES = 500;
+static const TickType_t HTTP_BUS_WAIT = pdMS_TO_TICKS(3000);
+static const size_t SEEK_RESOLUTION = 512;
 
 enum StreamId : uint8_t { NODE = 0, ECOWITT = 1, STREAM_COUNT = 2 };
 static const char *const STREAM_NAMES[STREAM_COUNT] = {"node", "ecowitt"};
@@ -59,7 +64,7 @@ struct Pending {
   std::string body;  // record without its seq head; seq is stamped at write time
 };
 
-class CreekStore : public Component, public i2c::I2CDevice {
+class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandler {
  public:
   void set_radio(rfm69_gateway::Rfm69Gateway *r) { this->radio_ = r; }
   void set_time(time::RealTimeClock *t) { this->time_ = t; }
@@ -391,9 +396,132 @@ class CreekStore : public Component, public i2c::I2CDevice {
   }
 
  protected:
-  // Task 6 replaces this stub.
-  void setup_http_() {}
+  void setup_http_() {
+    web_server_base::global_web_server_base->init();
+    web_server_base::global_web_server_base->add_handler(this);
+  }
 
+  // Bus mutex held.
+  std::string status_json_() {
+    char buf[384];
+    snprintf(buf, sizeof buf,
+             "{\"store_schema\":1,\"device\":\"%s\",\"now\":%.0f,\"ts_src\":\"%s\","
+             "\"sd_ok\":%s,\"sd_free_mb\":%u,\"streams\":{"
+             "\"node\":{\"first\":%u,\"last\":%u},\"ecowitt\":{\"first\":%u,\"last\":%u}}}",
+             this->device_name_.c_str(), now_ts_(), this->ts_src_(),
+             this->sd_ok_ ? "true" : "false", (unsigned) this->free_mb_,
+             this->first_seq_(NODE), (unsigned) this->written_seq_[NODE],
+             this->first_seq_(ECOWITT), (unsigned) this->written_seq_[ECOWITT]);
+    return buf;
+  }
+
+  // The store never deletes, so the first record is seq 1 once anything has been written.
+  unsigned first_seq_(uint8_t s) const { return this->written_seq_[s] > 0 ? 1 : 0; }
+
+  // Bus mutex held. Byte offset at or before the first line whose seq > after: binary search
+  // on byte offsets, resyncing to the next newline at each probe. A torn line counts as
+  // "> after", which only makes the linear scan that follows start a little early.
+  size_t offset_after_(File &f, uint32_t after) {
+    size_t lo = 0, hi = f.size();
+    while (hi - lo > SEEK_RESOLUTION) {
+      const size_t mid = lo + (hi - lo) / 2;
+      f.seek(mid);
+      f.readStringUntil('\n');
+      const size_t line_start = f.position();
+      const String line = f.readStringUntil('\n');
+      const auto seq = creek_core::parse_seq(line.c_str());
+      if (seq && *seq <= after) lo = line_start;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  // Bus mutex held.
+  std::string read_page_(uint8_t s, uint32_t after, uint32_t limit) {
+    std::string body;
+    if (this->newest_block_[s] < 0) return body;
+    uint32_t n = 0;
+    bool first = true;
+    for (uint32_t b = creek_core::block_of(after + 1);
+         (int64_t) b <= this->newest_block_[s] && n < limit && body.size() < PAGE_MAX_BYTES; b++) {
+      File f = SD.open(creek_core::block_path(STREAM_NAMES[s], b).c_str());
+      if (!f) continue;
+      if (first) {
+        f.seek(this->offset_after_(f, after));
+        first = false;
+      }
+      while (f.available() && n < limit && body.size() < PAGE_MAX_BYTES) {
+        const String line = f.readStringUntil('\n');
+        const auto seq = creek_core::parse_seq(line.c_str());
+        if (!seq || *seq <= after) continue;
+        body += line.c_str();
+        body += '\n';
+        n++;
+      }
+      f.close();
+    }
+    return body;
+  }
+
+ public:
+  // Both run on the HTTP server task, not the main task. The ESP32 web_server_base is
+  // web_server_idf, whose request API differs from ESPAsyncWebServer (url_to, get_header,
+  // std::string params).
+  bool canHandle(AsyncWebServerRequest *request) const override {
+    char buf[AsyncWebServerRequest::URL_BUF_SIZE];
+    return std::string(request->url_to(buf)).compare(0, 7, "/store/") == 0;
+  }
+
+  void handleRequest(AsyncWebServerRequest *request) override {
+    const optional<std::string> auth = request->get_header("Authorization");
+    const std::string expected = "Bearer " + this->token_;
+    if (!auth.has_value() || *auth != expected) {
+      request->send(401, "text/plain", "unauthorized");
+      return;
+    }
+    char urlbuf[AsyncWebServerRequest::URL_BUF_SIZE];
+    const std::string url(request->url_to(urlbuf));
+    // The card shares the radio's bus. A node OTA push holds it for minutes, so give up after
+    // 3 s rather than tie up the HTTP task; the add-on retries next pass.
+    if (xSemaphoreTake(this->bus_, HTTP_BUS_WAIT) != pdTRUE) {
+      request->send(503, "text/plain", "bus busy");
+      return;
+    }
+    if (url == "/store/status") {
+      const std::string body = this->status_json_();
+      xSemaphoreGive(this->bus_);
+      request->send(200, "application/json", body.c_str());
+      return;
+    }
+    if (url == "/store/records") {
+      const AsyncWebParameter *sp = request->getParam("stream");
+      const std::string name = sp != nullptr ? sp->value() : "";
+      const int s = name == "node" ? NODE : name == "ecowitt" ? ECOWITT : -1;
+      if (s < 0 || !this->sd_ok_) {
+        xSemaphoreGive(this->bus_);
+        if (s < 0) request->send(400, "text/plain", "unknown stream");
+        else request->send(503, "text/plain", "sd unavailable");
+        return;
+      }
+      const AsyncWebParameter *ap = request->getParam("after");
+      const uint32_t after = ap != nullptr ? (uint32_t) strtoul(ap->value().c_str(), nullptr, 10) : 0;
+      const AsyncWebParameter *lp = request->getParam("limit");
+      uint32_t limit = lp != nullptr ? (uint32_t) strtoul(lp->value().c_str(), nullptr, 10)
+                                     : PAGE_MAX_LINES;
+      if (limit == 0 || limit > PAGE_MAX_LINES) limit = PAGE_MAX_LINES;
+      const std::string body = this->read_page_((uint8_t) s, after, limit);
+      const uint32_t last = this->written_seq_[s];
+      xSemaphoreGive(this->bus_);
+      AsyncWebServerResponse *resp = request->beginResponse(200, "application/x-ndjson", body);
+      resp->addHeader("X-Store-Last", std::to_string(last).c_str());
+      request->send(resp);
+      return;
+    }
+    xSemaphoreGive(this->bus_);
+    request->send(404, "text/plain", "not found");
+  }
+
+ protected:
   rfm69_gateway::Rfm69Gateway *radio_{nullptr};
   time::RealTimeClock *time_{nullptr};
   number::Number *mount_{nullptr};
