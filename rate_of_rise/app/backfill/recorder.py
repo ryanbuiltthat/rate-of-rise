@@ -17,8 +17,8 @@ entity's history as inserted rows. This does that, carefully:
   that state is unreachable (unavailable), because HA itself only writes a row when the
   state changes.
 * Unavailable rows within BRACKET_S (300 s) of both an existing/batch state before and a
-  batch reading after are removed, clearing old_state_id references. Unavailable rows never
-  include the entity's newest row.
+  batch reading after are removed, clearing old_state_id references (Rule 3: but never if
+  a later non-backfilled row exists, to preserve HA's old_state_id pointers).
 * Numeric states are compared with floating-point tolerance to account for precision drift.
 * Every inserted row's context id starts with MARKER, so undo.py can remove them all.
 * Short transactions (CHUNK rows each, BEGIN IMMEDIATE with a busy timeout), because HA's
@@ -130,7 +130,7 @@ def _format(kind: str, value, native_unit: str | None, unit: str | None) -> str:
 
 
 def _plan(formatted: list[tuple[float, str]], existing: list[tuple[int, str, float]],
-          prior_state: str | None, batch_ts: list[float]) -> list[tuple[float, str]]:
+          prior_state: str | None) -> list[tuple[float, str]]:
     """The (ts, state) pairs to insert. Walks the readings and the existing rows together, so
     'the state in effect' at each reading accounts for both. Unavailable rows break the state
     in effect (Rule 1)."""
@@ -141,16 +141,16 @@ def _plan(formatted: list[tuple[float, str]], existing: list[tuple[int, str, flo
 
     out: list[tuple[float, str]] = []
     state_now = prior_state
-    j = 0
+    j_all = 0  # index into all_rows
 
     for ts, state in formatted:
         # Advance past rows older than ts - MATCH_TOLERANCE_S (walk ALL rows, including unavailable)
-        while j < len(all_rows) and all_rows[j][0] < ts - MATCH_TOLERANCE_S:
-            state_now = all_rows[j][1]
-            j += 1
+        while j_all < len(all_rows) and all_rows[j_all][0] < ts - MATCH_TOLERANCE_S:
+            state_now = all_rows[j_all][1]
+            j_all += 1
 
-        # Check if HA already recorded this reading (only non-unavailable rows count)
-        near = [v for v in valid[j:] if v[0] <= ts + MATCH_TOLERANCE_S]
+        # Check if HA already recorded this reading (only non-unavailable rows count, N-1 fix)
+        near = [v for v in valid if v[0] >= ts - MATCH_TOLERANCE_S and v[0] <= ts + MATCH_TOLERANCE_S]
         if near:
             state_now = near[-1][1]
             continue
@@ -211,39 +211,39 @@ class RecorderWriter:
                 (metadata_id, lo - BRACKET_S)).fetchone()
 
             batch_ts = [ts for ts, _ in formatted]
-            to_insert = _plan(formatted, existing, prior[0] if prior else None, batch_ts)
+            to_insert = _plan(formatted, existing, prior[0] if prior else None)
 
             # Determine which unavailable rows to delete (Rule 2)
             doomed: list[int] = []
-            if to_insert or batch_ts:
-                for sid, state, ts in existing:
-                    if state != "unavailable":
-                        continue
+            for sid, state, ts in existing:
+                if state != "unavailable":
+                    continue
 
-                    # Check if there's a valid state at or before tu within BRACKET_S
-                    before_ok = False
-                    # Check existing non-unavailable rows
-                    for _, s, ets in existing:
-                        if s != "unavailable" and ts - BRACKET_S <= ets <= ts:
+                # Check if there's a valid state at or before tu within BRACKET_S
+                before_ok = False
+                # Check existing non-unavailable rows
+                for _, s, ets in existing:
+                    if s != "unavailable" and ts - BRACKET_S <= ets <= ts:
+                        before_ok = True
+                        break
+                # Check batch readings
+                if not before_ok:
+                    for bts in batch_ts:
+                        if ts - BRACKET_S <= bts <= ts:
                             before_ok = True
                             break
-                    # Check batch readings
-                    if not before_ok:
-                        for bts in batch_ts:
-                            if ts - BRACKET_S <= bts <= ts:
-                                before_ok = True
-                                break
 
-                    if not before_ok:
-                        continue
+                if not before_ok:
+                    continue
 
-                    # Check if there's a batch reading after tu within BRACKET_S
-                    after_ok = any(ts < bts <= ts + BRACKET_S for bts in batch_ts)
+                # Check if there's a batch reading after tu within BRACKET_S
+                after_ok = any(ts < bts <= ts + BRACKET_S for bts in batch_ts)
 
-                    if before_ok and after_ok:
-                        doomed.append(sid)
+                if before_ok and after_ok:
+                    doomed.append(sid)
 
-            # Apply Rule 3 filtering: never delete the entity's newest row (check BEFORE inserts)
+            # Apply Rule 3 filtering: never delete the entity's newest non-backfilled row (I-3)
+            # Exclude rows inserted by earlier backfills (those with MARKER in context_id_bin)
             doomed_filtered: list[int] = []
             for sid in doomed:
                 ts_row = conn.execute(
@@ -252,13 +252,14 @@ class RecorderWriter:
                 if ts_row:
                     newer = conn.execute(
                         "SELECT 1 FROM states WHERE metadata_id = ? AND last_updated_ts > ?"
+                        " AND (context_id_bin IS NULL OR substr(context_id_bin,1,4) != ?)"
                         " LIMIT 1",
-                        (metadata_id, ts_row[0])).fetchone()
+                        (metadata_id, ts_row[0], MARKER)).fetchone()
                     if newer:
                         doomed_filtered.append(sid)
 
             result.inserted = [ts for ts, _ in to_insert]
-            result.deleted_unavailable = len(doomed)  # Report initial count for compatibility
+            result.deleted_unavailable = len(doomed_filtered)  # Report actual count after Rule 3 filtering (N-2)
 
             if dry_run or not (to_insert or doomed_filtered):
                 return result
@@ -269,7 +270,7 @@ class RecorderWriter:
         return result
 
     @staticmethod
-    def _apply(conn, metadata_id, attrs_id, to_insert, doomed, mid_for_rule3=None) -> None:
+    def _apply(conn, metadata_id, attrs_id, to_insert, doomed) -> None:
         # Inserts first (M-3)
         for chunk in _chunks(to_insert, CHUNK):
             conn.execute("BEGIN IMMEDIATE")

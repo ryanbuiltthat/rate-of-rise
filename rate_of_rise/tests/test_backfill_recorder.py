@@ -151,10 +151,11 @@ def test_dry_run_counts_but_writes_nothing():
     db, c = make_db()
     add(c, 1, "0.9", T0, 10)
     add(c, 1, "unavailable", T0 + 30, 10)
+    add(c, 1, "0.95", T0 + 600, 10)  # later live row so unavailable is not newest (Rule 3)
     res = RecorderWriter(db).write("sensor.stage", "number", "ft",
                                    [Point(T0 + 90, 0.92)], dry_run=True)
     assert res.inserted == [T0 + 90] and res.deleted_unavailable == 1
-    assert len(rows(c, 1)) == 2
+    assert len(rows(c, 1)) == 3  # no actual deletion in dry_run
 
 
 def test_entity_not_in_recorder_is_skipped():
@@ -260,6 +261,35 @@ def test_rollback_after_failed_insert_preserves_original_error():
             assert "disk I/O error" in str(exc)
     finally:
         rec.connect = original_connect
+
+
+def test_second_run_never_deletes_the_newest_unavailable_row():
+    db, c = make_db()
+    add(c, 1, "0.9", T0, 10)
+    add(c, 1, "unavailable", T0 + 30, 10)
+    # First run: insert 0.92
+    RecorderWriter(db).write("sensor.stage", "number", "ft", [Point(T0 + 90, 0.92)])
+    states_after_first = [r[0] for r in rows(c, 1)]
+    assert "unavailable" in states_after_first  # unavailable still there after first run
+    # Second run: same points again (idempotent)
+    RecorderWriter(db).write("sensor.stage", "number", "ft", [Point(T0 + 90, 0.92)])
+    states_after_second = [r[0] for r in rows(c, 1)]
+    assert "unavailable" in states_after_second  # unavailable must still be there (not deleted by MARKER exclusion logic)
+
+
+def test_ha_row_after_an_unavailable_still_matches():
+    db, c = make_db()
+    add(c, 1, "0.9", T0, 10)
+    add(c, 1, "unavailable", T0 + 30, 10)
+    add(c, 1, "0.95", T0 + 1801.7, 10)  # HA's live write, 1.7 s after our gateway stamp
+    # Readings: 0.9 every 60s from T0+60 to T0+1740, then 0.95 at T0+1800
+    pts = [Point(T0 + 60 * (i + 1), 0.9) for i in range(29)]  # T0+60 to T0+1740
+    pts.append(Point(T0 + 1800, 0.95))  # Should match HA's live row at T0+1801.7 (within ±20s)
+    res = RecorderWriter(db).write("sensor.stage", "number", "ft", pts)
+    # Only first reading (0.9 @ T0+60) should be inserted; 0.95 @ T0+1800 matches HA's live row
+    # Unavailable row is deleted (bracketed, with newer HA row)
+    assert res.inserted == [T0 + 60]
+    assert len(rows(c, 1)) == 3  # original 3 - 1 unavailable + 1 inserted = 3
 
 
 def main():
