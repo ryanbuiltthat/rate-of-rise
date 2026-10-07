@@ -284,6 +284,56 @@ PlatformIO manifest wrongly declares AVR-only support, which `esp32: toolchain: 
 plus `lib_compat_mode: soft` works around; and `CONFIG_APP_REPRODUCIBLE_BUILD: "n"` keeps the
 compiler command line under the Windows `CreateProcess` limit.
 
+## Gateway v2 (Feather ESP32-S3 + SD store)
+
+`esp32s3_feather_gateway/` is a second gateway built to replace the XIAO after a side-by-side
+trial ([trial runbook](../docs/gateway-v2-trial.md),
+[design](../docs/superpowers/specs/2026-10-07-gateway-v2-sd-backfill-design.md)). It does
+everything v1 does, and it also keeps a record: every node packet and every Ecowitt reading
+goes to the Adalogger's microSD with a real timestamp from its PCF8523 RTC. When Home
+Assistant or WiFi comes back after an outage, the add-on reads the gap back over HTTP and
+writes it into HA's history at the right times.
+
+| Part | Adafruit PID |
+|---|---|
+| ESP32-S3 Feather, 8 MB flash, w.FL antenna (no PSRAM) | 5885 |
+| Radio FeatherWing RFM69HCW 900 MHz | 3229 |
+| Adalogger FeatherWing (PCF8523 + microSD) | 2922 |
+
+Wiring is in `esp32s3_feather_gateway/gateway.base.yaml`. The RFM69 wing's CS/IRQ/RST are
+solder-jumper pads: CS → D6 (GPIO6), IRQ → D5 (GPIO5), RST → D9 (GPIO9). The Adalogger's SD
+CS is D10 (GPIO10) by default. Fit a CR1220 in the Adalogger, or the clock is lost on every
+power cut.
+
+**Build:** `esphome run esp32s3_feather_gateway/gateway.yaml` (trial: no node-OTA buttons).
+`creek-gateway-v2.yaml` is the Device Builder trial wrapper, and `creek-gateway-v2.prod.yaml`
+adds the OTA buttons back after cutover. `rfm69_gateway` is shared with v1 from
+`esp32_rfm69_gateway/components/`. Its v2-only packet hook compiles in only when
+`creek_store` defines `USE_RFM69_PACKET_HOOK`, and CI checks v1's build never does. USB CDC
+on boot is disabled (`platformio_options` unflags `-DARDUINO_USB_CDC_ON_BOOT=1` and sets
+`=0`) because the Feather S3 board's default maps `Serial` to `USBSerial`, which breaks the
+RFM69 library under ESPHome's selective Arduino build; the logger uses
+`hardware_uart: USB_SERIAL_JTAG`, so logs still come out on the native USB port.
+
+**On the card:** `/node/NNNNNN.ndjson` and `/ecowitt/NNNNNN.ndjson`, one JSON record per
+line, 10 000 records per file (`000001.ndjson` holds seq 10000–19999). Files are named by
+sequence, not date, so a record written before the clock is known can't land out of order.
+Sequence numbers are assigned when a record is written to the card, not when it is queued.
+Each record has `ts_src`: `ntp` (synced within 24 h), `rtc` (RTC only), or `none` (no
+trustworthy time; the add-on skips these). Nothing is ever deleted. At the worst case of 5 s
+fast mode all day that's about 3.5 MB/day. SD support needs ESP-IDF's VFS directory support,
+which `creek_store` requests itself (`esp32.require_vfs_dir()`), so no `sdkconfig` option is
+needed in the YAML.
+
+**Replay API** (port 80, `Authorization: Bearer <creek_store_token>`):
+`GET /store/status`, `GET /store/records?stream=node|ecowitt&after=<seq>&limit=<≤500>`.
+A quick look from a laptop:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" http://<v2-ip>/store/status
+curl -s -H "Authorization: Bearer $TOKEN" "http://<v2-ip>/store/records?stream=node&after=0&limit=3"
+```
+
 ## OTA Firmware Updates
 
 The gateway can push a new node firmware image over the radio link itself — the Moteino
