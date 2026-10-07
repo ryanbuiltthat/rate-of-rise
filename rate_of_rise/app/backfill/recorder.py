@@ -19,7 +19,9 @@ entity's history as inserted rows. This does that, carefully:
 * Unavailable rows within BRACKET_S (300 s) of both an existing/batch state before and a
   batch reading after are removed, clearing old_state_id references (Rule 3: but never if
   a later non-backfilled row exists, to preserve HA's old_state_id pointers).
-* Numeric states are compared with floating-point tolerance to account for precision drift.
+* Numeric states are compared with a tolerance of half the record's quantum (FieldSpec.resolution,
+  converted to the display unit), at least 1e-4 relative: HA keeps the raw float, the record
+  is rounded.
 * Every inserted row's context id starts with MARKER, so undo.py can remove them all.
 * Short transactions (CHUNK rows each, BEGIN IMMEDIATE with a busy timeout), because HA's
   recorder commits every second and must never wait long on us.
@@ -101,9 +103,13 @@ def entity_unit(conn: sqlite3.Connection, metadata_id: int) -> tuple[int | None,
     return row[0], unit
 
 
-def _same(a: str | None, b: str | None) -> bool:
+def _same(a: str | None, b: str | None, tol_abs: float = 0.0) -> bool:
     """Numeric tolerance: if both parse as finite floats, equal iff
-    abs(fa - fb) <= 1e-4 * max(1.0, abs(fa))."""
+    abs(fa - fb) <= max(tol_abs / 2 + 1e-9, 1e-4 * max(1.0, abs(fa))).
+
+    tol_abs is the record's quantum in the entity's display unit: HA holds the device's raw
+    float ("11.496063232421875") while the record is rounded, so two values within half a
+    quantum are the same reading."""
     if a is None or b is None:
         return a == b
     try:
@@ -111,9 +117,22 @@ def _same(a: str | None, b: str | None) -> bool:
         fb = float(b)
         if not (math.isfinite(fa) and math.isfinite(fb)):
             return False
-        return abs(fa - fb) <= 1e-4 * max(1.0, abs(fa))
+        return abs(fa - fb) <= max(tol_abs / 2 + 1e-9, 1e-4 * max(1.0, abs(fa)))
     except ValueError:
         return a == b
+
+
+def _display_resolution(resolution: float | None, native_unit: str | None,
+                        unit: str | None) -> float:
+    """The record's quantum (native unit) as a width in the entity's display unit; 0 when
+    there is none or it cannot be converted (the unit-mismatch path skips the entity)."""
+    if not resolution:
+        return 0.0
+    try:
+        width = abs(convert(float(resolution), native_unit, unit) - convert(0.0, native_unit, unit))
+    except (UnitMismatch, TypeError, ValueError):
+        return 0.0
+    return width if math.isfinite(width) else 0.0
 
 
 def _format(kind: str, value, native_unit: str | None, unit: str | None) -> str:
@@ -130,7 +149,7 @@ def _format(kind: str, value, native_unit: str | None, unit: str | None) -> str:
 
 
 def _plan(formatted: list[tuple[float, str]], existing: list[tuple[int, str, float]],
-          prior_state: str | None) -> list[tuple[float, str]]:
+          prior_state: str | None, tol_abs: float = 0.0) -> list[tuple[float, str]]:
     """The (ts, state) pairs to insert. Walks the readings and the existing rows together, so
     'the state in effect' at each reading accounts for both. Unavailable rows break the state
     in effect (Rule 1)."""
@@ -156,7 +175,7 @@ def _plan(formatted: list[tuple[float, str]], existing: list[tuple[int, str, flo
             continue
 
         # HA writes no row for an unchanged state (use numeric tolerance for floats)
-        if _same(state, state_now):
+        if _same(state, state_now, tol_abs):
             continue
 
         out.append((ts, state))
@@ -178,7 +197,7 @@ class RecorderWriter:
             raise SchemaUnsupported(self.version)
 
     def write(self, entity_id: str, kind: str, native_unit: str | None, points: list[Point],
-              dry_run: bool = False) -> WriteResult:
+              dry_run: bool = False, resolution: float | None = None) -> WriteResult:
         result = WriteResult(entity_id)
         if not points:
             return result
@@ -211,7 +230,9 @@ class RecorderWriter:
                 (metadata_id, lo - BRACKET_S)).fetchone()
 
             batch_ts = [ts for ts, _ in formatted]
-            to_insert = _plan(formatted, existing, prior[0] if prior else None)
+            tol_abs = (_display_resolution(resolution, native_unit, unit)
+                       if kind == "number" else 0.0)
+            to_insert = _plan(formatted, existing, prior[0] if prior else None, tol_abs)
 
             # Determine which unavailable rows to delete (Rule 2)
             doomed: list[int] = []

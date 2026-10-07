@@ -49,15 +49,17 @@ class FakeClient:
 
 class FakeWriter:
     calls = []
+    resolutions = {}
     raise_on_write = None
 
     def __init__(self, db):
         pass
 
-    def write(self, entity_id, kind, unit, points, dry_run=False):
+    def write(self, entity_id, kind, unit, points, dry_run=False, resolution=None):
         if FakeWriter.raise_on_write:
             raise FakeWriter.raise_on_write
         FakeWriter.calls.append((entity_id, kind, unit, [p.ts for p in points], dry_run))
+        FakeWriter.resolutions[entity_id] = resolution
         return WriteResult(entity_id, inserted=[p.ts for p in points])
 
 
@@ -72,7 +74,7 @@ def node(seq, ts, ts_src="ntp", stage=1.0):
 
 def make(client, writer=FakeWriter, gaps=None, entity_map=None, shadow=None, stats=None):
     d = Path(tempfile.mkdtemp())
-    FakeWriter.calls, FakeWriter.raise_on_write = [], None
+    FakeWriter.calls, FakeWriter.raise_on_write, FakeWriter.resolutions = [], None, {}
     dest = Destinations(recorder_db=d / "ha.db", statistics=stats, stage_dir=d / "stage",
                         gaps=gaps)
     rec = Reconciler(client, dest,
@@ -315,6 +317,13 @@ def test_service_reports_waiting_for_live_poll():
                           now_fn=lambda: NOW)
     svc.tick()
     assert published[-1][1]["state"] == "waiting for live poll"
+
+
+def test_writer_gets_the_field_resolution():
+    client = FakeClient(node=[node(1, NOW - 600), node(2, NOW - 540)])
+    rec, _ = make(client)
+    rec.run_pass(client.status())
+    assert FakeWriter.resolutions == {"sensor.v2_stage": 0.0001, "sensor.v1_batt": 1.0},         FakeWriter.resolutions
 
 
 def main():

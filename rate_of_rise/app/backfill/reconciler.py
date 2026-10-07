@@ -182,7 +182,8 @@ class Reconciler:
                 for fld, entity in fields_.items():
                     spec = field_spec(stream, fld)
                     res = writer.write(entity, spec.kind, spec.unit,
-                                       points_for(stream, fld, recs), dry_run=dry)
+                                       points_for(stream, fld, recs), dry_run=dry,
+                                       resolution=spec.resolution)
                     if res.skipped:
                         self._note_skip(entity, res.skipped)
                         continue

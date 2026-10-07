@@ -58,7 +58,7 @@ static void test_node_record_encoding() {
   CHECK(encode_node_record(18234, 1791378600.4, "ntp", -72, f, 1105, s) ==
         "{\"seq\":18234,\"ts\":1791378600.4,\"ts_src\":\"ntp\",\"rssi\":-72,\"d\":812,"
         "\"v\":4012,\"f\":0,\"g\":0,\"r\":1,\"n\":143,\"i\":0,\"mount\":1105,"
-        "\"stage_ft\":0.9613,\"depth_in\":11.54}\n");
+        "\"stage_ft\":0.9613,\"depth_in\":11.5354}\n");
 
   NodeFields bare;  // failed radar read, long-form packet with no diagnostics
   bare.battery_mv = 4012;

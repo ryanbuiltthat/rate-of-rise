@@ -31,6 +31,9 @@ class FieldSpec:
     kind: str                 # "number" | "binary" | "text"
     unit: str | None          # the unit the gateway records it in
     extract: Callable[[dict], object]
+    # The record's quantum in `unit` (how finely the gateway writes it). Backfilled numbers are
+    # compared with HA's raw floats to within half of it; None = no quantum, exact compare.
+    resolution: float | None = None
 
 
 def reset_cause_text(code: int) -> str:
@@ -67,11 +70,11 @@ def _reset(r):
 
 
 NODE_FIELDS: dict[str, FieldSpec] = {
-    "stage_ft": FieldSpec("number", "ft", _key("stage_ft")),
-    "depth_in": FieldSpec("number", "in", _key("depth_in")),
-    "distance_mm": FieldSpec("number", "mm", _key("d")),
-    "battery_mv": FieldSpec("number", "mV", _key("v")),
-    "rssi_dbm": FieldSpec("number", "dBm", _key("rssi")),
+    "stage_ft": FieldSpec("number", "ft", _key("stage_ft"), 0.0001),
+    "depth_in": FieldSpec("number", "in", _key("depth_in"), 0.0001),
+    "distance_mm": FieldSpec("number", "mm", _key("d"), 1.0),
+    "battery_mv": FieldSpec("number", "mV", _key("v"), 1.0),
+    "rssi_dbm": FieldSpec("number", "dBm", _key("rssi"), 1.0),
     "cycle": FieldSpec("number", None, _key("n")),
     "radio_init_failures": FieldSpec("number", None, _key("i")),
     "fast": FieldSpec("binary", None, _flag("f")),
@@ -82,12 +85,12 @@ NODE_FIELDS: dict[str, FieldSpec] = {
 }
 
 ECOWITT_FIELDS: dict[str, FieldSpec] = {
-    "rain_total_in": FieldSpec("number", "in", _key("rain_year_in")),
-    "rain_rate_in_hr": FieldSpec("number", "in/h", _key("rain_rate_in_hr")),
-    "rain_24h_in": FieldSpec("number", "in", _key("rain_24h_in")),
-    "rain_day_in": FieldSpec("number", "in", _key("rain_day_in")),
-    "rain_event_in": FieldSpec("number", "in", _key("rain_event_in")),
-    "temp_f": FieldSpec("number", "°F", _key("temp_f")),
+    "rain_total_in": FieldSpec("number", "in", _key("rain_year_in"), 0.001),
+    "rain_rate_in_hr": FieldSpec("number", "in/h", _key("rain_rate_in_hr"), 0.001),
+    "rain_24h_in": FieldSpec("number", "in", _key("rain_24h_in"), 0.001),
+    "rain_day_in": FieldSpec("number", "in", _key("rain_day_in"), 0.001),
+    "rain_event_in": FieldSpec("number", "in", _key("rain_event_in"), 0.001),
+    "temp_f": FieldSpec("number", "°F", _key("temp_f"), 0.1),
 }
 
 _SOIL = re.compile(r"^soil_ch(\d+)$")
@@ -102,7 +105,7 @@ def field_spec(stream: str, field: str) -> FieldSpec:
         m = _SOIL.match(field)
         if m:
             ch = m.group(1)
-            return FieldSpec("number", "%", lambda r: (r.get("soil") or {}).get(ch, MISSING))
+            return FieldSpec("number", "%", lambda r: (r.get("soil") or {}).get(ch, MISSING), 1.0)
     raise KeyError(f"{stream}.{field}")
 
 

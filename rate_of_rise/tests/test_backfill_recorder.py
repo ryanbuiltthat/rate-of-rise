@@ -292,6 +292,35 @@ def test_ha_row_after_an_unavailable_still_matches():
     assert len(rows(c, 1)) == 3  # original 3 - 1 unavailable + 1 inserted = 3
 
 
+def test_ha_raw_float_vs_two_dp_record_is_unchanged():
+    # HA stores the device's float verbatim; the old 2-dp record rounds it. With the record's
+    # quantum (0.01 in) as the tolerance, a flat stretch adds nothing.
+    db, c = make_db()
+    add(c, 2, "11.496063232421875", T0, 20)          # depth, displayed in inches
+    pts = [Point(T0 + 60 * (i + 1), 11.50) for i in range(5)]
+    res = RecorderWriter(db).write("sensor.distance", "number", "in", pts, resolution=0.01)
+    assert res.inserted == [], res.inserted
+    assert len(rows(c, 2)) == 1
+
+
+def test_ha_raw_float_vs_four_dp_record_is_unchanged():
+    db, c = make_db()
+    add(c, 2, "11.496063232421875", T0, 20)
+    pts = [Point(T0 + 60 * (i + 1), 11.4961) for i in range(5)]
+    res = RecorderWriter(db).write("sensor.distance", "number", "in", pts, resolution=0.0001)
+    assert res.inserted == [], res.inserted
+
+
+def test_resolution_is_converted_into_the_display_unit():
+    # Record in mm (quantum 1 mm), entity displayed in inches: 1 mm = 0.03937 in, so a
+    # 0.5 mm-equivalent difference (0.0197 in) is the same reading.
+    db, c = make_db()
+    add(c, 2, "31.98", T0, 20)
+    res = RecorderWriter(db).write("sensor.distance", "number", "mm",
+                                   [Point(T0 + 60, 812)], resolution=1.0)
+    assert res.inserted == [], res.inserted
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

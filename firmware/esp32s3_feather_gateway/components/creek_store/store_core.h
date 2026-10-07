@@ -109,7 +109,7 @@ inline std::string encode_node_body(double ts, const char *ts_src, int rssi,
   append_int(out, "i", f.init_failures);
   append_num(out, "mount", mount_mm, 0);
   append_num(out, "stage_ft", s.stage_ft, 4);
-  append_num(out, "depth_in", s.depth_in, 2);
+  append_num(out, "depth_in", s.depth_in, 4);
   out += "}\n";
   return out;
 }
