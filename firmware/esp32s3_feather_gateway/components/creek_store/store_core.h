@@ -307,6 +307,13 @@ inline Civil civil_from_epoch(int64_t epoch) {
   return c;
 }
 
+// Calendar fields decoded from the RTC are in range, and the year is one it was set in (the
+// PCF8523 powers up at 2000). A garbled I2C read must not become the system clock.
+inline bool civil_valid(const Civil &c) {
+  return c.year >= 2025 && c.year <= 2099 && c.month >= 1 && c.month <= 12 && c.day >= 1 &&
+         c.day <= 31 && c.hour < 24 && c.minute < 60 && c.second < 60;
+}
+
 inline uint8_t bcd2bin(uint8_t v) { return (uint8_t) ((v >> 4) * 10 + (v & 0x0F)); }
 inline uint8_t bin2bcd(uint8_t v) { return (uint8_t) (((v / 10) << 4) | (v % 10)); }
 

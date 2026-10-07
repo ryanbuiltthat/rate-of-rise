@@ -172,6 +172,23 @@ static void test_civil_time() {
   CHECK(bcd2bin(0x59) == 59 && bin2bcd(59) == 0x59 && bin2bcd(7) == 0x07);
 }
 
+static void test_civil_valid() {
+  CHECK(civil_valid(Civil{2026, 10, 7, 13, 10, 0, 3}));
+  CHECK(civil_valid(Civil{2025, 1, 1, 0, 0, 0, 3}));
+  CHECK(civil_valid(Civil{2099, 12, 31, 23, 59, 59, 4}));
+  CHECK(!civil_valid(Civil{2024, 12, 31, 23, 59, 59, 2}));  // never set
+  CHECK(!civil_valid(Civil{2026, 0, 7, 13, 10, 0, 3}));
+  CHECK(!civil_valid(Civil{2026, 13, 7, 13, 10, 0, 3}));
+  CHECK(!civil_valid(Civil{2026, 10, 0, 13, 10, 0, 3}));
+  CHECK(!civil_valid(Civil{2026, 10, 32, 13, 10, 0, 3}));
+  CHECK(!civil_valid(Civil{2026, 10, 7, 24, 10, 0, 3}));
+  CHECK(!civil_valid(Civil{2026, 10, 7, 13, 60, 0, 3}));
+  CHECK(!civil_valid(Civil{2026, 10, 7, 13, 10, 60, 3}));
+  // A garbled register read: bcd2bin of 0xFF fields.
+  CHECK(!civil_valid(Civil{2000 + bcd2bin(0x99), bcd2bin(0x1F), bcd2bin(0x3F), bcd2bin(0x3F),
+                           bcd2bin(0x7F), bcd2bin(0x7F), 0}));
+}
+
 int main() {
   test_stage_matches_v1_lambda();
   test_node_record_encoding();
@@ -181,6 +198,7 @@ int main() {
   test_parse_seq_and_tail();
   test_blocks();
   test_civil_time();
+  test_civil_valid();
   if (failures) {
     std::printf("%d failure(s)\n", failures);
     return 1;

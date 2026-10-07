@@ -160,6 +160,11 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
     c.month = creek_core::bcd2bin(r[5] & 0x1F);
     c.year = 2000 + creek_core::bcd2bin(r[6]);
     if (c.year < 2025) return;  // never set
+    if (!creek_core::civil_valid(c)) {
+      ESP_LOGW(TAG, "PCF8523 registers out of range (%04d-%02u-%02u %02u:%02u:%02u); time unknown "
+                    "until SNTP", c.year, c.month, c.day, c.hour, c.minute, c.second);
+      return;
+    }
     struct timeval tv {};
     tv.tv_sec = (time_t) creek_core::epoch_from_civil(c);
     settimeofday(&tv, nullptr);
