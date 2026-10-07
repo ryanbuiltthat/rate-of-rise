@@ -63,6 +63,10 @@ static void test_node_record_encoding() {
   NodeFields bare;  // failed radar read, long-form packet with no diagnostics
   bare.battery_mv = 4012;
   const auto none = stage_from_distance(1105, bare.distance_mm, 150, 1000);
+  CHECK(with_seq(7, encode_node_body(10.0, "rtc", -80, bare, 1105, none)) ==
+        encode_node_record(7, 10.0, "rtc", -80, bare, 1105, none));
+  CHECK(parse_seq(with_seq(7, encode_node_body(10.0, "rtc", -80, bare, 1105, none)).c_str()) ==
+        std::optional<uint32_t>(7));
   CHECK(encode_node_record(7, 10.0, "rtc", -80, bare, 1105, none) ==
         "{\"seq\":7,\"ts\":10.0,\"ts_src\":\"rtc\",\"rssi\":-80,\"d\":null,\"v\":4012,"
         "\"mount\":1105,\"stage_ft\":null,\"depth_in\":null}\n");

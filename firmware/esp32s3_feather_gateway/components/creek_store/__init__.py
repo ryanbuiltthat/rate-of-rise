@@ -127,4 +127,4 @@ async def to_code(config):
     cg.add_library("SD", None)
     cg.add_library("SPI", None)
     # No esp32.include_builtin_idf_component() calls are needed: fatfs and vfs are not in
-    # ESPHome's EXCLUDE_COMPONENTS. The directory support is a Kconfig switch; see below.
+    # ESPHome's EXCLUDE_COMPONENTS. The directory support is a Kconfig switch; see _require_vfs_dir above.

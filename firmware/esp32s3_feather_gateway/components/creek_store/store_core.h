@@ -72,11 +72,19 @@ inline void append_int(std::string &out, const char *key, std::optional<int> v) 
   out += buf;
 }
 
-inline std::string record_head(uint32_t seq, double ts, const char *ts_src) {
+// A record body is the record without its `{"seq":N,` head. The sequence number is stamped
+// when the record is written to the card, not when it is encoded, so seq on the card is
+// gap-free and monotonic even if the card mounts late.
+inline std::string body_head(double ts, const char *ts_src) {
   char buf[96];
-  std::snprintf(buf, sizeof buf, "{\"seq\":%u,\"ts\":%.1f,\"ts_src\":\"%s\"", (unsigned) seq, ts,
-                ts_src);
+  std::snprintf(buf, sizeof buf, "\"ts\":%.1f,\"ts_src\":\"%s\"", ts, ts_src);
   return buf;
+}
+
+inline std::string with_seq(uint32_t seq, const std::string &body) {
+  char buf[24];
+  std::snprintf(buf, sizeof buf, "{\"seq\":%u,", (unsigned) seq);
+  return buf + body;
 }
 
 // --- Node records ------------------------------------------------------------------------
@@ -86,9 +94,9 @@ struct NodeFields {
   std::optional<int> fast, diag, reset_cause, cycle, init_failures;
 };
 
-inline std::string encode_node_record(uint32_t seq, double ts, const char *ts_src, int rssi,
-                                      const NodeFields &f, float mount_mm, const StageResult &s) {
-  std::string out = record_head(seq, ts, ts_src);
+inline std::string encode_node_body(double ts, const char *ts_src, int rssi,
+                                    const NodeFields &f, float mount_mm, const StageResult &s) {
+  std::string out = body_head(ts, ts_src);
   char buf[24];
   std::snprintf(buf, sizeof buf, ",\"rssi\":%d", rssi);
   out += buf;
@@ -104,6 +112,11 @@ inline std::string encode_node_record(uint32_t seq, double ts, const char *ts_sr
   append_num(out, "depth_in", s.depth_in, 2);
   out += "}\n";
   return out;
+}
+
+inline std::string encode_node_record(uint32_t seq, double ts, const char *ts_src, int rssi,
+                                      const NodeFields &f, float mount_mm, const StageResult &s) {
+  return with_seq(seq, encode_node_body(ts, ts_src, rssi, f, mount_mm, s));
 }
 
 // --- Ecowitt -----------------------------------------------------------------------------
@@ -161,9 +174,8 @@ inline void apply_ecowitt_item(EcowittReading &e, const char *id, const char *va
   else if (std::strcmp(id, "0x13") == 0) e.rain_year_in = to_inches(v, u);
 }
 
-inline std::string encode_ecowitt_record(uint32_t seq, double ts, const char *ts_src,
-                                         const EcowittReading &e) {
-  std::string out = record_head(seq, ts, ts_src);
+inline std::string encode_ecowitt_body(double ts, const char *ts_src, const EcowittReading &e) {
+  std::string out = body_head(ts, ts_src);
   append_num(out, "rain_event_in", e.rain_event_in, 3);
   append_num(out, "rain_rate_in_hr", e.rain_rate_in_hr, 3);
   append_num(out, "rain_day_in", e.rain_day_in, 3);
@@ -179,6 +191,11 @@ inline std::string encode_ecowitt_record(uint32_t seq, double ts, const char *ts
   }
   out += "}}\n";
   return out;
+}
+
+inline std::string encode_ecowitt_record(uint32_t seq, double ts, const char *ts_src,
+                                         const EcowittReading &e) {
+  return with_seq(seq, encode_ecowitt_body(ts, ts_src, e));
 }
 
 // --- Reading the card back ---------------------------------------------------------------

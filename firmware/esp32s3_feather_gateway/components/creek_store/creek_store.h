@@ -51,8 +51,7 @@ static const char *const STREAM_NAMES[STREAM_COUNT] = {"node", "ecowitt"};
 
 struct Pending {
   uint8_t stream;
-  uint32_t seq;
-  std::string line;
+  std::string body;  // record without its seq head; seq is stamped at write time
 };
 
 class CreekStore : public Component, public i2c::I2CDevice {
@@ -227,8 +226,9 @@ class CreekStore : public Component, public i2c::I2CDevice {
         last = seq ? *seq : (newest > 0 ? (uint32_t) newest * creek_core::BLOCK - 1 : 0);
       }
     }
-    if (last > this->last_seq_[s]) this->last_seq_[s] = last;
-    this->written_seq_[s] = this->last_seq_[s];
+    // The card is the truth: seq continues from what is on it, never from RAM.
+    this->last_seq_[s] = last;
+    this->written_seq_[s] = last;
     ESP_LOGI(TAG, "%s stream: last seq %u (newest block %lld)%s", STREAM_NAMES[s],
              (unsigned) this->last_seq_[s], (long long) newest,
              this->needs_newline_[s] ? ", torn final line" : "");
@@ -236,14 +236,16 @@ class CreekStore : public Component, public i2c::I2CDevice {
 
   // Bus mutex held.
   bool append_(const Pending &p) {
-    const uint32_t block = creek_core::block_of(p.seq);
+    const uint32_t seq = this->last_seq_[p.stream] + 1;
+    const uint32_t block = creek_core::block_of(seq);
     File f = SD.open(creek_core::block_path(STREAM_NAMES[p.stream], block).c_str(), FILE_APPEND);
     if (!f) return false;
     bool ok = true;
     // A torn line from a power cut must not swallow the next record: end it first. Readers
     // skip it because it does not parse.
     if (this->needs_newline_[p.stream]) ok = f.print("\n") == 1;
-    ok = ok && f.print(p.line.c_str()) == p.line.size();
+    const std::string line = creek_core::with_seq(seq, p.body);
+    ok = ok && f.print(line.c_str()) == line.size();
     f.close();
     if (!ok) {
       this->needs_newline_[p.stream] = true;
@@ -251,17 +253,18 @@ class CreekStore : public Component, public i2c::I2CDevice {
     }
     this->needs_newline_[p.stream] = false;
     if ((int64_t) block > this->newest_block_[p.stream]) this->newest_block_[p.stream] = block;
-    this->written_seq_[p.stream] = p.seq;
+    this->last_seq_[p.stream] = seq;
+    this->written_seq_[p.stream] = seq;
     return true;
   }
 
-  void enqueue_(uint8_t stream, uint32_t seq, std::string &&line) {
+  void enqueue_(uint8_t stream, std::string &&body) {
     if (this->queue_.size() >= QUEUE_MAX) {
-      ESP_LOGW(TAG, "store queue full; dropping %s seq %u",
-               STREAM_NAMES[this->queue_.front().stream], (unsigned) this->queue_.front().seq);
+      ESP_LOGW(TAG, "store queue full; dropping oldest %s record",
+               STREAM_NAMES[this->queue_.front().stream]);
       this->queue_.pop_front();
     }
-    this->queue_.push_back(Pending{stream, seq, std::move(line)});
+    this->queue_.push_back(Pending{stream, std::move(body)});
   }
 
   // --- node packets (main task, bus mutex HELD: queue only) -------------------------------
@@ -287,10 +290,8 @@ class CreekStore : public Component, public i2c::I2CDevice {
     const float mount = this->mount_ != nullptr ? this->mount_->state : NAN;
     const auto stage = creek_core::stage_from_distance(mount, f.distance_mm, this->blanking_mm_,
                                                        this->overrange_slack_mm_);
-    const uint32_t seq = ++this->last_seq_[NODE];
-    this->enqueue_(NODE, seq,
-                   creek_core::encode_node_record(seq, now_ts_(), this->ts_src_(), rssi, f, mount,
-                                                  stage));
+    this->enqueue_(NODE, creek_core::encode_node_body(now_ts_(), this->ts_src_(), rssi, f, mount,
+                                                      stage));
   }
 
   // --- health ----------------------------------------------------------------------------
@@ -343,7 +344,8 @@ class CreekStore : public Component, public i2c::I2CDevice {
   uint32_t free_mb_{0};
   uint32_t ecowitt_failures_{0};
 
-  // last_seq_: assigned, main task only. written_seq_: on the card; also read by the HTTP task.
+  // last_seq_: last seq on the card, set when a record is written (main task only).
+  // written_seq_: the same value, also read by the HTTP task.
   uint32_t last_seq_[STREAM_COUNT]{0, 0};
   std::atomic<uint32_t> written_seq_[STREAM_COUNT]{};
   int64_t newest_block_[STREAM_COUNT]{-1, -1};
