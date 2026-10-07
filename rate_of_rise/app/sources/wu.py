@@ -24,6 +24,7 @@ import logging
 import re
 import shutil
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -48,6 +49,38 @@ def _default_fetch(url: str, timeout: float = 15.0) -> dict:
 
 def _safe(station_id: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]", "_", station_id)
+
+
+def _history_series(observations: list[dict]) -> tuple[list[tuple[float, float]],
+                                                       list[tuple[float, float]]]:
+    """(increments, totals) from one station's history observations, sorted by time.
+    precipTotal restarts at local midnight, so a new local day's first total is all new rain;
+    a dip within a day is a feed glitch and counts as nothing."""
+    pts = []
+    for o in observations:
+        try:
+            ts = datetime.fromisoformat(str(o["obsTimeUtc"]).replace("Z", "+00:00")).timestamp()
+            total = float((o.get("imperial") or {})["precipTotal"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        pts.append((ts, str(o.get("obsTimeLocal") or "")[:10], total))
+    pts.sort()
+    incs, totals = [], []
+    prev = None
+    for ts, day, total in pts:
+        if prev is not None and ts == prev[0]:
+            continue
+        if prev is None:
+            inc = 0.0
+        elif day != prev[1]:
+            inc = max(0.0, total)
+        else:
+            inc = max(0.0, total - prev[2])
+        if inc > 0:
+            incs.append((ts, inc))
+        totals.append((ts, total))
+        prev = (ts, day, total)
+    return incs, totals
 
 
 class WuUpstream:
@@ -150,3 +183,43 @@ class WuUpstream:
             round(sum(totals) / len(totals), 3) if totals else None
         )
         return out
+
+    def history_between(self, start: datetime, end: datetime):
+        """Each station's PWS history for every UTC day touching [start - 72 h, end], with a
+        day's margin on both sides for the station's local dates. The evaluator answers as
+        poll() would have at `as_of`, from those totals."""
+        per_station = {}
+        day = (start - timedelta(hours=72)).date() - timedelta(days=1)
+        last = end.date() + timedelta(days=1)
+        days = []
+        while day <= last:
+            days.append(day)
+            day += timedelta(days=1)
+        for sid in self._stations:
+            obs = []
+            for d in days:
+                url = ("https://api.weather.com/v2/pws/history/all"
+                       f"?stationId={sid}&format=json&units=e&date={d:%Y%m%d}&apiKey={self._key}")
+                try:
+                    obs += self._fetch(url).get("observations") or []
+                except Exception:
+                    log.debug("WU history %s %s unavailable", sid, d)
+            per_station[sid] = _history_series(obs)
+
+        def at(as_of: datetime) -> dict:
+            t = as_of.timestamp()
+            fresh = [sid for sid, (_, totals) in per_station.items()
+                     if any(t - STATION_FRESH_S < ts <= t for ts, _ in totals)]
+            if not fresh:
+                return {**{f"upstream_rain_{w}h_in": None for w in WINDOWS_H},
+                        "upstream_precip_today_in": None}
+            out = {}
+            for w in WINDOWS_H:
+                sums = [sum(i for ts, i in per_station[sid][0] if t - w * 3600 < ts <= t)
+                        for sid in fresh]
+                out[f"upstream_rain_{w}h_in"] = round(sum(sums) / len(sums), 3)
+            latest = [max((ts, tot) for ts, tot in per_station[sid][1] if ts <= t)[1]
+                      for sid in fresh]
+            out["upstream_precip_today_in"] = round(sum(latest) / len(latest), 3)
+            return out
+        return at
