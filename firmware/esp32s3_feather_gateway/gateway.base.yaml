@@ -48,9 +48,6 @@ substitutions:
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
-  # Task 4 replaces this with the creek_store component, whose header includes it.
-  includes:
-    - components/creek_store/store_core.h
   # The Feather S3 board JSON enables CDC-on-boot, which maps `Serial` to `USBSerial`; that is
   # undeclared in ESPHome's selective Arduino build and breaks the RFM69 library. Turn it off so
   # `Serial` is plain UART0 (the library's few prints go to the unused TX pin).
@@ -177,6 +174,34 @@ rfm69_gateway:
     name: Creek Node Cycle
   radio_init_failures:
     name: Creek Node Radio Init Failures
+
+# The store (components/creek_store/): every node packet and Ecowitt reading on SD, replayed
+# to the add-on over GET /store/... so it can backfill whatever Home Assistant missed.
+creek_store:
+  id: store
+  radio_id: creek_radio
+  time_id: sntp_time
+  mount_height_id: mount_height_mm
+  i2c_id: i2c_bus
+  address: 0x68
+  sd_cs_pin: ${sd_cs_pin}
+  token: !secret creek_store_token
+  ecowitt_host: ${ecowitt_host}
+  ecowitt_interval: 60s
+  blanking_mm: ${blanking_mm}
+  overrange_slack_mm: ${overrange_slack_mm}
+  sd_fault:
+    name: Store SD Fault
+  free_space:
+    name: Store Free Space
+  clock_source:
+    name: Store Clock Source
+  node_records:
+    name: Store Node Records
+  ecowitt_records:
+    name: Store Ecowitt Records
+  ecowitt_failures:
+    name: Ecowitt Poll Failures
 
 number:
   - platform: template
