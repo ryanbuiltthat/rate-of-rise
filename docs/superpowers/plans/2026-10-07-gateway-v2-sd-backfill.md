@@ -4322,10 +4322,10 @@ def test_history_between_sums_station_totals_up_to_as_of():
         day = url.split("date=")[1][:8]
         return {"observations": obs.get(day, [])}
 
-    src = WuUpstream("key", ["KPAX1"], _P(tempfile.mkdtemp()), fetch=fetch)
+    src = WuUpstream("key", ["KXXTEST1"], _P(tempfile.mkdtemp()), fetch=fetch)
     at = src.history_between(datetime(2026, 10, 7, 12, 30, tzinfo=timezone.utc),
                              datetime(2026, 10, 7, 13, 0, tzinfo=timezone.utc))
-    assert all("/v2/pws/history/all?stationId=KPAX1" in u for u in calls)
+    assert all("/v2/pws/history/all?stationId=KXXTEST1" in u for u in calls)
     out = at(datetime(2026, 10, 7, 12, 45, tzinfo=timezone.utc))
     assert out["upstream_rain_1h_in"] == 0.2
     assert out["upstream_precip_today_in"] == 0.3
