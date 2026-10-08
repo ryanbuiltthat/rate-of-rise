@@ -185,8 +185,10 @@ def stage_history_features(ts, stage) -> tuple[np.ndarray, np.ndarray]:
 
 
 # Above this soil-moisture reading the low-lying areas are effectively saturated
-# and "pond", shortening the rainfall->runoff response. Tune with observed storms.
-PONDING_SATURATION_PCT = 85.0
+# and "pond", shortening the rainfall->runoff response. The default for the
+# `ponding_saturation_pct` option. Was 85 until 2026-09-28, when the field probe read
+# 81 % with water still standing on the low ground and the flag said dry.
+PONDING_SATURATION_PCT = 78.0
 
 # Rain-on-snow (spec §1: a major regional flood driver). Rain falling on an existing snowpack
 # at above-freezing temperatures both adds its own water and melts the pack, so runoff far
@@ -435,12 +437,15 @@ class FeatureBuilder:
         stage_raw, stage_age_s = self._ha.get_float_with_age(self._cfg.stage_entity)
         node_online = self._node_online()
 
-        soils = [self._ha.get_float(e) for e in self._cfg.soil_moisture_entities]
+        # A blank entry holds its probe's slot while the probe is out of service, so the
+        # one still in the ground keeps its near-house / near-creek label.
+        soils = [self._ha.get_float(e) if e else None
+                 for e in self._cfg.soil_moisture_entities]
         near_house = soils[0] if len(soils) >= 1 else None
         near_creek = soils[1] if len(soils) >= 2 else None
         present = [s for s in soils if s is not None]
         soil_mean = sum(present) / len(present) if present else None
-        ponding = any(s >= PONDING_SATURATION_PCT for s in present)
+        ponding = any(s >= self._cfg.ponding_saturation_pct for s in present)
 
         stage_ft, rate, implausible, held = stage_raw, None, None, None
         accepted = None     # the reading, only if it is current and believable

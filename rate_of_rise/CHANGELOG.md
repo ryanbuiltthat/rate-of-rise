@@ -21,6 +21,23 @@ The version matches `version:` in `config.yaml`; bump it to trigger the GUI Upda
 - The add-on now maps `homeassistant_config` (read-write) for those writes, and depends on
   `websocket-client` for the statistics import.
 
+## 0.25.1
+
+- **Fix: *Creek Soil Ponding* said dry with water standing on the low ground.** A probe had
+  to read 85 % to count as ponding; the field probe read 81 % with water still standing
+  on 2026-09-28. The threshold is now the `ponding_saturation_pct` option, default 78 %,
+  so it can be tuned against what you see on the ground without a release.
+- **A blank `soil_moisture_entities` entry now holds a retired probe's slot.** The list is
+  positional (first near the house, second near the creek). Deleting the willow probe
+  moved the field probe into the first slot, so its readings went out, and into the
+  training data, as `near_house_pct`. The shipped default now blanks the willow slot.
+- Dashboard: the willow-tree soil row is commented out until the probe is replaced.
+
+**Deploying:** press Update. In the add-on configuration, put the willow entry back as an
+empty entry (`""`) above the field probe instead of leaving it deleted, and check
+`ponding_saturation_pct` shows 78. Re-copy the dashboard if you want the repo's version of
+the comment-out.
+
 ## 0.25.0
 
 - **New: the predicted crest — how high the creek will get in the next 3 h, and how
