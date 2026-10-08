@@ -277,7 +277,20 @@ class Rfm69Gateway : public Component {
   }
 
   // Runs only on the init-failure path, where the component is about to be marked failed
-  // anyway -- so it is free to reconfigure the pins and never put them back.
+  // anyway -- so it is free to reconfigure the pins. The caller hands the SPI bus back
+  // afterwards (see restore_spi_bus_()), because another device may share it.
+  // The probe turns SCK/MOSI/MISO into plain GPIOs, and arduino-esp32 stops the SPI
+  // peripheral when its pins are taken away -- but SPIClass still believes the bus is up, so
+  // the next transfer spins forever on a clock-gated peripheral. On v2 the SD card shares this
+  // bus: a missing radio turned into a task-watchdog boot loop inside SD.begin(). Restart the
+  // bus on our pins and park the radio's CS high so the module stays off MISO.
+  void restore_spi_bus_() {
+    SPI.end();
+    SPI.begin(this->sck_pin_, this->miso_pin_, this->mosi_pin_, -1);
+    pinMode(this->cs_pin_, OUTPUT);
+    digitalWrite(this->cs_pin_, HIGH);
+  }
+
   void probe_bus_() {
     // 1. The reset wire. Releasing the pin for a moment reads the wire rather than the
     //    ESP32: the Adafruit breakout carries a pull-up on RST to the radio's own 3V3 rail,
@@ -413,6 +426,7 @@ class Rfm69Gateway : public Component {
                this->sck_pin_, this->miso_pin_, this->mosi_pin_, this->irq_pin_,
                this->reset_pin_);
       this->probe_bus_();
+      this->restore_spi_bus_();
       this->mark_failed();
       return;
     }
