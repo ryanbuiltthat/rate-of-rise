@@ -677,8 +677,8 @@ them before touching wiring:
 | Log line | Meaning |
 |---|---|
 | `REG_VERSION=0x00` or `0xFF` | The radio never answered. Power, SPI wiring, or RST held high. |
-| `REG_VERSION=0x24`, `MODEREADY=set` | SPI and the radio are fine — suspect the IRQ pin. |
-| `REG_VERSION=0x24`, `OPMODE=0x00`, `MODEREADY=clear` | **Dead radio.** See below. |
+| `REG_VERSION=0x24` (or `0x23`), `MODEREADY=set` | SPI and the radio are fine — suspect the IRQ pin. |
+| `REG_VERSION=0x24` (or `0x23`), `OPMODE=0x00`, `MODEREADY=clear` | **Dead radio.** See below. |
 
 The third row is worth recognising, because it looks like a config problem and is not. A
 `REG_VERSION` of `0x24` proves the SPI bus works in both directions, and config writes will
@@ -699,7 +699,8 @@ that.
 present by writing `0xAA` then `0x55` to `SYNCVALUE1` and reading each back. An open MISO line
 floats and capacitively echoes the byte just clocked out on MOSI, so both readbacks "succeed"
 and the component reports `RFM69 ready` with no radio attached at all. The gateway therefore
-checks `REG_VERSION == 0x24` after init — a constant only the chip can produce — and fails
+checks `REG_VERSION` after init — `0x24` for the SX1231H, `0x23` for the plain SX1231 some
+RFM69HCW batches carry; constants only the chip can produce — and fails
 loudly if it does not match. If you see that error, check MISO continuity before anything else.
 Note that MISO is legitimately tri-stated while CS is high, so probing the idle pin level
 proves nothing; trust `REG_VERSION`.

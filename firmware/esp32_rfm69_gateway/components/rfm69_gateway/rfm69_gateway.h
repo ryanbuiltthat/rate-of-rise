@@ -45,6 +45,11 @@ namespace rfm69_gateway {
 
 static const char *const TAG = "rfm69_gateway";
 
+// RegVersion is a constant only the chip can produce: 0x24 is the SX1231H on most RFM69HCW
+// modules, 0x23 the plain SX1231 that some batches carry (seen on the v2 bench radio). A
+// floating MISO echoes the 0x00 clocked out during the read, never either value.
+static inline bool is_sx1231_version(uint8_t v) { return v == 0x23 || v == 0x24; }
+
 // How long a peak RSSI sample stays valid. A report is ~8 ms on the air at 55555 bps and
 // handle_packet_() runs within a few ms of it, so this only has to outlive a single packet --
 // short enough that the value published always belongs to the packet just received.
@@ -248,7 +253,7 @@ class Rfm69Gateway : public Component {
   // Try every assignment of the four SPI signals across the four configured GPIOs and report
   // any that makes the radio answer. A harness re-terminated into a new enclosure can land a
   // wire on the wrong pad with every wire still passing a continuity test end to end, and the
-  // result is indistinguishable from a dead module -- except that one permutation reads 0x24.
+  // result is indistinguishable from a dead module -- except that one permutation reads 0x23/0x24.
   void scan_pin_permutations_() {
     const uint8_t pins[4] = {this->cs_pin_, this->sck_pin_, this->mosi_pin_, this->miso_pin_};
     const char *names[4] = {"cs", "sck", "mosi", "miso"};
@@ -262,12 +267,12 @@ class Rfm69Gateway : public Component {
           const int d = 6 - a - b - c;
           const uint8_t v =
               this->bitbang_read_reg_on_(pins[a], pins[b], pins[c], pins[d], REG_VERSION);
-          if (v != 0x24) continue;
+          if (!is_sx1231_version(v)) continue;
           found = true;
           ESP_LOGE(TAG,
-                   "  probe: RADIO ANSWERS 0x24 with cs=%u sck=%u mosi=%u miso=%u "
+                   "  probe: RADIO ANSWERS 0x%02X with cs=%u sck=%u mosi=%u miso=%u "
                    "-- i.e. the wire on the %s pad is really %s, %s is %s, %s is %s, %s is %s",
-                   pins[a], pins[b], pins[c], pins[d], names[a], "cs", names[b], "sck",
+                   v, pins[a], pins[b], pins[c], pins[d], names[a], "cs", names[b], "sck",
                    names[c], "mosi", names[d], "miso");
         }
       }
@@ -352,7 +357,7 @@ class Rfm69Gateway : public Component {
     const uint8_t bb_opmode = this->bitbang_read_reg_(REG_OPMODE);
     ESP_LOGE(TAG, "  probe: bit-banged REG_VERSION=0x%02X/0x%02X OPMODE=0x%02X", bb_version,
              bb_version2, bb_opmode);
-    if (bb_version == 0x24) {
+    if (is_sx1231_version(bb_version)) {
       ESP_LOGE(TAG, "  probe: the radio ANSWERS when the pins are bit-banged -- the wiring and "
                     "the module are fine, and the SPI peripheral is not driving these pins");
       return;
@@ -411,14 +416,14 @@ class Rfm69Gateway : public Component {
       //   REG_VERSION 0x00/0xFF -> radio never answered. Suspect MISO first (an open MISO
       //                            reads as 0xFF/0x00 crosstalk), then power, wiring, or
       //                            RST held high (RESET is active HIGH -- never tie to 3V3)
-      //   REG_VERSION 0x24      -> SPI is fine. If OPMODE reads 0x00 (sleep) and MODEREADY
+      //   REG_VERSION 0x23/0x24 -> SPI is fine. If OPMODE reads 0x00 (sleep) and MODEREADY
       //                            stays clear, the radio's oscillator never started and it
       //                            is stuck in sleep -- a dead module, not a config problem.
       const uint8_t version = this->radio_.readReg(REG_VERSION);
       const uint8_t opmode = this->radio_.readReg(REG_OPMODE);
       const uint8_t irqflags1 = this->radio_.readReg(REG_IRQFLAGS1);
       ESP_LOGE(TAG,
-               "RFM69 init failed: REG_VERSION=0x%02X (expected 0x24) OPMODE=0x%02X "
+               "RFM69 init failed: REG_VERSION=0x%02X (expected 0x23/0x24) OPMODE=0x%02X "
                "IRQFLAGS1=0x%02X (MODEREADY=%s)",
                version, opmode, irqflags1,
                (irqflags1 & RF_IRQFLAGS1_MODEREADY) ? "set" : "clear");
@@ -438,9 +443,9 @@ class Rfm69Gateway : public Component {
     // the radio taking part. REG_VERSION is a constant the chip alone can produce, so check it
     // before believing the radio is there.
     const uint8_t version = this->radio_.readReg(REG_VERSION);
-    if (version != 0x24) {
+    if (!is_sx1231_version(version)) {
       ESP_LOGE(TAG,
-               "RFM69 reported ready but REG_VERSION=0x%02X (expected 0x24) -- the radio is "
+               "RFM69 reported ready but REG_VERSION=0x%02X (expected 0x23/0x24) -- the radio is "
                "not really answering. Check the MISO connection first.",
                version);
       this->mark_failed();
