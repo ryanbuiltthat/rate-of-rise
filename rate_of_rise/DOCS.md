@@ -155,7 +155,8 @@ Set these on the **Configuration** tab.
 | `stage_entity` | `sensor.creek_gateway_stage` | Creek depth above the bed, published by the RFM69 gateway |
 | `creek_node_status_entity` | `binary_sensor.creek_gateway_creek_node_status` | Radio-link state for the creek node, published by the same gateway: ON while the node's 60 s reports arrive, OFF after five are missed. Blank to disable the check and fall back to `stage_max_age_minutes` |
 | `creek_node_packets_entity` | `sensor.outside_creek_gateway_creek_node_packets` | The gateway's packet counter. It changes on every report, so when it stops the link is treated as down even if the status sensor above is frozen at ON (it only writes on a transition). Blank to disable |
-| `soil_moisture_entities` | WH51 #1, #2 | `..._soil_moisture_willow` (near house), `..._soil_moisture_field` (near creek); order is significant |
+| `soil_moisture_entities` | WH51 #1, #2 | `..._soil_moisture_willow` (near house), `..._soil_moisture_field` (near creek); order is significant. Blank an entry (don't delete it) while its probe is out, or the other slides into its slot and is recorded under the wrong location. The willow probe is blanked until it is replaced |
+| `ponding_saturation_pct` | `78` | A probe at or above this turns on *Creek Soil Ponding* (a Tier 1 reason, and faster runoff in the lag estimate). Was a fixed 85 %; the field probe read 81 % with water standing on 2026-09-28 |
 | `onsite_rain_rate_entity` | `sensor.outside_weather_station_rain_intensity` | Ecowitt. Feeds the rain-rate watchdog, and the rain totals when the counter below is unavailable |
 | `onsite_rain_total_entity` | `sensor.outside_weather_station_rain_total` | Ecowitt's monotonic rain counter. Rolling rain totals are the exact difference between readings; integrating the sampled rate instead read 5–10 % low. Blank to use the rate |
 | `onsite_rain_daily_entity` | `sensor.outside_weather_station_rain_24hr` | Ecowitt. **Currently unused** |

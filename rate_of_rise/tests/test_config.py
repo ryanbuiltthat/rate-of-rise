@@ -87,6 +87,11 @@ def test_a_new_numeric_option_missing_from_an_old_install_uses_its_default():
     assert _num({"X": "12.5"}, "X", 2.0) == 12.5
 
 
+def test_ponding_threshold_arrives_and_defaults():
+    assert load_with(PONDING_SATURATION_PCT="82").ponding_saturation_pct == 82.0
+    assert load_with(PONDING_SATURATION_PCT="null").ponding_saturation_pct == 78.0
+
+
 def test_the_new_gauge_options_arrive():
     cfg = load_with(RATE_OF_RISE_WINDOW_MINUTES="15", MAX_STAGE_RISE_IN_MIN="3.5")
     assert cfg.rate_of_rise_window_minutes == 15.0
