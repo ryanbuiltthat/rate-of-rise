@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <utility>
 
 #include "esphome/components/binary_sensor/binary_sensor.h"
@@ -21,6 +22,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/core/component.h"
+#include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
 #include <HTTPClient.h>
@@ -42,6 +44,11 @@ namespace esphome {
 namespace rfm69_gateway {
 
 static const char *const TAG = "rfm69_gateway";
+
+// RegVersion is a constant only the chip can produce: 0x24 is the SX1231H on most RFM69HCW
+// modules, 0x23 the plain SX1231 that some batches carry (seen on the v2 bench radio). A
+// floating MISO echoes the 0x00 clocked out during the read, never either value.
+static inline bool is_sx1231_version(uint8_t v) { return v == 0x23 || v == 0x24; }
 
 // How long a peak RSSI sample stays valid. A report is ~8 ms on the air at 55555 bps and
 // handle_packet_() runs within a few ms of it, so this only has to outlive a single packet --
@@ -161,6 +168,20 @@ class Rfm69Gateway : public Component {
   // commit as the normal image and publishes both to the same release, so pressing the
   // diagnostic button never requires anyone to build anything by hand.
   void set_ota_diag_hex_url(const std::string &url) { this->ota_diag_hex_url_ = url; }
+#ifdef USE_RFM69_PACKET_HOOK
+  // v2 gateway only (creek_store, firmware/esp32s3_feather_gateway). Defined by creek_store's
+  // codegen and by nothing else, so v1's build does not contain any of this.
+  //
+  // The callback runs inside handle_packet_(), on the main task, WITH radio_mutex_ HELD. It
+  // must not take the mutex (FreeRTOS mutexes are not recursive) or touch the SPI bus: the
+  // store queues the record and writes it from its own loop().
+  void add_on_packet_callback(std::function<void(const char *, int16_t)> &&cb) {
+    this->packet_callback_.add(std::move(cb));
+  }
+  // The SD card on the Adalogger shares this SPI bus, so the store serialises on the same
+  // mutex the OTA transfer task already holds for the radio.
+  SemaphoreHandle_t bus_mutex() const { return this->radio_mutex_; }
+#endif
 
   // Bit-banged SPI mode 0 read on the configured pins, deliberately slow (~150 kHz) and
   // completely independent of the SPI peripheral. It exists to answer the one question a
@@ -232,7 +253,7 @@ class Rfm69Gateway : public Component {
   // Try every assignment of the four SPI signals across the four configured GPIOs and report
   // any that makes the radio answer. A harness re-terminated into a new enclosure can land a
   // wire on the wrong pad with every wire still passing a continuity test end to end, and the
-  // result is indistinguishable from a dead module -- except that one permutation reads 0x24.
+  // result is indistinguishable from a dead module -- except that one permutation reads 0x23/0x24.
   void scan_pin_permutations_() {
     const uint8_t pins[4] = {this->cs_pin_, this->sck_pin_, this->mosi_pin_, this->miso_pin_};
     const char *names[4] = {"cs", "sck", "mosi", "miso"};
@@ -246,12 +267,12 @@ class Rfm69Gateway : public Component {
           const int d = 6 - a - b - c;
           const uint8_t v =
               this->bitbang_read_reg_on_(pins[a], pins[b], pins[c], pins[d], REG_VERSION);
-          if (v != 0x24) continue;
+          if (!is_sx1231_version(v)) continue;
           found = true;
           ESP_LOGE(TAG,
-                   "  probe: RADIO ANSWERS 0x24 with cs=%u sck=%u mosi=%u miso=%u "
+                   "  probe: RADIO ANSWERS 0x%02X with cs=%u sck=%u mosi=%u miso=%u "
                    "-- i.e. the wire on the %s pad is really %s, %s is %s, %s is %s, %s is %s",
-                   pins[a], pins[b], pins[c], pins[d], names[a], "cs", names[b], "sck",
+                   v, pins[a], pins[b], pins[c], pins[d], names[a], "cs", names[b], "sck",
                    names[c], "mosi", names[d], "miso");
         }
       }
@@ -261,7 +282,20 @@ class Rfm69Gateway : public Component {
   }
 
   // Runs only on the init-failure path, where the component is about to be marked failed
-  // anyway -- so it is free to reconfigure the pins and never put them back.
+  // anyway -- so it is free to reconfigure the pins. The caller hands the SPI bus back
+  // afterwards (see restore_spi_bus_()), because another device may share it.
+  // The probe turns SCK/MOSI/MISO into plain GPIOs, and arduino-esp32 stops the SPI
+  // peripheral when its pins are taken away -- but SPIClass still believes the bus is up, so
+  // the next transfer spins forever on a clock-gated peripheral. On v2 the SD card shares this
+  // bus: a missing radio turned into a task-watchdog boot loop inside SD.begin(). Restart the
+  // bus on our pins and park the radio's CS high so the module stays off MISO.
+  void restore_spi_bus_() {
+    SPI.end();
+    SPI.begin(this->sck_pin_, this->miso_pin_, this->mosi_pin_, -1);
+    pinMode(this->cs_pin_, OUTPUT);
+    digitalWrite(this->cs_pin_, HIGH);
+  }
+
   void probe_bus_() {
     // 1. The reset wire. Releasing the pin for a moment reads the wire rather than the
     //    ESP32: the Adafruit breakout carries a pull-up on RST to the radio's own 3V3 rail,
@@ -323,7 +357,7 @@ class Rfm69Gateway : public Component {
     const uint8_t bb_opmode = this->bitbang_read_reg_(REG_OPMODE);
     ESP_LOGE(TAG, "  probe: bit-banged REG_VERSION=0x%02X/0x%02X OPMODE=0x%02X", bb_version,
              bb_version2, bb_opmode);
-    if (bb_version == 0x24) {
+    if (is_sx1231_version(bb_version)) {
       ESP_LOGE(TAG, "  probe: the radio ANSWERS when the pins are bit-banged -- the wiring and "
                     "the module are fine, and the SPI peripheral is not driving these pins");
       return;
@@ -382,14 +416,14 @@ class Rfm69Gateway : public Component {
       //   REG_VERSION 0x00/0xFF -> radio never answered. Suspect MISO first (an open MISO
       //                            reads as 0xFF/0x00 crosstalk), then power, wiring, or
       //                            RST held high (RESET is active HIGH -- never tie to 3V3)
-      //   REG_VERSION 0x24      -> SPI is fine. If OPMODE reads 0x00 (sleep) and MODEREADY
+      //   REG_VERSION 0x23/0x24 -> SPI is fine. If OPMODE reads 0x00 (sleep) and MODEREADY
       //                            stays clear, the radio's oscillator never started and it
       //                            is stuck in sleep -- a dead module, not a config problem.
       const uint8_t version = this->radio_.readReg(REG_VERSION);
       const uint8_t opmode = this->radio_.readReg(REG_OPMODE);
       const uint8_t irqflags1 = this->radio_.readReg(REG_IRQFLAGS1);
       ESP_LOGE(TAG,
-               "RFM69 init failed: REG_VERSION=0x%02X (expected 0x24) OPMODE=0x%02X "
+               "RFM69 init failed: REG_VERSION=0x%02X (expected 0x23/0x24) OPMODE=0x%02X "
                "IRQFLAGS1=0x%02X (MODEREADY=%s)",
                version, opmode, irqflags1,
                (irqflags1 & RF_IRQFLAGS1_MODEREADY) ? "set" : "clear");
@@ -397,6 +431,7 @@ class Rfm69Gateway : public Component {
                this->sck_pin_, this->miso_pin_, this->mosi_pin_, this->irq_pin_,
                this->reset_pin_);
       this->probe_bus_();
+      this->restore_spi_bus_();
       this->mark_failed();
       return;
     }
@@ -408,9 +443,9 @@ class Rfm69Gateway : public Component {
     // the radio taking part. REG_VERSION is a constant the chip alone can produce, so check it
     // before believing the radio is there.
     const uint8_t version = this->radio_.readReg(REG_VERSION);
-    if (version != 0x24) {
+    if (!is_sx1231_version(version)) {
       ESP_LOGE(TAG,
-               "RFM69 reported ready but REG_VERSION=0x%02X (expected 0x24) -- the radio is "
+               "RFM69 reported ready but REG_VERSION=0x%02X (expected 0x23/0x24) -- the radio is "
                "not really answering. Check the MISO connection first.",
                version);
       this->mark_failed();
@@ -766,6 +801,9 @@ class Rfm69Gateway : public Component {
     if (!parsed) {
       ESP_LOGW(TAG, "Could not parse packet from node %u: %s", sender_id, payload);
     }
+#ifdef USE_RFM69_PACKET_HOOK
+    this->packet_callback_.call(payload, rssi);
+#endif
   }
 
   // BinarySensor::publish_state() forwards every call, so track transitions here rather than
@@ -1228,6 +1266,9 @@ class Rfm69Gateway : public Component {
   uint8_t network_id_;
   bool is_rfm69hw_;
   std::string encryption_key_;
+#ifdef USE_RFM69_PACKET_HOOK
+  CallbackManager<void(const char *, int16_t)> packet_callback_;
+#endif
 
   sensor::Sensor *distance_sensor_{nullptr};
   sensor::Sensor *battery_sensor_{nullptr};

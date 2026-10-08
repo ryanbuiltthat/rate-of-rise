@@ -113,6 +113,26 @@ def test_url_uses_the_month_abbreviation_layout():
     assert url.endswith("/2026/02_Feb/SNODAS_20260201.tar"), url
 
 
+def test_history_between_fetches_each_day_once_without_evicting_the_live_cache():
+    import tempfile
+    from datetime import date, datetime, timezone
+    from pathlib import Path as _P
+    src = SnodasSwe(41.5, -75.9, _P(tempfile.mkdtemp()), today_fn=lambda: date(2026, 10, 7))
+    fetched = []
+
+    def fake_fetch_day(day):
+        fetched.append(day)
+        return 1.5 if day == date(2026, 10, 1) else 0.0
+    src._fetch_day = fake_fetch_day
+    at = src.history_between(datetime(2026, 10, 1, tzinfo=timezone.utc),
+                             datetime(2026, 10, 1, 6, tzinfo=timezone.utc))
+    for hour in (0, 2, 4):
+        assert at(datetime(2026, 10, 1, hour, tzinfo=timezone.utc)) == {
+            "snow_water_equivalent_in": 1.5}
+    assert fetched == [date(2026, 10, 1)]
+    assert "2026-10-01" not in src._cache
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

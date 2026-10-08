@@ -89,15 +89,34 @@ class RadarCells:
         self._fetch = fetch
         self._now = now_fn or (lambda: datetime.now(timezone.utc))
 
+    def _url(self, sts: datetime, ets: datetime) -> str:
+        fmt = "%Y-%m-%dT%H:%MZ"
+        return ("https://mesonet.agron.iastate.edu/cgi-bin/request/gis/nexrad_storm_attrs.py"
+                f"?fmt=csv&radar={self._radar}&sts={sts.strftime(fmt)}&ets={ets.strftime(fmt)}")
+
     def poll(self) -> dict:
         now = self._now()
-        sts = (now - timedelta(minutes=FETCH_WINDOW_MIN)).strftime("%Y-%m-%dT%H:%MZ")
-        ets = now.strftime("%Y-%m-%dT%H:%MZ")
-        url = (
-            "https://mesonet.agron.iastate.edu/cgi-bin/request/gis/nexrad_storm_attrs.py"
-            f"?fmt=csv&radar={self._radar}&sts={sts}&ets={ets}"
-        )
-        by_id = self._parse(self._fetch(url))
+        by_id = self._parse(self._fetch(self._url(now - timedelta(minutes=FETCH_WINDOW_MIN), now)))
+        return self._evaluate(by_id, now)
+
+    def history_between(self, start: datetime, end: datetime):
+        """One fetch for [start - FETCH_WINDOW_MIN, end]; the evaluator sees only the scans a
+        live poll at `as_of` would have seen."""
+        all_rows = self._parse(self._fetch(self._url(start - timedelta(minutes=FETCH_WINDOW_MIN),
+                                                     end)))
+
+        def at(as_of: datetime) -> dict:
+            naive = as_of.astimezone(timezone.utc).replace(tzinfo=None)
+            lo = naive - timedelta(minutes=FETCH_WINDOW_MIN)
+            by_id = {}
+            for sid, rows in all_rows.items():
+                kept = [r for r in rows if lo <= r["valid"] <= naive]
+                if kept:
+                    by_id[sid] = kept
+            return self._evaluate(by_id, as_of)
+        return at
+
+    def _evaluate(self, by_id: dict[str, list[dict]], now: datetime) -> dict:
         cells = self._current_cells(by_id)
 
         out: dict[str, float | None] = {

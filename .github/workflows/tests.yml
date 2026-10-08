@@ -46,6 +46,7 @@ jobs:
             if python "$t"; then :; else echo "::error file=$t::test suite failed"; fail=1; fi
             echo "::endgroup::"
           done
+          python tools/test_gateway_cutover.py || { echo "::error file=tools/test_gateway_cutover.py::failed"; fail=1; }
           exit $fail
 
       - name: Validate YAML and shell syntax
@@ -65,7 +66,9 @@ jobs:
                     "repository.yaml", "dashboards/creek_flood_watch.yaml",
                     "ha-packages/creek_warning.yaml", "ha-packages/creek_node_health.yaml",
                     ".github/workflows/tests.yml",
-                    "firmware/esp32_rfm69_gateway/gateway.base.yaml"]:
+                    "firmware/esp32_rfm69_gateway/gateway.base.yaml",
+                    "firmware/esp32s3_feather_gateway/gateway.base.yaml",
+                    "firmware/esp32s3_feather_gateway/ota-push.yaml"]:
               try:
                   yaml.load(pathlib.Path(p).read_text(encoding="utf-8"), Loader=Loader)
                   print("ok  ", p)
@@ -93,3 +96,41 @@ jobs:
               sys.exit(1)
           print(f"ok   version {version} documented in CHANGELOG.md")
           PY
+
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: store_core host tests
+        # creek_store's pure logic (record format, stage math, seq recovery, clock) runs on
+        # the host; the device-only parts are covered by the compile below and the bench.
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror             -I firmware/esp32s3_feather_gateway/components/creek_store             firmware/esp32s3_feather_gateway/tests/test_store_core.cpp -o /tmp/test_store_core
+          /tmp/test_store_core
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ESPHome
+        # Pinned to the version the gateways are built with locally and in the Device Builder.
+        run: pip install esphome==2026.7.3
+
+      - name: Compile v1 and v2
+        run: |
+          for d in esp32_rfm69_gateway esp32s3_feather_gateway; do
+            cp firmware/$d/secrets.yaml.example firmware/$d/secrets.yaml
+          done
+          # Each gateway compiles against its own example secrets (dummy but well-formed values).
+          esphome compile firmware/esp32_rfm69_gateway/gateway.yaml
+          esphome compile firmware/esp32s3_feather_gateway/gateway.yaml
+
+      - name: v1 build does not contain the v2 packet hook
+        # The shared rfm69_gateway component gained a hook for v2. It must compile out of v1,
+        # whose Device Builder config pulls the component from main.
+        run: |
+          if grep -q USE_RFM69_PACKET_HOOK firmware/esp32_rfm69_gateway/.esphome/build/creek-gateway/src/esphome/core/defines.h; then
+            echo "::error::v1 build defines USE_RFM69_PACKET_HOOK"; exit 1
+          fi
+          grep -q USE_RFM69_PACKET_HOOK firmware/esp32s3_feather_gateway/.esphome/build/creek-gateway-v2/src/esphome/core/defines.h

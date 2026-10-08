@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,6 +32,7 @@ class DatasetWriter:
         self._parquet = data_dir / "datasets" / "dataset.parquet"
         self._parts = data_dir / "datasets" / "parts"
         self._parts.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
 
     # --- fast loop ------------------------------------------------------------------
     def _part_path(self, ts: float) -> Path:
@@ -48,11 +50,17 @@ class DatasetWriter:
         record = row.as_dict()
         if outputs:
             record.update(outputs)
-        try:
-            with self._part_path(row.ts).open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(record) + "\n")
-        except OSError as exc:
-            log.error("could not append feature row: %s", exc)
+        self.append_record(record)
+
+    def append_record(self, record: dict) -> None:
+        """Append one already-built record to its day's part file. Thread-safe: the backfill
+        appends gap rows from its own thread while the fast loop appends today's."""
+        with self._lock:
+            try:
+                with self._part_path(record["ts"]).open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(record) + "\n")
+            except OSError as exc:
+                log.error("could not append feature row: %s", exc)
 
     # --- nightly batch --------------------------------------------------------------
     def pending_parts(self, now: float | None = None) -> list[Path]:
@@ -63,34 +71,36 @@ class DatasetWriter:
 
     def consolidate(self, now: float | None = None) -> int:
         """Fold completed parts into the Parquet dataset. Returns the new row count."""
-        parts = self.pending_parts(now)
-        if not parts:
-            return self.row_count()
+        with self._lock:
+            parts = self.pending_parts(now)
+            if not parts:
+                return self.row_count()
 
-        frames = []
-        for path in parts:
-            rows = self._read_part(path)
-            if rows:
-                frames.append(pd.DataFrame(rows))
-        if not frames:
-            for path in parts:      # nothing salvageable; don't re-read them forever
+            frames = []
+            for path in parts:
+                rows = self._read_part(path)
+                if rows:
+                    frames.append(pd.DataFrame(rows))
+            if not frames:
+                for path in parts:      # nothing salvageable; don't re-read them forever
+                    path.unlink(missing_ok=True)
+                return self.row_count()
+
+            merged = pd.concat(frames, ignore_index=True)
+            if self._parquet.exists():
+                merged = pd.concat([pd.read_parquet(self._parquet), merged], ignore_index=True)
+            # Sort and de-duplicate so a replayed part or a clock step cannot double-count.
+            # Use stable sort so drop_duplicates keeps the last appended row (the contract).
+            merged = merged.sort_values("ts", kind="stable").drop_duplicates(subset=["ts"], keep="last")
+
+            tmp = self._parquet.with_suffix(".tmp")
+            merged.to_parquet(tmp, index=False)
+            tmp.replace(self._parquet)      # atomic: a crash mid-write cannot truncate it
+            for path in parts:
                 path.unlink(missing_ok=True)
+
+            log.info("Consolidated %d part file(s); dataset now %d rows", len(parts), len(merged))
             return self.row_count()
-
-        merged = pd.concat(frames, ignore_index=True)
-        if self._parquet.exists():
-            merged = pd.concat([pd.read_parquet(self._parquet), merged], ignore_index=True)
-        # Sort and de-duplicate so a replayed part or a clock step cannot double-count.
-        merged = merged.sort_values("ts").drop_duplicates(subset=["ts"], keep="last")
-
-        tmp = self._parquet.with_suffix(".tmp")
-        merged.to_parquet(tmp, index=False)
-        tmp.replace(self._parquet)      # atomic: a crash mid-write cannot truncate it
-        for path in parts:
-            path.unlink(missing_ok=True)
-
-        log.info("Consolidated %d part file(s); dataset now %d rows", len(parts), len(merged))
-        return self.row_count()
 
     @staticmethod
     def _read_part(path: Path) -> list[dict]:
@@ -104,6 +114,8 @@ class DatasetWriter:
                 except ValueError:
                     # A torn final line from an unclean shutdown — skip it, keep the rest.
                     log.warning("skipping malformed row in %s", path.name)
+        except FileNotFoundError:
+            return []       # consolidated away between the glob and the read
         except OSError as exc:
             log.error("could not read %s: %s", path.name, exc)
         return rows
@@ -121,16 +133,20 @@ class DatasetWriter:
     def frame(self, columns: list[str] | None = None) -> pd.DataFrame:
         """The whole dataset — consolidated Parquet plus unconsolidated parts."""
         frames = []
-        if self._parquet.exists():
-            frames.append(pd.read_parquet(self._parquet))
+        # Parts first, then the parquet, without taking the lock (that would stall the fast
+        # loop). consolidate replaces the parquet before it deletes parts, so this order can
+        # only read a row twice (the dedupe below removes it), never miss one. The reverse
+        # order could read the old parquet, then find the parts already gone.
         part_rows = [r for p in sorted(self._parts.glob("*.jsonl"))
                      for r in self._read_part(p)]
+        if self._parquet.exists():
+            frames.append(pd.read_parquet(self._parquet))
         if part_rows:
             frames.append(pd.DataFrame(part_rows))
         if not frames:
             return pd.DataFrame(columns=columns or ["ts"])
 
-        df = pd.concat(frames, ignore_index=True).sort_values("ts")
+        df = pd.concat(frames, ignore_index=True).sort_values("ts", kind="stable")
         df = df.drop_duplicates(subset=["ts"], keep="last").reset_index(drop=True)
         if columns:
             for c in columns:

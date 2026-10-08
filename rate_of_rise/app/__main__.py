@@ -33,6 +33,8 @@ from .registry import ModelRegistry, promotion_readiness
 from .rise import HORIZONS_MIN, LABELS as RISE_LABELS, RiseModels, train_rise
 from .stagelog import StageLogger, stage_log_dir
 from .storms import StormLog
+from .backfill import build_backfill, recorder_db_path
+from .backfill.undo import undo as backfill_undo
 from .sources import FEATURE_KEYS, SourceCoordinator
 from . import train
 from .tiers import RadarWatchHold, compute_tier
@@ -330,6 +332,13 @@ def main() -> int:
     )
     stage_log = StageLogger(ha, cfg.stage_entity, stage_log_dir(data_dir, SHARE_DIR))
     log.info("High-resolution stage record at %s", stage_log_dir(data_dir, SHARE_DIR))
+    # Gateway v2 store backfill (app/backfill/). Returns None, and starts nothing, when
+    # gateway_store_url is blank, which is the default and the v1 configuration.
+    try:
+        backfill = build_backfill(cfg, mqtt.publish, dataset, sources, data_dir, SHARE_DIR)
+    except Exception:   # backfill must never be able to take the add-on down
+        log.exception("gateway store backfill could not start; continuing without it")
+        backfill = None
 
     status = {
         "state": "idle",
@@ -358,6 +367,7 @@ def main() -> int:
                                                 cfg.ml_drives_alerts),
             "rollback": lambda payload: _rollback(mqtt, registry, refresh_health),
             "annotate": lambda payload: _annotate(mqtt, storms, payload),
+            "backfill_undo": lambda payload: _backfill_undo(payload),
         }
     )
 
@@ -420,6 +430,8 @@ def main() -> int:
                 except Exception:   # a record, not an input: never let it stop the loop
                     log.exception("stage log tick failed")
     finally:
+        if backfill is not None:
+            backfill.stop()
         mqtt.disconnect()
         log.info("Stopped.")
     return 0
@@ -448,6 +460,16 @@ def _rollback(mqtt: MqttClient, registry: ModelRegistry, refresh_health=None) ->
     # A None version is the threshold estimate, not a missing answer — say so, since
     # this is what the operator sees on the dashboard after backing out a bad model.
     return f"rolled back to {version or 'the threshold estimate (no ML model active)'}"
+
+
+def _backfill_undo(payload: str) -> str:
+    """Take every backfilled row back out of HA's recorder (app/backfill/undo.py). Payload:
+    an ISO-8601 time to undo from, or empty for all of them. Raises on a bad time or an
+    unsupported recorder schema; CommandProcessor reports either."""
+    text = payload.strip()
+    since = datetime.fromisoformat(text).timestamp() if text else 0.0
+    n = backfill_undo(recorder_db_path(), since)
+    return f"removed {n} backfilled recorder row(s) since {text or 'the beginning'}"
 
 
 def _annotate(mqtt: MqttClient, storms: StormLog, payload: str) -> str:

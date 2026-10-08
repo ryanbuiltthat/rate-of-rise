@@ -3,6 +3,24 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.26.0
+
+- **New: backfill from gateway v2's SD store.** When `gateway_store_url` points at the new
+  Feather ESP32-S3 gateway, the add-on reads back every node packet and Ecowitt reading the
+  gateway logged while Home Assistant or WiFi was down, and fills the gap: in HA's own
+  entity history at the right times (and its hourly statistics), in the stage log, and as
+  dataset rows flagged `backfilled`. On-site rain totals and the API index are corrected for
+  the gap too. USGS, WU, radar cells, NWS alerts and SNODAS are re-fetched for the gap;
+  forecast features stay empty.
+- **Off by default, and harmless against the current gateway.** With `gateway_store_url`
+  blank nothing runs. Pointed at the v1 gateway, or at a gateway that is down, it reports
+  that on `sensor.rate_of_rise_creek_backfill_status` and logs no warnings or errors and nothing per poll.
+- Recorder writes only happen on a recorder schema the add-on has been checked against
+  (53). Every inserted row is marked, and `creek/cmd/backfill_undo` removes them.
+  `backfill_shadow_map` rehearses writes in the log without making them.
+- The add-on now maps `homeassistant_config` (read-write) for those writes, and depends on
+  `websocket-client` for the statistics import.
+
 ## 0.25.1
 
 - **Fix: *Creek Soil Ponding* said dry with water standing on the low ground.** A probe had

@@ -11,3 +11,5 @@ numpy>=1.26
 # rise.py (0.24.0) uses xgboost too, and sklearn for its Brier score.
 scikit-learn>=1.5
 xgboost>=2.1
+# Backfill imports hourly statistics through HA's websocket API (app/backfill/statistics.py).
+websocket-client>=1.8

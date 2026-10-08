@@ -82,3 +82,14 @@ class PrecipIndex:
     @property
     def value(self) -> float:
         return round(self._value, 3)
+
+    def adjust(self, added: list[tuple[float, float]], removed: list[tuple[float, float]]) -> None:
+        """Correct the index for rain that fell in the past (backfill): each amount counts as
+        it would have, decayed from when it fell to the index's last update."""
+        if self._ts is None:
+            return
+        decay = lambda t: self._k ** ((self._ts - t) / 86400.0)  # noqa: E731
+        delta = (sum(i * decay(t) for t, i in added if t <= self._ts)
+                 - sum(i * decay(t) for t, i in removed if t <= self._ts))
+        self._value = max(0.0, self._value + delta)
+        self._save()

@@ -89,6 +89,33 @@ def test_empty_response_yields_all_none():
     assert all(v is None for v in out.values())
 
 
+def test_history_between_evaluates_at_past_times():
+    from datetime import datetime, timezone
+    calls = []
+    series = {"value": {"timeSeries": [{
+        "sourceInfo": {"siteCode": [{"value": "01534860"}]},
+        "variable": {"variableCode": [{"value": "00065"}]},
+        "values": [{"value": [
+            {"value": "3.0", "dateTime": "2026-10-07T08:00:00.000-04:00"},
+            {"value": "3.5", "dateTime": "2026-10-07T11:00:00.000-04:00"},
+            {"value": "4.0", "dateTime": "2026-10-07T12:00:00.000-04:00"}]}]}]}}
+
+    def fetch(url, timeout=15.0):
+        calls.append(url)
+        return series
+
+    src = UsgsDownstream(fetch=fetch)
+    at = src.history_between(datetime(2026, 10, 7, 14, tzinfo=timezone.utc),
+                             datetime(2026, 10, 7, 17, tzinfo=timezone.utc))
+    assert len(calls) == 1 and "startDT=2026-10-07T08:00Z" in calls[0]
+    assert "endDT=2026-10-07T17:00Z" in calls[0]
+    out = at(datetime(2026, 10, 7, 15, 30, tzinfo=timezone.utc))    # 11:30 EDT
+    assert out["usgs_leggetts_gage_ft"] == 3.5
+    assert out["usgs_leggetts_rise_3h_ft"] == 0.5
+    assert out["usgs_tunkhannock_gage_ft"] is None
+    assert len(calls) == 1
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

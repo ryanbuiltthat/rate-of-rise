@@ -1,0 +1,29 @@
+# Creek gateway v2 — Home Assistant Device Builder wrapper, PRODUCTION (node-OTA buttons included).
+# Tracked mirror of /config/esphome/creek-gateway-v2.yaml; copy it there by hand.
+packages:
+  gateway:
+    url: https://github.com/ryanbuiltthat/rate-of-rise
+    ref: main
+    files: [firmware/esp32s3_feather_gateway/gateway.base.yaml]
+    refresh: 0s
+  ota_push:
+    url: https://github.com/ryanbuiltthat/rate-of-rise
+    ref: main
+    files: [firmware/esp32s3_feather_gateway/ota-push.yaml]
+    refresh: 0s
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/ryanbuiltthat/rate-of-rise
+      ref: main
+      path: firmware/esp32_rfm69_gateway/components
+    components: [rfm69_gateway]
+    refresh: 0s
+  - source:
+      type: git
+      url: https://github.com/ryanbuiltthat/rate-of-rise
+      ref: main
+      path: firmware/esp32s3_feather_gateway/components
+    components: [creek_store]
+    refresh: 0s

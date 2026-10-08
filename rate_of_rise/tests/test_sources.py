@@ -107,6 +107,25 @@ def test_a_poll_that_returns_values_but_reports_failure_is_not_alive():
     assert c.health()["wu"]["age"] is not None
 
 
+def test_history_sources_and_rain_accumulator_accessors():
+    c = make_empty_coordinator()
+    assert c.history_sources() == [] and c.rain_accumulator() is None
+
+    class Hist(FakeSource):
+        name = "usgs"
+
+        def history_between(self, start, end):
+            return lambda as_of: {}
+
+    class Rain(FakeSource):
+        name = "rain"
+
+    hist, rain = Hist(), Rain()
+    c._sources += [FakeSource(), hist, rain]
+    assert c.history_sources() == [hist]
+    assert c.rain_accumulator() is rain
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

@@ -152,6 +152,67 @@ def test_the_old_combined_history_seeds_each_station():
     assert abs(out["upstream_rain_1h_in"] - 0.3) < 1e-9, "upgrade restarted the window"
 
 
+def test_history_between_sums_station_totals_up_to_as_of():
+    import tempfile
+    from datetime import datetime, timezone
+    from pathlib import Path as _P
+    obs = {"20261007": [
+        {"obsTimeUtc": "2026-10-07T12:00:00Z", "obsTimeLocal": "2026-10-07 08:00:00",
+         "imperial": {"precipTotal": 0.10}},
+        {"obsTimeUtc": "2026-10-07T12:30:00Z", "obsTimeLocal": "2026-10-07 08:30:00",
+         "imperial": {"precipTotal": 0.30}},
+        {"obsTimeUtc": "2026-10-07T13:00:00Z", "obsTimeLocal": "2026-10-07 09:00:00",
+         "imperial": {"precipTotal": 0.35}}]}
+    calls = []
+
+    def fetch(url, timeout=15.0):
+        calls.append(url)
+        day = url.split("date=")[1][:8]
+        return {"observations": obs.get(day, [])}
+
+    src = WuUpstream("key", ["KXXTEST1"], _P(tempfile.mkdtemp()), fetch=fetch)
+    at = src.history_between(datetime(2026, 10, 7, 12, 30, tzinfo=timezone.utc),
+                             datetime(2026, 10, 7, 13, 0, tzinfo=timezone.utc))
+    assert all("/v2/pws/history/all?stationId=KXXTEST1" in u for u in calls)
+    out = at(datetime(2026, 10, 7, 12, 45, tzinfo=timezone.utc))
+    assert out["upstream_rain_1h_in"] == 0.2
+    assert out["upstream_precip_today_in"] == 0.3
+    late = at(datetime(2026, 10, 8, 3, 0, tzinfo=timezone.utc))      # nobody fresh
+    assert late["upstream_rain_1h_in"] is None
+
+
+def _obs(utc, local, total):
+    return {"obsTimeUtc": utc, "obsTimeLocal": local, "imperial": {"precipTotal": total}}
+
+
+def _close(incs, expected):
+    return len(incs) == len(expected) and all(
+        a[0] == b[0] and abs(a[1] - b[1]) < 1e-9 for a, b in zip(incs, expected))
+
+
+def test_history_holds_the_high_water_mark_like_the_live_poll():
+    from datetime import datetime
+    from app.sources.wu import _history_series
+    incs, _ = _history_series([
+        _obs("2026-10-07T12:00:00Z", "2026-10-07 08:00:00", 0.5),
+        _obs("2026-10-07T12:10:00Z", "2026-10-07 08:10:00", 0.2),   # feed glitch
+        _obs("2026-10-07T12:20:00Z", "2026-10-07 08:20:00", 0.5),   # recovery: not new rain
+        _obs("2026-10-07T12:30:00Z", "2026-10-07 08:30:00", 0.6)])
+    t4 = datetime.fromisoformat("2026-10-07T12:30:00+00:00").timestamp()
+    assert _close(incs, [(t4, 0.1)]), incs
+
+
+def test_history_rebaselines_across_a_long_hole_like_the_live_poll():
+    from datetime import datetime
+    from app.sources.wu import _history_series
+    incs, _ = _history_series([
+        _obs("2026-10-07T12:00:00Z", "2026-10-07 08:00:00", 0.1),
+        _obs("2026-10-07T17:00:00Z", "2026-10-07 13:00:00", 0.6),   # 5 h hole: unplaceable
+        _obs("2026-10-07T17:10:00Z", "2026-10-07 13:10:00", 0.7)])
+    t3 = datetime.fromisoformat("2026-10-07T17:10:00+00:00").timestamp()
+    assert _close(incs, [(t3, 0.1)]), incs
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

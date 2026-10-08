@@ -18,6 +18,7 @@ record, not an input: nothing reads it back, which is why a failed write only lo
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +27,11 @@ log = logging.getLogger("app.stagelog")
 
 LOG_EVERY_S = 10.0    # the node's fast mode reports every ~5-7 s; 10 s catches most of it
 HEADER = "reading_ts,logged_ts,stage_ft\n"
+
+# StageLogger appends from the main loop; the backfill rewrites day files from its own
+# thread (app/backfill/stagelog_merge.py). Both take this around file access, or a rewrite
+# could drop a row appended between its read and its replace.
+FILE_LOCK = threading.Lock()
 
 
 class StageLogger:
@@ -58,15 +64,16 @@ class StageLogger:
         day = datetime.fromtimestamp(reading_ts).strftime("%Y-%m-%d")
         path = self._dir / f"{day}.csv"
         stage = "" if value is None else f"{value:.4f}"    # blank = unknown/unavailable
-        try:
-            new = not path.exists()
-            with path.open("a", encoding="utf-8") as fh:
-                if new:
-                    fh.write(HEADER)
-                fh.write(f"{reading_ts},{round(now, 1)},{stage}\n")
-        except OSError as exc:
-            log.warning("could not append to %s: %s", path, exc)
-            return False
+        with FILE_LOCK:
+            try:
+                new = not path.exists()
+                with path.open("a", encoding="utf-8") as fh:
+                    if new:
+                        fh.write(HEADER)
+                    fh.write(f"{reading_ts},{round(now, 1)},{stage}\n")
+            except OSError as exc:
+                log.warning("could not append to %s: %s", path, exc)
+                return False
         return True
 
 

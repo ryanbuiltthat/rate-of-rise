@@ -246,6 +246,27 @@ def test_a_cell_past_its_approach_time_is_overhead_not_negative():
     assert src.poll()["radar_threat_eta_min"] == 0.0
 
 
+def test_history_between_sees_only_scans_up_to_as_of():
+    from datetime import datetime, timezone
+    calls = []
+    csv_text = ("VALID,STORM_ID,DRCT,SKNT,MAX_DBZ,LAT,LON\n"
+                "202610071200,A1,270,20,30,41.6,-76.4\n"
+                "202610071230,A1,270,20,30,41.6,-76.3\n")
+
+    def fetch(url, timeout=15.0):
+        calls.append(url)
+        return csv_text
+
+    at = RadarCells(41.5, -75.9, "BGM", fetch=fetch).history_between(
+        datetime(2026, 10, 7, 12, tzinfo=timezone.utc),
+        datetime(2026, 10, 7, 13, tzinfo=timezone.utc))
+    assert "sts=2026-10-07T11:30Z" in calls[0] and "ets=2026-10-07T13:00Z" in calls[0]
+    assert at(datetime(2026, 10, 7, 11, 50, tzinfo=timezone.utc))["radar_cells_tracked"] == 0.0
+    assert at(datetime(2026, 10, 7, 12, 5, tzinfo=timezone.utc))["radar_cells_tracked"] == 1.0
+    assert at(datetime(2026, 10, 7, 13, 30, tzinfo=timezone.utc))["radar_cells_tracked"] == 0.0
+    assert len(calls) == 1
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

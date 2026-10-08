@@ -162,6 +162,14 @@ class SourceCoordinator:
             }
         return out
 
+    def history_sources(self) -> list:
+        """Sources that can answer for a past time (app/backfill/gaprows.py)."""
+        return [s for s in self._sources if hasattr(s, "history_between")]
+
+    def rain_accumulator(self):
+        """The live on-site rain accumulator, which backfill corrects after a gap."""
+        return next((s for s in self._sources if s.name == "rain"), None)
+
     def configured(self) -> set[str]:
         """Names of the sources actually built — an absent source is not a fault."""
         return {src.name for src in self._sources}
