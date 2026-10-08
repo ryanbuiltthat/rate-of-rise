@@ -22,8 +22,9 @@
 //
 // LIBRARIES (see platformio.ini lib_deps):
 //   - RFM69        (LowPowerLab)
-//   - LowPower     (LowPowerLab — github.com/LowPowerLab/LowPower)
 //   - RTCZero      (Arduino — RTC alarm for timed wakeup from standby)
+//   Standby itself is the local standby() below rather than LowPowerLab's LowPower
+//   library: that library's standby() lacks the SysTick guard (see "Hardware watchdog").
 //
 // Confirmed on hardware 2026-09-07 (see firmware/README.md, Bench-Test Procedure
 // step 1). BENCH_TEST is disabled below for enclosure/pole install — the node now
@@ -34,7 +35,6 @@
 #include <RFM69_ATC.h>
 #include <RFM69_OTA.h>
 #include <SPIFlash.h>
-#include <LowPower.h>
 #include <RTCZero.h>
 
 // ─── Radio ───────────────────────────────────────────────────────────────────
@@ -58,6 +58,24 @@
 // ─── Timing ──────────────────────────────────────────────────────────────────
 #define REPORT_INTERVAL_S   60        // 60 s between reports (spec §2)
 #define MODBUS_TIMEOUT_MS   1000
+// Standby is taken in naps no longer than this so the hardware watchdog (16 s period, see
+// "Hardware watchdog") can stay armed across the whole sleep. The watchdog runs from the
+// internal OSCULP32K, which is only loosely calibrated: budget for it running up to a
+// quarter fast (a 12 s real period) and 8 s naps still leave room for the wake, the RTC
+// re-arm and the feed. A nap's wake-up costs a few milliseconds of MCU time, so eight of
+// them a cycle is a rounding error on the power budget.
+#define SLEEP_NAP_MAX_S     8
+
+// ─── Radio bring-up ──────────────────────────────────────────────────────────
+// RFM69::initialize() gives the radio 50 ms to report ModeReady after the reset pulse and
+// returns false otherwise. One attempt per wake turned a slow radio into a silent node: the
+// node went on cycling, radar and all, and "skipped TX this cycle" every minute for hours
+// (2026-09-27..29, see docs). So give it a few tries with a longer reset hold and settle
+// between them, and count every failed attempt into the `i` payload field so the packet
+// that finally gets out says how hard the radio was to wake.
+#define RADIO_INIT_ATTEMPTS        3
+#define RADIO_INIT_RETRY_HOLD_MS   2     // RST high; the datasheet minimum is 100 us
+#define RADIO_INIT_RETRY_SETTLE_MS 20    // after RST falls; datasheet minimum is 5 ms
 
 // ─── Radar warm-up ───────────────────────────────────────────────────────────
 // The datasheet's "100 ms startup" is when the SEN0676 starts ANSWERING, not when its
@@ -102,30 +120,39 @@
 // go back to 60 s when it isn't — the battery cost lands only during a rise, which is
 // exactly when spending it is correct.
 //
-// This works at all because LowPower.standby() is a WFI, not a reset: loop() resumes
+// This works at all because standby() is a WFI, not a reset: loop() resumes
 // where it left off and the statics below survive every sleep. An ESP32 deep-sleep node
 // would need RTC_DATA_ATTR or flash to carry the same state across a wake.
 #define FAST_REPORT_INTERVAL_S   5
 // The radar reports "empty height" (sensor face → water), so a rise makes the distance
-// *shrink*; the rate below is computed as (previous − current) to come out positive on
-// a rise. 0.02 in/min = 0.508 mm/min. That number is not arbitrary: it sits deliberately
-// below the add-on's 0.05 in/min Warning trigger (tiers.py WARNING_RATE_OF_RISE_IN_MIN)
-// so the node is already sampling fast *before* a Warning is plausible. If either value
-// ever moves, preserve that ordering — the retired ESPHome node enforced it with a test
-// that was lost in the Moteino port.
-#define RISE_THRESHOLD_MM_MIN    0.5f
-// The SEN0676 is ±5 mm, so a single pair of samples cannot resolve 0.5 mm/min on its
-// own — noise alone can manufacture one. Requiring consecutive qualifying samples is
-// what makes the trigger mean "rising" rather than "jittering", and mirrors the add-on's
-// own WARNING_RATE_OF_RISE_CONFIRM_SAMPLES guard on the same quantity.
+// *shrink*; "drop" below is (older reading − current) and comes out positive on a rise.
+//
+// A rise is a drop of RISE_MIN_DROP_MM against a reading between RISE_LOOKBACK_MIN_S and
+// RISE_LOOKBACK_MAX_S old. Both halves matter. The SEN0676 is ±5 mm, so the drop has to be
+// one a single sample's jitter cannot fake; and it has to be measured over minutes, not
+// over consecutive samples. The first version compared consecutive readings against
+// 0.5 mm/min, which at the 5 s cadence meant any 1 mm wobble read as 10 mm/min: from
+// 2026-09-27 the node sat in fast mode ~90 % of the time on a creek that was not moving,
+// with the radar rail up and the radio keying every 6 s all night.
+//
+// The implied trigger rate is RISE_MIN_DROP_MM over RISE_LOOKBACK_MAX_S: 5 mm / 7 min is
+// ~0.7 mm/min, 0.028 in/min. That sits deliberately below the add-on's 0.05 in/min Warning
+// trigger (tiers.py WARNING_RATE_OF_RISE_IN_MIN) so the node is already sampling fast
+// *before* a Warning is plausible. A test in rate_of_rise/tests enforces that ordering.
+#define RISE_MIN_DROP_MM         5
+#define RISE_LOOKBACK_MIN_S      240
+#define RISE_LOOKBACK_MAX_S      420
+// One reading is kept per RTC minute so the lookback has something to compare against
+// whatever the cadence; 8 slots cover RISE_LOOKBACK_MAX_S with a minute to spare.
+#define RISE_HISTORY_SLOTS       8
+// Requiring consecutive qualifying samples is what makes the trigger mean "rising"
+// rather than "jittering", and mirrors the add-on's own WARNING_RATE_OF_RISE_CONFIRM_SAMPLES
+// guard on the same quantity.
 #define RISE_CONFIRM_SAMPLES     2
 // Hysteresis on the way out: a plateau part-way up a real rise shouldn't drop the
 // cadence back to 60 s just before the crest. At the fast interval this is ~50 s of
-// quiet before reverting.
+// quiet before reverting, on top of the lookback still seeing the rise for several minutes.
 #define FAST_MODE_HOLD_SAMPLES   10
-// Don't manufacture a rate across a gap this long — a missed cycle or two is a real
-// interval and fine to measure over, but anything beyond this is a cold start.
-#define MAX_RATE_GAP_S           300
 // Each wake already costs the Modbus read (the rail stays up in fast mode, so no warm-up) before the
 // OTA_LISTEN_MS window, so at a 5 s sleep the full 1.5 s window would make the real
 // period ~7 s and hold the node awake ~30 % of it. Shortening the window in fast mode
@@ -231,7 +258,7 @@
 #define DIAG_MIN_USEFUL_HOLDS    60
 
 // ─── Bench testing ───────────────────────────────────────────────────────────
-// On USB/bench power: skip LowPower.standby() entirely so the board stays
+// On USB/bench power: skip standby entirely so the board stays
 // reachable over serial instead of the port dropping for 30-55 s per wake,
 // and cycles fast enough to check the sensor/radio. Comment out before
 // deploying on battery.
@@ -259,10 +286,31 @@ void rtcAlarmISR() { rtcAlarmFired = true; }
 // for why that is safe here. -1 means "no sample yet"; a failed Modbus read leaves these
 // untouched rather than poisoning the next rate with a reading that never happened.
 static int32_t lastDistanceMm = -1;
-static int32_t lastSampleSod  = -1;
 static uint8_t risingSamples  = 0;
 static uint8_t quietSamples   = 0;
 static bool    fastMode       = false;
+
+// One good reading per RTC minute, oldest overwritten. riseHead is the next slot to write;
+// riseCount saturates at RISE_HISTORY_SLOTS. lastBucket is the minute the newest entry
+// belongs to, so a 5 s cadence still stores one sample a minute.
+struct RiseSample { int32_t sod; int32_t mm; };
+static RiseSample riseHistory[RISE_HISTORY_SLOTS];
+static uint8_t    riseHead    = 0;
+static uint8_t    riseCount   = 0;
+static int32_t    lastBucket  = -1;
+
+// ─── Diagnostics on the wire ─────────────────────────────────────────────────
+// Three fields that let the first packet after an outage say what the outage was. All
+// cost radio bytes, so they are single-letter keys (see the packet budget note in loop()).
+//   r  PM->RCAUSE, read once at boot: 1 power-on, 2/4 brown-out, 16 external (the reset
+//      button), 32 watchdog, 64 software (RFM69_OTA's reboot into the bootloader).
+//   n  cycles since boot, wrapping. Back at 0 means the node reset; carrying on from where
+//      it was means it resumed -- a stalled clock, or a radio that would not come up.
+//   i  radio init attempts that failed since the last transmit. Non-zero on the packet that
+//      ends a silence means the MCU was awake the whole time and the radio was the problem.
+static uint8_t  resetCause        = 0;
+static uint16_t cycleCount        = 0;
+static uint8_t  radioInitFailures = 0;
 
 #if DIAG_RADAR_WINDOW_ENABLE
 // Window bookkeeping, all in plain SRAM across standby like the crest sampling state above.
@@ -293,10 +341,88 @@ static int32_t secondsOfDay() {
        + (int32_t)rtc.getSeconds();
 }
 
-// Enter SAMD21 standby for the given number of seconds using an RTC alarm.
-// LowPower.standby() sets the SLEEPDEEP bit and executes WFI; the RTC match
-// interrupt is what wakes it back up.
-static void sleepSeconds(uint16_t seconds) {
+// ─── Hardware watchdog ───────────────────────────────────────────────────────
+// The catch-all for a hang nobody has found yet. The specific spins already known are
+// defended one by one (radioBringUp, flash.sleep), but RFM69::sendFrame() still waits for
+// ModeReady and PacketSent with no timeout on every TX, and a board browning out under the
+// radar rail's inrush can wedge anywhere. Any of those used to leave the node off the air
+// until someone waded out and pressed reset; now the SAMD21 resets itself and reports
+// again, with `r` = 32 on the wire to say so.
+//
+// Armed in setup() and left running, sleep included. The first version (#43) was clocked
+// from GCLK2 and disarmed for standby, which left the two failures that actually needed
+// catching uncovered: a node that never wakes -- the SAMD21's "sporadically never wakes from
+// standby" lockup (see standby() below) or a stalled 32 kHz crystal -- was asleep with the
+// watchdog off, and a stalled crystal would have stopped the watchdog too, because GCLK2
+// is the RTC's crystal generator. So this one runs from OSCULP32K, the internal
+// ultra-low-power oscillator that is always on and cannot stall, on a generator nothing
+// else uses; and sleepSeconds() takes standby in SLEEP_NAP_MAX_S naps with a feed between
+// them, so the 16 s period spans the sleep. The only time it stands down is an OTA transfer,
+// which blocks in the library for ~40 s and has its own timeouts.
+//
+// Budget, assuming OSCULP32K may run a quarter fast (a 12 s real period): the radar warm-up
+// is the one awake stretch that can approach that (SENSOR_READY_TIMEOUT_MS plus a final
+// Modbus timeout, ~11 s), so readRadarDistance() feeds once per poll -- each poll is
+// bounded by MODBUS_TIMEOUT_MS off millis(), and a hang inside one (a stuck Serial1 flush)
+// stops the feeding, which is the point. A feed after the read covers the TX and listen
+// window, and sleepSeconds() feeds between naps.
+//
+// GCLK generators here: 0 DFLL48M and 1 XOSC32K belong to the Arduino core, 2 to RTCZero
+// (XOSC32K / 32 for the RTC), 3 OSC8M to the core. 4 is free. OSCULP32K / 32 = 1.024 kHz,
+// so the WDT cycle counts are milliseconds (near enough).
+#define WDT_GCLK_GEN 4
+
+static void wdtEnable() {
+  // Stop the WDT first: its own register sync needs whatever clock it currently has.
+  WDT->CTRL.reg = 0;
+  while (WDT->STATUS.bit.SYNCBUSY);
+  // A clock channel must be disabled before its generator is changed (datasheet 15.6.2.6).
+  // Writing CLKCTRL with the ID and CLKEN clear does that; the read-back that follows is of
+  // the channel the ID selected.
+  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID_WDT;
+  while (GCLK->CLKCTRL.bit.CLKEN);
+  GCLK->GENDIV.reg = GCLK_GENDIV_ID(WDT_GCLK_GEN) | GCLK_GENDIV_DIV(4);   // DIVSEL: 2^(4+1) = 32
+  while (GCLK->STATUS.bit.SYNCBUSY);
+  // No RUNSTDBY: that bit only governs the GCLK_IO pin. Internally a generator keeps running
+  // in standby for as long as an enabled peripheral requests it, and the WDT does.
+  GCLK->GENCTRL.reg = GCLK_GENCTRL_ID(WDT_GCLK_GEN) | GCLK_GENCTRL_SRC_OSCULP32K |
+                      GCLK_GENCTRL_DIVSEL | GCLK_GENCTRL_GENEN;
+  while (GCLK->STATUS.bit.SYNCBUSY);
+  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID_WDT | GCLK_CLKCTRL_GEN(WDT_GCLK_GEN) | GCLK_CLKCTRL_CLKEN;
+  while (GCLK->STATUS.bit.SYNCBUSY);
+  WDT->CONFIG.reg = WDT_CONFIG_PER_16K;     // 16384 cycles ≈ 16 s
+  WDT->INTENCLR.reg = WDT_INTENCLR_EW;
+  WDT->CTRL.reg = WDT_CTRL_ENABLE;
+  while (WDT->STATUS.bit.SYNCBUSY);
+}
+
+static void wdtFeed() {
+  if (WDT->STATUS.bit.SYNCBUSY) return;     // a clear already in flight restarts it anyway
+  WDT->CLEAR.reg = WDT_CLEAR_CLEAR_KEY;
+}
+
+static void wdtDisable() {
+  WDT->CTRL.reg = 0;
+  while (WDT->STATUS.bit.SYNCBUSY);
+}
+
+// SAMD21 standby. This is LowPowerLab's standby (SLEEPDEEP + WFI) plus the guard that
+// ArduinoLowPower carries and that library does not: a SysTick interrupt landing on the WFI can leave the chip
+// asleep for good, with the RTC alarm unable to bring it back (Microchip forum, "SAMD21
+// sporadically locks and does not wake from standby"). Masking SysTick across the WFI is the
+// accepted fix. millis() is stopped in standby anyway, so nothing is lost by it.
+static void standby() {
+  SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;
+  SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+  __DSB();
+  __WFI();
+  SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
+}
+
+// One nap: standby until an RTC alarm `seconds` from now. The RTC match interrupt is what
+// wakes the chip; anything else that fires (USB, a pin) ends the nap early, and the caller
+// re-reads the clock and naps again.
+static void napSeconds(uint16_t seconds) {
   int32_t target = (secondsOfDay() + (int32_t)seconds) % SECONDS_PER_DAY;
 
   rtcAlarmFired = false;
@@ -310,18 +436,34 @@ static void sleepSeconds(uint16_t seconds) {
   // away, it is 24 hours away — the node off the air for a day, including the listen
   // window that OTA needs to fix it. Re-read the clock as late as possible and skip the
   // standby entirely unless the target is still ahead of us: the worst case is then one
-  // un-slept cycle rather than a lost day. The margin being skipped here shrinks as the
-  // interval does, which is why this matters at FAST_REPORT_INTERVAL_S and did not at a
-  // fixed 60 s.
+  // un-slept nap rather than a lost day. (The watchdog now bounds even that day to 16 s,
+  // but a reset is still a lost cycle and a reset cause on the wire; better not to.)
   int32_t remaining = target - secondsOfDay();
   if (remaining < 0) remaining += SECONDS_PER_DAY;
   if (remaining > 0 && remaining <= (int32_t)seconds) {
-    LowPower.standby();
+    standby();
   } else {
-    Serial.println(F("RTC alarm already passed; skipping standby this cycle"));
+    Serial.println(F("RTC alarm already passed; skipping this nap"));
   }
 
   rtc.disableAlarm();
+}
+
+// Sleep `seconds` in naps the watchdog can span, feeding it between them. Measured off the
+// RTC rather than counted, so an early wake or an un-slept nap costs nothing but a re-arm.
+// Every way this can go wrong ends in a watchdog reset rather than a hang: a nap that never
+// wakes (alarm lost, clock stalled) runs the 16 s out with nobody feeding; and the RTC sync
+// spins inside RTCZero are awake code the watchdog also sees.
+static void sleepSeconds(uint16_t seconds) {
+  const int32_t start = secondsOfDay();
+  for (;;) {
+    wdtFeed();
+    int32_t elapsed = secondsOfDay() - start;
+    if (elapsed < 0) elapsed += SECONDS_PER_DAY;     // wrapped past midnight
+    if (elapsed >= (int32_t)seconds) return;
+    const int32_t left = (int32_t)seconds - elapsed;
+    napSeconds((uint16_t)(left > SLEEP_NAP_MAX_S ? SLEEP_NAP_MAX_S : left));
+  }
 }
 
 // ─── RFM69 reset & init ──────────────────────────────────────────────────────
@@ -329,7 +471,8 @@ static void sleepSeconds(uint16_t seconds) {
 // radio that stops answering MODEREADY after a standby hangs the MCU until the
 // reset button is pressed. Hardware-reset the radio on every wake and rebuild its
 // config from scratch instead: initialize() has a 50 ms SPI handshake timeout, so
-// a bad wake costs one report rather than the node.
+// a bad wake costs one report rather than the node (and, since the watchdog, a hang
+// costs 16 s rather than a site visit).
 static void resetRadioPin() {
   digitalWrite(RFM69_RST, HIGH);   // SX1231: >=100 us high, then >=5 ms before use
   delayMicroseconds(100);
@@ -352,6 +495,28 @@ static bool radioInit() {
     radio.enableAutoPower(ATC_RSSI);
   #endif
   return true;
+}
+
+// Reset and initialize the radio, retrying with a longer reset hold and settle when the
+// first attempt does not come up (see "Radio bring-up"). Every failed attempt is counted
+// into radioInitFailures for the payload. ~150 ms per failed attempt, well inside the
+// watchdog budget.
+static bool radioBringUp() {
+  for (uint8_t attempt = 0; attempt < RADIO_INIT_ATTEMPTS; attempt++) {
+    if (attempt == 0) {
+      resetRadioPin();
+    } else {
+      digitalWrite(RFM69_RST, HIGH);
+      delay(RADIO_INIT_RETRY_HOLD_MS);
+      digitalWrite(RFM69_RST, LOW);
+      delay(RADIO_INIT_RETRY_SETTLE_MS);
+    }
+    if (radioInit()) return true;
+    if (radioInitFailures < 255) radioInitFailures++;
+    Serial.print(F("RFM69 init failed, attempt "));
+    Serial.println(attempt + 1);
+  }
+  return false;
 }
 
 // ─── Modbus CRC-16 (standard) ────────────────────────────────────────────────
@@ -427,6 +592,7 @@ static int32_t readRadarDistance() {
   int32_t prev = -1;
   int32_t last = -1;
   for (;;) {
+    wdtFeed();                  // per poll; see the budget note under "Hardware watchdog"
     const int32_t d = modbusReadHolding(SENSOR_ADDR, REG_DISTANCE);
     if (d > 0 && prev > 0 && labs(d - prev) <= SENSOR_STABLE_MM) {
       Serial.print(F("radar settled after "));
@@ -464,8 +630,8 @@ static void radarPowerDown() {
 // it takes FAST_MODE_HOLD_SAMPLES quiet ones. The two are deliberately unequal — see
 // their definitions for why sensor noise argues for the first and the shape of a real
 // crest argues for the second.
-static void updateSampleMode(float rise_mm_min) {
-  if (rise_mm_min >= RISE_THRESHOLD_MM_MIN) {
+static void updateSampleMode(bool rising) {
+  if (rising) {
     quietSamples = 0;
     if (risingSamples < RISE_CONFIRM_SAMPLES) risingSamples++;
     if (!fastMode && risingSamples >= RISE_CONFIRM_SAMPLES) {
@@ -482,22 +648,48 @@ static void updateSampleMode(float rise_mm_min) {
   }
 }
 
-// Fold a fresh reading into the cadence decision. A rise shrinks the radar's reported
-// distance, so the delta is (previous - current) to come out positive on the way up.
+// Keep one good reading per RTC minute. At the 5 s cadence that is every twelfth sample;
+// at 60 s it is (nearly) every one.
+static void rememberReading(int32_t sod, int32_t mm) {
+  const int32_t bucket = sod / 60;
+  if (bucket == lastBucket) return;
+  lastBucket = bucket;
+  riseHistory[riseHead].sod = sod;
+  riseHistory[riseHead].mm = mm;
+  riseHead = (uint8_t)((riseHead + 1) % RISE_HISTORY_SLOTS);
+  if (riseCount < RISE_HISTORY_SLOTS) riseCount++;
+}
+
+// The drop (older − current, positive on a rise) against the oldest stored reading whose
+// age is inside the lookback window. False when no reading qualifies yet -- the first few
+// minutes after boot, or after the clock has been changed under us.
+static bool dropOverLookback(int32_t sod, int32_t mm, int32_t *drop) {
+  for (uint8_t k = 0; k < riseCount; k++) {
+    // Oldest first: riseHead is the next slot to write, so the oldest live entry sits
+    // riseCount slots behind it.
+    const RiseSample &s =
+        riseHistory[(riseHead + RISE_HISTORY_SLOTS - riseCount + k) % RISE_HISTORY_SLOTS];
+    int32_t age = sod - s.sod;
+    if (age < 0) age += SECONDS_PER_DAY;               // wrapped past midnight
+    if (age > RISE_LOOKBACK_MAX_S) continue;           // too old; try the next newer one
+    if (age < RISE_LOOKBACK_MIN_S) return false;       // everything newer is newer still
+    *drop = s.mm - mm;
+    return true;
+  }
+  return false;
+}
+
+// Fold a fresh reading into the cadence decision.
 static void updateRateOfRise(int32_t distance_mm) {
   if (distance_mm < 0) return;        // failed read: no reading, no rate, no state change
 
   const int32_t nowSod = secondsOfDay();
-  if (lastDistanceMm >= 0) {
-    int32_t elapsed_s = nowSod - lastSampleSod;
-    if (elapsed_s < 0) elapsed_s += SECONDS_PER_DAY;    // wrapped past midnight
-    if (elapsed_s > 0 && elapsed_s <= MAX_RATE_GAP_S) {
-      updateSampleMode((float)(lastDistanceMm - distance_mm) * 60.0f / (float)elapsed_s);
-    }
-  }
-
+  int32_t drop = 0;
+  const bool measurable = dropOverLookback(nowSod, distance_mm, &drop);
+  rememberReading(nowSod, distance_mm);
   lastDistanceMm = distance_mm;
-  lastSampleSod  = nowSod;
+  if (!measurable) return;            // nothing old enough to compare against: hold cadence
+  updateSampleMode(drop >= RISE_MIN_DROP_MM);
 }
 
 #if DIAG_RADAR_WINDOW_ENABLE
@@ -542,9 +734,16 @@ static uint16_t readBatteryMv() {
 }
 
 void setup() {
+  // Why the last boot happened, for the `r` payload field. RCAUSE is latched until the next
+  // reset, so reading it first costs nothing and nothing below can disturb it.
+  resetCause = PM->RCAUSE.reg;
+  // Armed before anything that can spin: flash.initialize() below waits on a chip that may
+  // never answer, and the 5 s USB grace delay is well inside the 16 s period.
+  wdtEnable();
+
   Serial.begin(115200);         // USB debug
 
-  // SAMD21 native USB drops off the bus during LowPower.standby() (that
+  // SAMD21 native USB drops off the bus during standby (that
   // sleep mode gates the clock feeding the USB peripheral). Without this
   // delay, the first standby happens within ~1.5 s of reset -- too fast for
   // the IDE's 1200bps-touch upload to reach the board, so it goes invisible
@@ -559,8 +758,7 @@ void setup() {
 
   pinMode(RFM69_RST, OUTPUT);
   digitalWrite(RFM69_RST, LOW);
-  resetRadioPin();
-  if (!radioInit()) Serial.println(F("RFM69 init failed; retrying on next wake"));
+  if (!radioBringUp()) Serial.println(F("RFM69 init failed; retrying on next wake"));
   char buff[50];
   sprintf(buff, "\nTransmitting at %d Mhz...", FREQUENCY==RF69_433MHZ ? 433 : FREQUENCY==RF69_868MHZ ? 868 : 915);
   Serial.println(buff);
@@ -598,8 +796,8 @@ void setup() {
 }
 
 void loop() {
-  resetRadioPin();
-  bool radioOk = radioInit();
+  wdtFeed();                    // armed since setup(); see "Hardware watchdog"
+  bool radioOk = radioBringUp();
   if (!radioOk) Serial.println(F("RFM69 init failed; skipping TX this cycle"));
 
   // Decide whether this cycle is one of the diagnostic hold cycles before touching the
@@ -646,6 +844,18 @@ void loop() {
   }
 #endif
 
+  // Battery first, before the radar rail comes up. Since the 2026-10-04 rework one cable down
+  // the pole arm feeds the radar boost and the Moteino together, so VIN here is the charger's
+  // output minus that cable's drop at whatever is flowing. With the radar powered (~60 mA)
+  // that was ~0.2 V (4.3 V leaving the charger, 4.08 V read on 2026-10-05), enough to hide the
+  // charger's 4.4 V daytime rail from the pack-health check. Now only the Moteino's own
+  // ~10 mA is flowing, and the error is a few hundredths of a volt.
+  //
+  // Fast mode keeps the rail up between cycles, so readings taken during a rise still carry
+  // the drop. That is acceptable: the pack-health slope already skips any night with fast
+  // sampling, and rises are short.
+  uint16_t batt_mv = readBatteryMv();
+
   int32_t distance_mm = -1;
   if (diagHold) {
     // Leave the rail low for the whole cycle -- that is the entire experiment. The null
@@ -658,6 +868,7 @@ void loop() {
   } else {
     distance_mm = readRadarDistance();
   }
+  wdtFeed();                    // fresh budget for the TX and listen window
 
 #if DIAG_RADAR_WINDOW_ENABLE
   // A peek that finds the water up abandons the rest of tonight's window. Deliberately
@@ -671,11 +882,10 @@ void loop() {
   }
 #endif
 
-  uint16_t batt_mv = readBatteryMv();
-
 #if DIAG_RADAR_WINDOW_ENABLE
   // Track the window's first and latest pack reading, for the fell-across-the-window test
-  // above. Taken on every in-window cycle, peeks included: they are the same measurement.
+  // above. Taken on every in-window cycle, peeks included: they are the same measurement --
+  // and now genuinely so, because the battery is read before a peek powers the rail.
   if (diagWindow) {
     if (diagStartMv == 0) diagStartMv = batt_mv;
     diagLastMv = batt_mv;
@@ -693,42 +903,45 @@ void loop() {
   // right thing to spend. It drops again on the first cycle back at 60 s.
   if (!fastMode) radarPowerDown();
 
-  // Build JSON payload. `fast` is not read by the gateway today (it looks up
-  // distance_mm/battery_mv by key and ignores the rest), but the node is the expensive
-  // side to change — putting it on the wire now means surfacing "was the node
-  // fast-sampling during that storm?" later is a gateway-only change rather than
-  // another OTA push.
+  // Build JSON payload. Keys, all one letter (the gateway also still decodes the older
+  // long-key form, so the two sides can be updated in either order):
+  //   d  distance_mm (null on a failed read)     v  battery_mv
+  //   f  fast sampling this cycle                 g  radar rail deliberately held off (#17)
+  //   r  reset cause   n  cycles since boot   i  failed radio init attempts since last TX
+  // See "Diagnostics on the wire" for what the last three are for.
   //
   // MIND THE PACKET BUDGET before adding a field here. The real limit is not this
   // buffer, it is RF69_MAX_DATA_LEN (61), and RFM69::sendFrame() *silently truncates*
   // past it — the node would log a perfectly good payload while the gateway logged a
-  // JSON parse failure. Worst case today is 57 bytes (distance_mm at the SEN0676's
-  // 40000 mm ceiling, battery_mv at the divider's 6600 mV ceiling), so there are 4
-  // bytes of headroom. Anything longer needs shorter keys, not a bigger buffer.
+  // JSON parse failure. Worst case is 58 bytes (d at the SEN0676's 40000 mm ceiling, v at
+  // the divider's 6600 mV ceiling, r and i at 255, n at 65535), so there are 3 bytes of
+  // headroom. A test in rate_of_rise/tests renders that worst case and checks it.
   //
-  // `diag` was paid for by dropping `node`, which cost exactly the 9 bytes it needed.
-  // That key was always redundant: every packet already carries the sender in
-  // RFM69::SENDERID, which is what the gateway uses to address an OTA push back, and
-  // nothing ever read the JSON field. `diag` marks a cycle where the radar rail was
-  // deliberately held off, which is the one thing about this firmware that cannot be
-  // inferred downstream -- a held cycle and a failed Modbus read both publish a null
-  // distance, and telling them apart by hand meant querying the recorder.
+  // The single-letter keys are what paid for r/n/i: the old names (distance_mm,
+  // battery_mv, fast, diag) filled 57 of the 61 bytes on their own. `g` (was `diag`) marks
+  // a cycle where the radar rail was deliberately held off, which is the one thing about
+  // this firmware that cannot be inferred downstream -- a held cycle and a failed Modbus
+  // read both publish a null distance.
   char payload[128];
   if (distance_mm >= 0) {
     snprintf(payload, sizeof(payload),
-      "{\"distance_mm\":%ld,\"battery_mv\":%u,\"fast\":%d,\"diag\":%d}",
-      (long)distance_mm, batt_mv, fastMode ? 1 : 0, diagHold ? 1 : 0);
+      "{\"d\":%ld,\"v\":%u,\"f\":%d,\"g\":%d,\"r\":%u,\"n\":%u,\"i\":%u}",
+      (long)distance_mm, (unsigned)batt_mv, fastMode ? 1 : 0, diagHold ? 1 : 0,
+      (unsigned)resetCause, (unsigned)cycleCount, (unsigned)radioInitFailures);
   } else {
     snprintf(payload, sizeof(payload),
-      "{\"distance_mm\":null,\"battery_mv\":%u,\"fast\":%d,\"diag\":%d}",
-      batt_mv, fastMode ? 1 : 0, diagHold ? 1 : 0);
+      "{\"d\":null,\"v\":%u,\"f\":%d,\"g\":%d,\"r\":%u,\"n\":%u,\"i\":%u}",
+      (unsigned)batt_mv, fastMode ? 1 : 0, diagHold ? 1 : 0,
+      (unsigned)resetCause, (unsigned)cycleCount, (unsigned)radioInitFailures);
   }
+  cycleCount++;                 // wraps; a drop back to 0 on the gateway side means a reset
 
   if (radioOk) {
     Serial.print(F("TX: "));
     Serial.println(payload);
 
     radio.send(GATEWAYID, payload, strlen(payload));
+    radioInitFailures = 0;      // the count just went out on the wire; start the next one
 
     // Brief window to catch a wireless firmware push (see firmware/README.md, OTA section).
     // The node sleeps the rest of the cycle, so this piggybacks on the wake TX already
@@ -741,7 +954,11 @@ void loop() {
     uint32_t otaListenStart = millis();
     while (millis() - otaListenStart < otaListenMs) {
       if (radio.receiveDone()) {
+        // A real handshake blocks in here for the whole transfer, far past 16 s. The
+        // library times out a stalled transfer itself, so stand the watchdog down for it.
+        wdtDisable();
         CheckForWirelessHEX(radio, flash, true);
+        wdtEnable();
       }
     }
   }
@@ -752,7 +969,7 @@ void loop() {
   delay(BENCH_TEST_INTERVAL_MS);
 #else
   // Standby until next report. RTCZero alarm wakes the SAMD21 from
-  // LowPower.standby() (~6 uA vs. delay()'s ~12 mA).
+  // standby (~6 uA vs. delay()'s ~12 mA), in watchdog-sized naps.
   sleepSeconds(fastMode ? FAST_REPORT_INTERVAL_S : REPORT_INTERVAL_S);
 #endif
 }

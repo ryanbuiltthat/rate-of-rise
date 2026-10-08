@@ -1,0 +1,3309 @@
+{
+	"archive" : {},
+	"artifacts" : 
+	[
+		{
+			"path" : "esp-idf/src/libsrc.a"
+		}
+	],
+	"backtrace" : 2,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"idf_component_register",
+			"set_property",
+			"__component_set_dependencies",
+			"__component_set_all_dependencies",
+			"add_compile_options",
+			"add_c_compile_options",
+			"add_compile_definitions",
+			"include_directories",
+			"add_cxx_compile_options"
+		],
+		"files" : 
+		[
+			"C:/Users/risfo/.platformio/packages/framework-espidf/tools/cmake/component.cmake",
+			"src/CMakeLists.txt",
+			"C:/Users/risfo/.platformio/packages/framework-espidf/tools/cmake/utilities.cmake"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 1
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 6,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 494,
+				"parent" : 1
+			},
+			{
+				"command" : 4,
+				"file" : 0,
+				"line" : 527,
+				"parent" : 1
+			},
+			{
+				"command" : 3,
+				"file" : 0,
+				"line" : 365,
+				"parent" : 3
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 344,
+				"parent" : 4
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 344,
+				"parent" : 4
+			},
+			{
+				"command" : 5,
+				"file" : 0,
+				"line" : 479,
+				"parent" : 1
+			},
+			{
+				"command" : 6,
+				"file" : 0,
+				"line" : 481,
+				"parent" : 1
+			},
+			{
+				"command" : 5,
+				"file" : 2,
+				"line" : 281,
+				"parent" : 8
+			},
+			{
+				"command" : 7,
+				"file" : 0,
+				"line" : 480,
+				"parent" : 1
+			},
+			{
+				"command" : 8,
+				"file" : 0,
+				"line" : 478,
+				"parent" : 1
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 344,
+				"parent" : 4
+			},
+			{
+				"command" : 9,
+				"file" : 0,
+				"line" : 482,
+				"parent" : 1
+			},
+			{
+				"command" : 5,
+				"file" : 2,
+				"line" : 270,
+				"parent" : 13
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "@\"C:/1_ProjectRepos/rate-of-rise/firmware/esp32s3_feather_gateway/.esphome/build/creek-gateway-v2/.pioenvs/creek-gateway-v2/toolchain/cxxflags\" -fdiagnostics-color=always"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-ffunction-sections"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-fdata-sections"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-error=unused-function"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-error=unused-variable"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-error=unused-but-set-variable"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-error=deprecated-declarations"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-error=extra"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-unused-parameter"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-sign-compare"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-enum-conversion"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-gdwarf-4"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-ggdb"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Os"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-freorder-blocks"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-fmacro-prefix-map=C:/1_ProjectRepos/rate-of-rise/firmware/esp32s3_feather_gateway/.esphome/build/creek-gateway-v2=."
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-fmacro-prefix-map=C:/Users/risfo/.platformio/packages/framework-espidf=/IDF"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-fstrict-volatile-bitfields"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-fno-jump-tables"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-fno-tree-switch-conversion"
+				},
+				{
+					"backtrace" : 14,
+					"fragment" : "-std=gnu++2b"
+				},
+				{
+					"backtrace" : 14,
+					"fragment" : "-fno-exceptions"
+				},
+				{
+					"backtrace" : 14,
+					"fragment" : "-fuse-cxa-atexit"
+				},
+				{
+					"backtrace" : 5,
+					"fragment" : "-DARDUINO=10812"
+				},
+				{
+					"backtrace" : 5,
+					"fragment" : "-DARDUINO_ESP32S3_DEV"
+				},
+				{
+					"backtrace" : 5,
+					"fragment" : "-DARDUINO_ARCH_ESP32"
+				},
+				{
+					"backtrace" : 5,
+					"fragment" : "-DARDUINO_BOARD=\\\"ESP32S3_DEV\\\""
+				},
+				{
+					"backtrace" : 5,
+					"fragment" : "-DARDUINO_VARIANT=\\\"esp32s3\\\""
+				},
+				{
+					"backtrace" : 5,
+					"fragment" : "-DESP32=ESP32"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 5,
+					"define" : "ESP_MDNS_VERSION_NUMBER=\"1.11.0\""
+				},
+				{
+					"backtrace" : 10,
+					"define" : "ESP_PLATFORM"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "IDF_VER=\"5.5.5\""
+				},
+				{
+					"backtrace" : 5,
+					"define" : "MBEDTLS_CONFIG_FILE=\"mbedtls/esp_config.h\""
+				},
+				{
+					"backtrace" : 2,
+					"define" : "SOC_MMU_PAGE_SIZE=CONFIG_MMU_PAGE_SIZE"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "SOC_XTAL_FREQ_MHZ=CONFIG_XTAL_FREQ"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "_GLIBCXX_HAVE_POSIX_SEMAPHORE"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "_GLIBCXX_USE_POSIX_SEMAPHORE"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "_GNU_SOURCE"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "_POSIX_READER_WRITER_LOCKS"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 11,
+					"path" : "C:/1_ProjectRepos/rate-of-rise/firmware/esp32s3_feather_gateway/.esphome/build/creek-gateway-v2/.pioenvs/creek-gateway-v2/config"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/newlib/platform_include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/freertos/config/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/freertos/config/include/freertos"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/freertos/config/xtensa/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/freertos/FreeRTOS-Kernel/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/freertos/FreeRTOS-Kernel/portable/xtensa/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/freertos/esp_additions/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/include/soc"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/include/soc/esp32s3"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/dma/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/ldo/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/debug_probe/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/mspi_timing_tuning/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/mspi_timing_tuning/tuning_scheme_impl/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/power_supply/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/port/esp32s3/."
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/port/esp32s3/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/mspi_timing_tuning/port/esp32s3/."
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/mspi_timing_tuning/port/esp32s3/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/heap/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/heap/tlsf"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/log/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/soc/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/soc/esp32s3"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/soc/esp32s3/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/soc/esp32s3/register"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/hal/platform_port/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/hal/esp32s3/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/hal/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_rom/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_rom/esp32s3/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_rom/esp32s3/include/esp32s3"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_rom/esp32s3"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_common/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_system/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_system/port/soc"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_system/port/include/private"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/xtensa/esp32s3/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/xtensa/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/xtensa/deprecated_include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/include/apps"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/include/apps/sntp"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/lwip/src/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/port/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/port/freertos/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/port/esp32xx/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/port/esp32xx/include/arch"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/port/esp32xx/include/sys"
+				},
+				{
+					"backtrace" : 12,
+					"path" : "C:/1_ProjectRepos/rate-of-rise/firmware/esp32s3_feather_gateway/.esphome/build/creek-gateway-v2/managed_components/bblanchon__arduinojson/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/variants/esp32s3"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/cores/esp32"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/libraries/FS/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/libraries/HTTPClient/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/libraries/Network/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/libraries/SD/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/libraries/SPI/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/libraries/NetworkClientSecure/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/libraries/WiFi/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/spi_flash/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_partition/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/mbedtls/port/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/mbedtls/mbedtls/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/mbedtls/mbedtls/library"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/mbedtls/esp_crt_bundle/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/mbedtls/mbedtls/3rdparty/everest/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/mbedtls/mbedtls/3rdparty/p256-m"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/mbedtls/mbedtls/3rdparty/p256-m/p256-m"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/wpa_supplicant/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/wpa_supplicant/port/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/wpa_supplicant/esp_supplicant/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_adc/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_adc/interface"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_adc/esp32s3/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_adc/deprecated/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_eth/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_event/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_spi/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_pm/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/http_parser"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_ringbuf/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_gptimer/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_usb_serial_jtag/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/vfs/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/driver/deprecated"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/driver/i2c/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/driver/touch_sensor/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/driver/twai/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/driver/touch_sensor/esp32s3/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_gpio/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_pcnt/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_mcpwm/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_ana_cmpr/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_i2s/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_sdmmc/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/sdmmc/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_sdspi/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_sdio/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_dac/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_rmt/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_tsens/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_sdm/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_i2c/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_uart/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_ledc/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_parlio/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_twai/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_http_client/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_https_ota/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/bootloader_support/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/bootloader_support/bootloader_flash/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_bootloader_format/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_app_format/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_timer/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_touch_sens/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_touch_sens/hw_ver2/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/1_ProjectRepos/rate-of-rise/firmware/esp32s3_feather_gateway/.esphome/build/creek-gateway-v2/managed_components/espressif__mdns/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/console"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_vfs_console/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_netif/include"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "C:/1_ProjectRepos/rate-of-rise/firmware/esp32s3_feather_gateway/.esphome/build/creek-gateway-v2/managed_components/zorxx__multipart-parser"
+				}
+			],
+			"language" : "CXX",
+			"sourceIndexes" : 
+			[
+				2,
+				4,
+				7,
+				9,
+				13,
+				15,
+				19,
+				21,
+				25,
+				27,
+				29,
+				32,
+				34,
+				36,
+				39,
+				42,
+				44,
+				49,
+				50,
+				52,
+				54,
+				56,
+				58,
+				60,
+				61,
+				62,
+				64,
+				68,
+				72,
+				75,
+				77,
+				82,
+				87,
+				89,
+				91,
+				93,
+				95,
+				97,
+				99,
+				101,
+				103,
+				106,
+				111,
+				115,
+				116,
+				118,
+				122,
+				124,
+				126,
+				128,
+				130,
+				132,
+				134,
+				139,
+				141,
+				143,
+				146,
+				148,
+				150,
+				152,
+				154,
+				156,
+				158,
+				160,
+				162,
+				164,
+				166,
+				168,
+				170,
+				173,
+				175,
+				176,
+				178,
+				180,
+				182,
+				187,
+				189,
+				191,
+				193,
+				196,
+				202,
+				209,
+				213,
+				216,
+				231,
+				233,
+				237,
+				241,
+				246,
+				252
+			]
+		},
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "@\"C:/1_ProjectRepos/rate-of-rise/firmware/esp32s3_feather_gateway/.esphome/build/creek-gateway-v2/.pioenvs/creek-gateway-v2/toolchain/cflags\" -fdiagnostics-color=always"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-ffunction-sections"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-fdata-sections"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-error=unused-function"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-error=unused-variable"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-error=unused-but-set-variable"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-error=deprecated-declarations"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-error=extra"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-unused-parameter"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-sign-compare"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Wno-enum-conversion"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-gdwarf-4"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-ggdb"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-Os"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-freorder-blocks"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-fmacro-prefix-map=C:/1_ProjectRepos/rate-of-rise/firmware/esp32s3_feather_gateway/.esphome/build/creek-gateway-v2=."
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-fmacro-prefix-map=C:/Users/risfo/.platformio/packages/framework-espidf=/IDF"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-fstrict-volatile-bitfields"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-fno-jump-tables"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "-fno-tree-switch-conversion"
+				},
+				{
+					"backtrace" : 9,
+					"fragment" : "-std=gnu17"
+				},
+				{
+					"backtrace" : 9,
+					"fragment" : "-Wno-old-style-declaration"
+				},
+				{
+					"backtrace" : 5,
+					"fragment" : "-DARDUINO=10812"
+				},
+				{
+					"backtrace" : 5,
+					"fragment" : "-DARDUINO_ESP32S3_DEV"
+				},
+				{
+					"backtrace" : 5,
+					"fragment" : "-DARDUINO_ARCH_ESP32"
+				},
+				{
+					"backtrace" : 5,
+					"fragment" : "-DARDUINO_BOARD=\\\"ESP32S3_DEV\\\""
+				},
+				{
+					"backtrace" : 5,
+					"fragment" : "-DARDUINO_VARIANT=\\\"esp32s3\\\""
+				},
+				{
+					"backtrace" : 5,
+					"fragment" : "-DESP32=ESP32"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 5,
+					"define" : "ESP_MDNS_VERSION_NUMBER=\"1.11.0\""
+				},
+				{
+					"backtrace" : 10,
+					"define" : "ESP_PLATFORM"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "IDF_VER=\"5.5.5\""
+				},
+				{
+					"backtrace" : 5,
+					"define" : "MBEDTLS_CONFIG_FILE=\"mbedtls/esp_config.h\""
+				},
+				{
+					"backtrace" : 2,
+					"define" : "SOC_MMU_PAGE_SIZE=CONFIG_MMU_PAGE_SIZE"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "SOC_XTAL_FREQ_MHZ=CONFIG_XTAL_FREQ"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "_GLIBCXX_HAVE_POSIX_SEMAPHORE"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "_GLIBCXX_USE_POSIX_SEMAPHORE"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "_GNU_SOURCE"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "_POSIX_READER_WRITER_LOCKS"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 11,
+					"path" : "C:/1_ProjectRepos/rate-of-rise/firmware/esp32s3_feather_gateway/.esphome/build/creek-gateway-v2/.pioenvs/creek-gateway-v2/config"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/newlib/platform_include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/freertos/config/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/freertos/config/include/freertos"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/freertos/config/xtensa/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/freertos/FreeRTOS-Kernel/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/freertos/FreeRTOS-Kernel/portable/xtensa/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/freertos/esp_additions/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/include/soc"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/include/soc/esp32s3"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/dma/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/ldo/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/debug_probe/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/mspi_timing_tuning/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/mspi_timing_tuning/tuning_scheme_impl/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/power_supply/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/port/esp32s3/."
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/port/esp32s3/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/mspi_timing_tuning/port/esp32s3/."
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_hw_support/mspi_timing_tuning/port/esp32s3/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/heap/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/heap/tlsf"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/log/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/soc/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/soc/esp32s3"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/soc/esp32s3/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/soc/esp32s3/register"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/hal/platform_port/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/hal/esp32s3/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/hal/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_rom/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_rom/esp32s3/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_rom/esp32s3/include/esp32s3"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_rom/esp32s3"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_common/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_system/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_system/port/soc"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_system/port/include/private"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/xtensa/esp32s3/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/xtensa/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/xtensa/deprecated_include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/include/apps"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/include/apps/sntp"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/lwip/src/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/port/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/port/freertos/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/port/esp32xx/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/port/esp32xx/include/arch"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/lwip/port/esp32xx/include/sys"
+				},
+				{
+					"backtrace" : 12,
+					"path" : "C:/1_ProjectRepos/rate-of-rise/firmware/esp32s3_feather_gateway/.esphome/build/creek-gateway-v2/managed_components/bblanchon__arduinojson/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/variants/esp32s3"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/cores/esp32"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/libraries/FS/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/libraries/HTTPClient/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/libraries/Network/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/libraries/SD/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/libraries/SPI/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/libraries/NetworkClientSecure/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-arduinoespressif32/libraries/WiFi/src"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/spi_flash/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_partition/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/mbedtls/port/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/mbedtls/mbedtls/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/mbedtls/mbedtls/library"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/mbedtls/esp_crt_bundle/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/mbedtls/mbedtls/3rdparty/everest/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/mbedtls/mbedtls/3rdparty/p256-m"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/mbedtls/mbedtls/3rdparty/p256-m/p256-m"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/wpa_supplicant/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/wpa_supplicant/port/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/wpa_supplicant/esp_supplicant/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_adc/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_adc/interface"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_adc/esp32s3/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_adc/deprecated/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_eth/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_event/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_spi/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_pm/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/http_parser"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_ringbuf/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_gptimer/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_usb_serial_jtag/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/vfs/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/driver/deprecated"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/driver/i2c/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/driver/touch_sensor/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/driver/twai/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/driver/touch_sensor/esp32s3/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_gpio/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_pcnt/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_mcpwm/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_ana_cmpr/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_i2s/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_sdmmc/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/sdmmc/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_sdspi/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_sdio/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_dac/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_rmt/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_tsens/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_sdm/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_i2c/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_uart/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_ledc/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_parlio/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_twai/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_http_client/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_https_ota/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/bootloader_support/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/bootloader_support/bootloader_flash/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_bootloader_format/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_app_format/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_timer/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_touch_sens/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_driver_touch_sens/hw_ver2/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/1_ProjectRepos/rate-of-rise/firmware/esp32s3_feather_gateway/.esphome/build/creek-gateway-v2/managed_components/espressif__mdns/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/console"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_vfs_console/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "C:/Users/risfo/.platformio/packages/framework-espidf/components/esp_netif/include"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "C:/1_ProjectRepos/rate-of-rise/firmware/esp32s3_feather_gateway/.esphome/build/creek-gateway-v2/managed_components/zorxx__multipart-parser"
+				}
+			],
+			"language" : "C",
+			"sourceIndexes" : 
+			[
+				219,
+				222
+			]
+		}
+	],
+	"dependencies" : 
+	[
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_driver_gptimer::@b8628cd9d7b32710339f"
+		},
+		{
+			"backtrace" : 2,
+			"id" : "__idf_xtensa::@1daaaad7abe597e030f9"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_driver_spi::@a108b58494cdd93e678c"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_console::@4311ed8d271cc0ee1422"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_fatfs::@75ac1d9b25dacc8cc9e7"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_driver_pcnt::@7f5d6483ec7c43d22871"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_driver_mcpwm::@48ac72772582b222889a"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_driver_i2c::@823c83e66a2d740aac64"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_driver_ledc::@9a01f21f38f01238ca77"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_sdmmc::@89ed5bca1750ffbc7db6"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_driver_sdm::@601b6ef28d63f823a7b4"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_driver_sdspi::@c293af58c49fe790ac32"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_driver_sdmmc::@6ccb6c8602dfb90db4d7"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_driver_tsens::@dad043442c4ac9e51f1a"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_wear_levelling::@cb21b0d7c0815cff11c6"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_driver_i2s::@5dbaceb9cb1526e2b88d"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_driver_rmt::@0efb206e593213c2b54a"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_driver_twai::@0c7b27fa84c4efa2b2b9"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_driver::@76403182dd99a02c203e"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_usb::@4a2418067d0bb57af462"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_espressif__mdns::@d92204a997f34ad8e688"
+		},
+		{
+			"backtrace" : 6,
+			"id" : "__idf_zorxx__multipart-parser::@7148d0840d5415de5dfa"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_adc::@847b8318c687ffb50ebb"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_eth::@68140d310044213ed0bc"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_driver_touch_sens::@834ec88eeea238586f95"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_esp_hid::@15df40e16a5d8775dd9b"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_spiffs::@df881b71474064c86689"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "__idf_framework-arduinoespressif32::@bebaffb9e8b6c01100ee"
+		}
+	],
+	"id" : "__idf_src::@2478b13de56d3028f688",
+	"name" : "__idf_src",
+	"nameOnDisk" : "libsrc.a",
+	"paths" : 
+	{
+		"build" : "esp-idf/src",
+		"source" : "src"
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "",
+			"sourceIndexes" : 
+			[
+				0,
+				251
+			]
+		},
+		{
+			"name" : "Header Files",
+			"sourceIndexes" : 
+			[
+				1,
+				3,
+				5,
+				6,
+				8,
+				10,
+				11,
+				12,
+				14,
+				16,
+				17,
+				18,
+				20,
+				22,
+				23,
+				24,
+				26,
+				28,
+				30,
+				31,
+				33,
+				35,
+				37,
+				38,
+				40,
+				41,
+				43,
+				45,
+				46,
+				47,
+				48,
+				51,
+				53,
+				55,
+				57,
+				59,
+				63,
+				65,
+				66,
+				67,
+				69,
+				70,
+				71,
+				73,
+				74,
+				76,
+				78,
+				79,
+				80,
+				81,
+				83,
+				84,
+				85,
+				86,
+				88,
+				90,
+				92,
+				94,
+				96,
+				98,
+				100,
+				102,
+				104,
+				105,
+				107,
+				108,
+				109,
+				110,
+				112,
+				113,
+				114,
+				117,
+				119,
+				120,
+				121,
+				123,
+				125,
+				127,
+				129,
+				131,
+				133,
+				135,
+				136,
+				137,
+				138,
+				140,
+				142,
+				144,
+				145,
+				147,
+				149,
+				151,
+				153,
+				155,
+				157,
+				159,
+				161,
+				163,
+				165,
+				167,
+				169,
+				171,
+				172,
+				174,
+				177,
+				179,
+				181,
+				183,
+				184,
+				185,
+				186,
+				188,
+				190,
+				192,
+				194,
+				195,
+				197,
+				198,
+				199,
+				200,
+				201,
+				203,
+				204,
+				205,
+				206,
+				207,
+				208,
+				210,
+				211,
+				212,
+				214,
+				215,
+				217,
+				218,
+				220,
+				221,
+				223,
+				224,
+				225,
+				226,
+				227,
+				228,
+				229,
+				230,
+				232,
+				234,
+				235,
+				236,
+				238,
+				239,
+				240,
+				242,
+				243,
+				244,
+				245,
+				247,
+				248,
+				249,
+				250,
+				253
+			]
+		},
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				2,
+				4,
+				7,
+				9,
+				13,
+				15,
+				19,
+				21,
+				25,
+				27,
+				29,
+				32,
+				34,
+				36,
+				39,
+				42,
+				44,
+				49,
+				50,
+				52,
+				54,
+				56,
+				58,
+				60,
+				61,
+				62,
+				64,
+				68,
+				72,
+				75,
+				77,
+				82,
+				87,
+				89,
+				91,
+				93,
+				95,
+				97,
+				99,
+				101,
+				103,
+				106,
+				111,
+				115,
+				116,
+				118,
+				122,
+				124,
+				126,
+				128,
+				130,
+				132,
+				134,
+				139,
+				141,
+				143,
+				146,
+				148,
+				150,
+				152,
+				154,
+				156,
+				158,
+				160,
+				162,
+				164,
+				166,
+				168,
+				170,
+				173,
+				175,
+				176,
+				178,
+				180,
+				182,
+				187,
+				189,
+				191,
+				193,
+				196,
+				202,
+				209,
+				213,
+				216,
+				219,
+				222,
+				231,
+				233,
+				237,
+				241,
+				246,
+				252
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 2,
+			"path" : "src/CMakeLists.txt",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/api/api_buffer.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/api_buffer.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/api/api_connection.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/api_connection.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/api_connection_buffer.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/api/api_frame_helper.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/api_frame_helper.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/api/api_frame_helper_noise.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/api_frame_helper_noise.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/api_frame_helper_plaintext.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/api_noise_context.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/api/api_overflow_buffer.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/api_overflow_buffer.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/api/api_pb2.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/api_pb2.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/api_pb2_defines.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/api_pb2_includes.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/api/api_pb2_service.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/api_pb2_service.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/api/api_server.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/api_server.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/custom_api_device.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/homeassistant_service.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/api/list_entities.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/list_entities.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/api/proto.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/proto.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/api/subscribe_state.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/subscribe_state.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/api/user_services.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/binary_sensor/automation.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/binary_sensor/automation.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/binary_sensor/binary_sensor.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/binary_sensor/binary_sensor.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/binary_sensor/filter.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/binary_sensor/filter.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/button/automation.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/button/button.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/button/button.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/captive_portal/captive_index.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/captive_portal/captive_portal.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/captive_portal/captive_portal.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/captive_portal/dns_server_esp32_idf.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/captive_portal/dns_server_esp32_idf.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/captive_portal/json_escape.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/creek_store/creek_store.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/creek_store/store_core.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/esp32/core.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/esp32/crash_handler.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/esp32/crash_handler.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/esp32/gpio.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/esp32/gpio.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/esp32/hal.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/esp32/hal.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/esp32/helpers.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/esp32/preference_backend.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/esp32/preferences.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/esp32/preferences.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/esp32/printf_stubs.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/esp32/throw_stubs.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/esphome/ota/ota_esphome.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/esphome/ota/ota_esphome.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/i2c/i2c.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/i2c/i2c.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/i2c/i2c_bus.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/i2c/i2c_bus_arduino.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/i2c/i2c_bus_esp_idf.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/i2c/i2c_bus_esp_idf.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/i2c/i2c_bus_host.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/i2c/i2c_bus_zephyr.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/json/json_util.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/json/json_util.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/logger/log_buffer.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/logger/logger.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/logger/logger.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/logger/logger_esp32.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/logger/logger_esp32.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/logger/logger_esp8266.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/logger/logger_libretiny.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/logger/logger_rp2.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/logger/task_log_buffer_esp32.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/logger/task_log_buffer_esp32.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/logger/task_log_buffer_host.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/logger/task_log_buffer_libretiny.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/logger/task_log_buffer_zephyr.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/md5/md5.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/md5/md5.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/mdns/mdns_component.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/mdns/mdns_component.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/mdns/mdns_esp32.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/network/ip_address.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/network/network_component.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/network/network_component.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/network/util.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/network/util.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/number/automation.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/number/automation.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/number/number.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/number/number.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/number/number_call.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/number/number_call.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/number/number_traits.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/number/number_traits.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/ota/automation.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/ota/ota_backend.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/ota/ota_backend.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/ota/ota_backend_arduino_libretiny.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/ota/ota_backend_arduino_rp2.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/ota/ota_backend_esp8266.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/ota/ota_backend_esp_idf.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/ota/ota_backend_esp_idf.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/ota/ota_backend_factory.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/ota/ota_backend_host.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/ota/ota_bootloader_esp_idf.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/ota/ota_partitions_esp_idf.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/preferences/syncer.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/restart/button/restart_button.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/restart/button/restart_button.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/rfm69_gateway/rfm69_gateway.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/safe_mode/automation.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/safe_mode/safe_mode.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/safe_mode/safe_mode.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/sensor/automation.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/sensor/automation.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/sensor/filter.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/sensor/filter.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/sensor/sensor.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/sensor/sensor.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/sha256/sha256.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/sha256/sha256.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/sntp/sntp_component.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/sntp/sntp_component.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/socket/bsd_sockets_impl.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/socket/bsd_sockets_impl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/socket/headers.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/socket/lwip_raw_tcp_impl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/socket/lwip_sockets_impl.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/socket/socket.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/socket/socket.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/template/number/template_number.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/template/number/template_number.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/template/sensor/template_sensor.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/template/sensor/template_sensor.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/text_sensor/automation.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/text_sensor/filter.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/text_sensor/filter.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/text_sensor/text_sensor.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/text_sensor/text_sensor.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/time/automation.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/time/automation.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/time/posix_tz.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/time/posix_tz.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/time/real_time_clock.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/time/real_time_clock.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/uptime/sensor/uptime_seconds_sensor.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/uptime/sensor/uptime_seconds_sensor.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/uptime/sensor/uptime_timestamp_sensor.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/uptime/sensor/uptime_timestamp_sensor.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/watchdog/watchdog.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/watchdog/watchdog.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/web_server/ota/ota_web_server.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/web_server/ota/ota_web_server.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/web_server_base/web_server_base.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/web_server_base/web_server_base.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/web_server_idf/multipart.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/web_server_idf/multipart.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/web_server_idf/utils.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/web_server_idf/utils.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/web_server_idf/web_server_idf.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/web_server_idf/web_server_idf.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/wifi/automation.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/wifi/wifi_component.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/wifi/wifi_component.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/wifi/wifi_component_esp_idf.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/wifi_info/wifi_info_text_sensor.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/wifi_info/wifi_info_text_sensor.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/components/wifi_signal/wifi_signal_sensor.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/components/wifi_signal/wifi_signal_sensor.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/alloc_helpers.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/alloc_helpers.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/application.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/application.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/area.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/automation.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/base_automation.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/build_info_data.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/build_info_data.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/color.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/color.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/component.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/component.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/component_iterator.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/component_iterator.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/controller.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/controller_registry.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/controller_registry.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/datatypes.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/defines.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/device.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/doxygen.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/entity_base.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/entity_base.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/entity_includes.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/entity_types.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/event_pool.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/finite_set_mask.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/freertos_queue.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/gpio.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/gpio.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/hal.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/hash_base.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/helpers.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/helpers.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/lock_free_queue.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/log.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/log.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/log_const_en.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 1,
+			"path" : "src/esphome/core/lwip_fast_select.c",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/lwip_fast_select.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/macros.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 1,
+			"path" : "src/esphome/core/main_task.c",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/main_task.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/millis_internal.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/optional.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/preference_backend.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/preferences.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/preferences_rtc.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/progmem.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/ring_buffer.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/scheduler.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/scheduler.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/static_task.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/static_task.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/string_ref.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/template_lambda.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/time.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/time.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/time_64.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/time_conversion.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/util.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/util.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/version.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/wake.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/wake/wake_esp8266.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/esphome/core/wake/wake_freertos.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/wake/wake_freertos.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/wake/wake_host.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/wake/wake_rp2.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/esphome/core/wake/wake_zephyr.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/idf_component.yml",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/main.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 2,
+			"path" : "src/store_core.h",
+			"sourceGroupIndex" : 1
+		}
+	],
+	"type" : "STATIC_LIBRARY"
+}

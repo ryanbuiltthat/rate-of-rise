@@ -1,0 +1,7 @@
+otadata, data, ota, , 0x2000,
+phy_init, data, phy, , 0x1000,
+app0, app, ota_0, , 0x3C0000,
+app1, app, ota_1, , 0x3C0000,
+eeprom, data, 0x99, , 0x1000,
+spiffs, data, spiffs, , 0xF000,
+nvs, data, nvs, , 0x60000,

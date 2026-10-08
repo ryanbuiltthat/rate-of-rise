@@ -1,8 +1,8 @@
 # Rate of Rise (HAOS add-on)
 
 Layer 2 of the [Creek Flood Early-Warning System](../creek-flood-warning-spec.md).
-Runs the flood-probability + predicted-stage inference (fast loop) and the nightly
-retrain/recalibrate batch, publishing results to Home Assistant over MQTT.
+Runs the rise-probability, predicted-crest and flood-probability inference (fast loop) and
+the nightly retrain/recalibrate batch, publishing results to Home Assistant over MQTT.
 
 Resolves Open Question #1 — HA install is HAOS, so Layer 2 ships as a Supervisor add-on.
 The repo doubles as a **Git-based add-on store** (`repository.yaml` at the repo root), so the
@@ -43,9 +43,9 @@ phone home-screen widget for the alert tier — see
 - **Reads** entity states through the Supervisor proxy at `http://supervisor/core/api`,
   authenticated by the injected `SUPERVISOR_TOKEN` — no long-lived token needed
   (`homeassistant_api: true`).
-- **Writes** `creek/flood_probability`, `creek/predicted_crest`, `creek/lag_estimate`,
-  and `creek/model_health` over MQTT (broker from service discovery). Add matching HA
-  MQTT sensors to surface them as entities for the alert automations.
+- **Writes** `creek/flood_probability`, `creek/rise/1h`, `creek/rise/3h`,
+  `creek/predicted_crest`, `creek/lag_estimate` and `creek/model_health` over MQTT (broker
+  from service discovery). MQTT discovery creates the matching HA entities.
 
 ## Inputs
 

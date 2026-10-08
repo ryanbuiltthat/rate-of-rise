@@ -3,7 +3,7 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
-## 0.24.2
+## 0.25.1
 
 - **Fix: *Creek Soil Ponding* said dry with water standing on the low ground.** A probe had
   to read 85 % to count as ponding; the field probe read 81 % with water still standing
@@ -19,6 +19,67 @@ The version matches `version:` in `config.yaml`; bump it to trigger the GUI Upda
 empty entry (`""`) above the field probe instead of leaving it deleted, and check
 `ponding_saturation_pct` shows 78. Re-copy the dashboard if you want the repo's version of
 the comment-out.
+
+## 0.25.0
+
+- **New: the predicted crest — how high the creek will get in the next 3 h, and how
+  soon.** `creek/predicted_crest` has been published since 0.1.0, and until now it has
+  always been empty. It now carries a number: the median crest in feet, with an 80 % range
+  (`low_ft` / `high_ft`) in its attributes. `sensor.rate_of_rise_creek_time_to_crest` is
+  the minutes until that crest. `sensor.rate_of_rise_creek_crest_outlook` puts it against
+  the surveyed levels: "Reaches Warning", "May reach Emergency" (only the top of the range
+  does), "May reach the bank top", or "Below Warning". The model (`app/crest.py`) is
+  quantile xgboost on the rise probabilities' inputs, and like them it learns from every
+  rise, not from Warning crossings. That means it can be scored now instead of after a
+  flood. Scoring is leave-one-storm-out (`skill`, `rise_rows_skill`, `range_coverage`,
+  `episodes_within_tolerance`, `time_mae_min`, `trustworthy`; DOCS → *Predicted crest*).
+  **Informational only: never drives a tier.**
+- **It says when it's guessing.** Every payload carries `max_trained_stage_ft`, the
+  highest stage the model has ever seen the creek reach, and `beyond_training` is true
+  when the top of the predicted range is above it. Every rise on record so far is inches
+  from a creek near 1 ft, so a crest predicted near the bank is an extrapolation until a
+  bigger storm is recorded.
+- The crest reads unknown while the creek node is offline. A crest added to a stage held
+  from before the outage would look current and isn't.
+- Each dataset row now records `predicted_crest_ft`, `predicted_crest_high_ft`,
+  `predicted_time_to_crest_min` and `crest_version`, so a storm can be replayed against
+  what the card said.
+- `tiers.BANK_TOP_FT` (44.25 in, surveyed 2026-09-14) is now a named constant. No tier
+  keys on it.
+- **The project's stated goal now matches what it predicts.** It began as "will it
+  flood?", and that model still runs in shadow, waiting for the Warning-level storms it
+  needs. The day-to-day question is now how much, how fast and how soon the creek rises,
+  with overtopping read off the predicted crest. Spec Addendum E, the spec's goal and §5,
+  `docs/project-knowledge.md` and the READMEs say so.
+
+**Deploying:** press Update. The crest model trains at startup (seconds) if there are
+two rises of half an inch or more on record. Re-copy `dashboards/creek_flood_watch.yaml`
+for the two new rows on the Now card.
+
+## 0.24.2
+
+- **The tiers keep the last stage reading while the creek node is offline.** The gateway
+  firmware now blanks stage, depth, distance, battery and RSSI to unknown five minutes
+  after the node's last packet, so a node outage shows as a gap in HA's history instead of
+  a day of flat line. Until now the gateway held the last value, and `tiers.py` reads
+  `stage_ft` directly, so that held number was what kept Warning or Emergency up through
+  an outage. Blanked, a node that went silent at the crest (water over the bank, the pole
+  or radio under it) would have dropped the tier, and 15 minutes later the all-clear would
+  have replaced the critical push (open-questions #14). `FeatureBuilder` now carries the
+  last accepted stage for the tiers when the stage is unknown *and* the link is known to
+  be down. It is marked `stage_held`, and the tier reason reads "(last reading, node
+  offline)". With the link up, a blank stage is a lost radar target and stays None, as
+  before. A held stage produces no rate of rise and no stage history, and the
+  `stage_stale` watchdog and the training set still treat the outage as one. The last
+  accepted reading is persisted to `/data/last_stage.json`, so an add-on restart
+  mid-outage (an update, or the restart the service-stale advice calls for) keeps the
+  tier too.
+- Alerting is otherwise unchanged: with the old firmware the gateway held the number
+  itself and the add-on passed it through, which is what still happens.
+
+**Deploying:** press Update. Then reflash the gateway (its config pulls
+`gateway.base.yaml` and the component from `main`) for the gaps in history. The add-on
+should be updated first or together with the gateway, never after it.
 
 ## 0.24.1
 

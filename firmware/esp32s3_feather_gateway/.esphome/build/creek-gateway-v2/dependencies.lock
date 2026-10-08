@@ -1,0 +1,219 @@
+dependencies:
+  bblanchon/arduinojson:
+    component_hash: 5e6aff2bc5bc988b36c8e90c01e637495ee895ad3af93911860c21ec6da79b6a
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 7.4.3
+  chmorgan/esp-libhelix-mp3:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp-libhelix-mp3
+      type: local
+    version: '*'
+  espressif/arduino-esp32:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\arduino-esp32
+      type: local
+    version: '*'
+  espressif/cbor:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\cbor
+      type: local
+    version: '*'
+  espressif/esp-dsp:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp-dsp
+      type: local
+    version: '*'
+  espressif/esp-modbus:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp-modbus
+      type: local
+    version: '*'
+  espressif/esp-sr:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp-sr
+      type: local
+    version: '*'
+  espressif/esp-zboss-lib:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp-zboss-lib
+      type: local
+    version: '*'
+  espressif/esp-zigbee-lib:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp-zigbee-lib
+      type: local
+    version: '*'
+  espressif/esp_diag_data_store:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp_diag_data_store
+      type: local
+    version: '*'
+  espressif/esp_diagnostics:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp_diagnostics
+      type: local
+    version: '*'
+  espressif/esp_hosted:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp_hosted
+      type: local
+    version: '*'
+  espressif/esp_insights:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp_insights
+      type: local
+    version: '*'
+  espressif/esp_modem:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp_modem
+      type: local
+    version: '*'
+  espressif/esp_rainmaker:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp_rainmaker
+      type: local
+    version: '*'
+  espressif/esp_rcp_update:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp_rcp_update
+      type: local
+    version: '*'
+  espressif/esp_schedule:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp_schedule
+      type: local
+    version: '*'
+  espressif/esp_secure_cert_mgr:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp_secure_cert_mgr
+      type: local
+    version: '*'
+  espressif/esp_wifi_remote:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\esp_wifi_remote
+      type: local
+    version: '*'
+  espressif/json_generator:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\json_generator
+      type: local
+    version: '*'
+  espressif/json_parser:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\json_parser
+      type: local
+    version: '*'
+  espressif/lan867x:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\lan867x
+      type: local
+    version: '*'
+  espressif/libsodium:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\libsodium
+      type: local
+    version: '*'
+  espressif/mdns:
+    component_hash: 1ebe3bd675bb9d1c58f52bc0b609b32f74e572b01c328f9e61282040c775495c
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.11.0
+  espressif/network_provisioning:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\network_provisioning
+      type: local
+    version: '*'
+  espressif/qrcode:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\qrcode
+      type: local
+    version: '*'
+  espressif/rmaker_common:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\rmaker_common
+      type: local
+    version: '*'
+  idf:
+    source:
+      type: idf
+    version: 5.5.5
+  joltwallet/littlefs:
+    dependencies: []
+    source:
+      path: C:\1_ProjectRepos\rate-of-rise\firmware\esp32s3_feather_gateway\.esphome\build\creek-gateway-v2\component_stubs\littlefs
+      type: local
+    version: '*'
+  zorxx/multipart-parser:
+    component_hash: a80b98bbdd530829b5a4df54cd8332a265ef4d310392562cf37d4cac548c5fd2
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.0.1
+direct_dependencies:
+- bblanchon/arduinojson
+- chmorgan/esp-libhelix-mp3
+- espressif/arduino-esp32
+- espressif/cbor
+- espressif/esp-dsp
+- espressif/esp-modbus
+- espressif/esp-sr
+- espressif/esp-zboss-lib
+- espressif/esp-zigbee-lib
+- espressif/esp_diag_data_store
+- espressif/esp_diagnostics
+- espressif/esp_hosted
+- espressif/esp_insights
+- espressif/esp_modem
+- espressif/esp_rainmaker
+- espressif/esp_rcp_update
+- espressif/esp_schedule
+- espressif/esp_secure_cert_mgr
+- espressif/esp_wifi_remote
+- espressif/json_generator
+- espressif/json_parser
+- espressif/lan867x
+- espressif/libsodium
+- espressif/mdns
+- espressif/network_provisioning
+- espressif/qrcode
+- espressif/rmaker_common
+- idf
+- joltwallet/littlefs
+- zorxx/multipart-parser
+manifest_hash: 6341bb247912a9f375f247ab707a255543f60b02d2bd9219f4f4ab773d170eaf
+target: esp32s3
+version: 2.0.0

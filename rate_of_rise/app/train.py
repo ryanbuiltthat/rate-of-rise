@@ -36,10 +36,16 @@ one that gives the most lead time to act, which is the entire point of the
 project. The others are future work once real data can actually distinguish
 whether a shorter horizon is more useful.
 
-`predicted_crest_ft` (stage regression) is deliberately not built here for the
-same reason: with no creek gauge, there has never been a real `stage_ft`
-sample to regress against, so a regressor would be exercising sklearn/xgboost
-API surface, not modeling anything.
+Stage regression — how high and how soon — is not built here. It lives in
+`crest.py` (0.25.0), which learns from every rise rather than from Warning
+crossings, and so can be scored long before this model can.
+
+--- Where this model stands -------------------------------------------------
+
+This classifier is the long-horizon path: it answers "will it reach Warning?"
+directly, and it waits on the record to contain real Warning-level storms to
+learn from and be tested against. The day-to-day ML is `rise.py` (will the creek
+come up X in) and `crest.py` (how high, how soon), which every rain event trains.
 
 --- Why xgboost -----------------------------------------------------------
 

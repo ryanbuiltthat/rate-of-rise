@@ -5,10 +5,10 @@
 **Warning arrives before the water does.**
 
 A solar-powered radar gauge on a creek with no official stream gauge, fused with twelve
-live data sources into a flood-probability model — a DIY flood early-warning system for a
-small, flashy creek basin in Lackawanna County, northeastern Pennsylvania. Built on Home
-Assistant, a Moteino M0 radio-linked stream gauge, and predictive flood-probability
-modeling. The modeling/alerting half ships as the **Rate of Rise** Home Assistant add-on
+live data sources into models of how much, how fast and how soon the creek will rise — a
+DIY flood early-warning system for a small, flashy creek basin in Lackawanna County,
+northeastern Pennsylvania. Built on Home Assistant, a Moteino M0 radio-linked stream gauge,
+and models trained on every storm the gauge records. The modeling/alerting half ships as the **Rate of Rise** Home Assistant add-on
 (`rate_of_rise/`), which gives the whole project its name.
 
 > **Site details are deliberately generalized** throughout this repo — exact coordinates,
@@ -50,9 +50,12 @@ the answer is still to move things rather than to bail them out.
    Google Flood Forecasting, and on-site rain, temperature and soil-moisture probes — into
    49 features per inference.
 3. **Correlate & predict** — The add-on builds a nightly dataset of storm events and fits
-   the rainfall→response relationship for this specific basin, starting with threshold
-   rules and graduating to a trained model that outputs flood probability with lead time,
-   saying which of the two produced the number on screen.
+   the rainfall→response relationship for this specific basin: the chance of a rise within
+   the hour or three, and the predicted crest — how high, with a range, and how many
+   minutes away — set against the surveyed Warning, Emergency and bank-top levels. Every
+   storm trains these, not just floods. A flood-probability model waits alongside for the
+   Warning-level storms it needs, and the screen always says which estimate produced the
+   number.
 4. **Alert** — A five-level tier ladder (All-clear / Advisory / Watch / Warning /
    Emergency) drives phone pushes, escalating to a critical alarm-stream notification that
    sounds through silent and Do Not Disturb. Any official NWS flood product for the area

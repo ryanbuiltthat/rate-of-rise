@@ -1,7 +1,7 @@
 name: Rate of Rise
-version: "0.24.2"
+version: "0.25.1"
 slug: rate_of_rise
-description: Flood-probability + predicted-stage inference and nightly retrain for the creek.
+description: Rise probability, predicted crest and flood-probability inference, with nightly retrain, for the creek.
 url: https://github.com/ryanbuiltthat/rate-of-rise
 arch:
   - amd64          # mini PC; add aarch64 only if the host changes
@@ -36,8 +36,9 @@ options:
   storm_quiet_hours: 6               # ...and after this long paused, it has ended
   # --- Creek-gauge link guards (false-alarm suppression) ------------------------------
   # The creek node reports every 60 s and the RFM69 gateway calls it offline after five
-  # missed reports (5 min). When the link drops, Home Assistant keeps serving the last
-  # stage the node sent, so the first reading after it comes back differs from that one by
+  # missed reports (5 min). When the link drops, Home Assistant serves the last stage the
+  # node sent (older gateway firmware) or unknown (current firmware); either way the first
+  # reading after it comes back differs from the last good one by
   # however much the water moved while the radio was down — charged to a single loop
   # interval, that reads as a huge rate of rise and fires a Tier 3 Warning for nothing.
   #

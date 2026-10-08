@@ -269,9 +269,15 @@ a mirror of those six keys, since ESPHome resolves `!secret` next to the config 
 There is no ESPHome platform for a point-to-point encrypted radio, so the RFM69 receive and
 JSON decode live in a local external component at `esp32_rfm69_gateway/components/rfm69_gateway/`
 wrapping the same LowPowerLab `RFM69` library the node uses. It publishes native ESPHome
-sensors rather than MQTT JSON — `distance_mm: null` (the node's Modbus-failure case) becomes
+sensors rather than MQTT JSON — a null distance (the node's Modbus-failure case) becomes
 `NAN`, so HA shows *unknown* instead of a plausible-looking zero. Diagnostics (WiFi signal,
 uptime, IP) use ESPHome's stock platforms.
+
+The node's payload uses single-letter keys since 2026-09-30 (`d` distance_mm, `v` battery_mv,
+`f` fast, `g` radar rail held, plus `r` reset cause, `n` cycles since boot, `i` failed radio
+init attempts since the last transmit -- see "Diagnostics on the wire" in
+`moteino_creek_node/src/main.cpp`). The gateway also still decodes the earlier long-key form
+(`distance_mm`/`battery_mv`/`fast`/`diag`), so the two sides can be updated in either order.
 
 Two build workarounds are load-bearing and documented inline where they live: RFM69's
 PlatformIO manifest wrongly declares AVR-only support, which `esp32: toolchain: platformio`

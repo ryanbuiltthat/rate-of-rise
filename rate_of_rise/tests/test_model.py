@@ -98,7 +98,6 @@ def test_uses_the_promoted_artifact_once_both_gates_are_clear():
     pred = model.predict(row(stage_ft=2.8, rate_of_rise_in_min=0.08))
     assert pred.method == f"ml:{result.version}"
     assert 0.0 <= pred.flood_probability <= 1.0
-    assert pred.predicted_crest_ft is None   # not built — see train.py's docstring
 
 
 def test_promote_takes_effect_without_reconstructing_model():

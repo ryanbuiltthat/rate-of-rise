@@ -95,8 +95,14 @@ views:
         title: Now
         show_header_toggle: false
         entities:
+          # Next 3 h, from every rise on record (crest.py). Informational — not a tier.
+          # Near the bank it is extrapolating: see the sensor's beyond_training attribute.
           - entity: sensor.rate_of_rise_creek_predicted_crest
             name: Predicted crest
+          - entity: sensor.rate_of_rise_creek_time_to_crest
+            name: Time to crest
+          - entity: sensor.rate_of_rise_creek_crest_outlook
+            name: Crest outlook
           - entity: sensor.rate_of_rise_creek_lag_estimate
             name: Lag estimate
           - entity: sensor.rate_of_rise_creek_soil_moisture_mean
@@ -461,6 +467,17 @@ views:
           # also produces null readings. Here so a held rail is never mistaken for a fault.
           - entity: binary_sensor.outside_creek_gateway_creek_node_diagnostic_active
             name: Diagnostic running
+          # What the node's last silence was, read off its first packet back (main.cpp,
+          # "Diagnostics on the wire"). Cycles back at 0 with a reset cause means it rebooted
+          # and says why; cycles that carried on means it resumed without a reset; radio init
+          # failures above 0 means the MCU was awake and the radio was what kept it quiet.
+          - entity: sensor.outside_creek_gateway_creek_node_reset_cause
+            name: Last node reset
+            secondary_info: last-changed
+          - entity: sensor.outside_creek_gateway_creek_node_cycle
+            name: Cycles since boot
+          - entity: sensor.outside_creek_gateway_creek_node_radio_init_failures
+            name: Radio init failures
           # The battery pack, judged once a day at 04:30 from the night's readings, the only
           # hours the "battery" reading is the cell rather than the charger (creek_node_health.yaml).
           - entity: sensor.creek_node_pack_health

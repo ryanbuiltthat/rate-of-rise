@@ -83,7 +83,8 @@ def gateway_entity_ids() -> dict[str, str]:
 
     # The component block is a mapping, not a list, and its sub-sensors carry the domain
     # implicitly: everything it exposes is a sensor except the two called out here.
-    non_sensor = {"node_status": "binary_sensor", "ota_status": "text_sensor"}
+    non_sensor = {"node_status": "binary_sensor", "ota_status": "text_sensor",
+                  "reset_cause": "text_sensor"}
     for key, value in (doc.get("rfm69_gateway") or {}).items():
         if isinstance(value, dict) and "name" in value:
             add(value["name"], non_sensor.get(key, "sensor"))
@@ -174,10 +175,9 @@ def test_fast_sampling_flag_is_actually_sent_by_the_node():
     the payload the gateway would publish "not fast" forever, which is indistinguishable from
     a node that simply never sees a rise.
     """
-    node_src = (ROOT / "firmware" / "moteino_creek_node" / "src" / "main.cpp").read_text(
-        encoding="utf-8")
-    assert '\\"fast\\":%d' in node_src, (
-        "node firmware no longer sends the `fast` flag the gateway publishes")
+    for fmt in node_payload_formats():
+        assert "f" in payload_keys(fmt), (
+            f"node firmware no longer sends the `f` (fast) flag the gateway publishes: {fmt!r}")
 
 
 def test_radar_diagnostic_window_ships_disabled():
@@ -383,31 +383,11 @@ def test_diagnostic_active_is_sent_by_the_node_and_published():
     unchanged slope had already been read as a result. This flag is that question answered on
     the dashboard, so the next run reports on itself.
     """
-    node_src = (ROOT / "firmware" / "moteino_creek_node" / "src" / "main.cpp").read_text(
-        encoding="utf-8")
-    assert '\\"diag\\":%d' in node_src, "the node no longer sends the diag flag"
+    for fmt in node_payload_formats():
+        assert "g" in payload_keys(fmt), f"the node no longer sends the `g` (diag) flag: {fmt!r}"
     names = set(gateway_entity_ids())
     assert "Creek Node Diagnostic Active" in names, (
         f"gateway does not publish the diagnostic flag: {sorted(names)}")
-
-
-def test_node_payload_fits_the_radio_frame():
-    """RFM69::sendFrame() silently truncates past RF69_MAX_DATA_LEN (61).
-
-    Truncation is not a crash: the node logs a perfectly good payload while the gateway logs
-    a JSON parse failure, so the packet budget has to be checked here rather than discovered
-    in the field. `diag` only fits because `node` was dropped to pay for it, and the headroom
-    left is four bytes — narrow enough that the next key added without checking overflows it.
-    """
-    node_src = (ROOT / "firmware" / "moteino_creek_node" / "src" / "main.cpp").read_text(
-        encoding="utf-8")
-    match = re.search(r'"(\{\\"distance_mm\\":%ld.*?\})"', node_src)
-    assert match, "could not find the numeric payload format string"
-    # Worst case: the SEN0676's 40000 mm ceiling, the divider's 6600 mV ceiling, flags at 1.
-    worst = (match.group(1).replace('\\"', '"')
-             .replace("%ld", "40000").replace("%u", "6600").replace("%d", "1"))
-    assert len(worst) <= 61, (
-        f"worst-case payload is {len(worst)} bytes, over RF69_MAX_DATA_LEN: {worst!r}")
 
 
 def test_radar_fault_entities_are_published():
@@ -509,6 +489,198 @@ def test_radio_frequency_matches_the_node_firmware():
     assert match, "could not find FREQUENCY in the node firmware"
     assert match.group(1) == str(subs["rfm69_frequency"]), (
         f"gateway is on {subs['rfm69_frequency']} MHz but the node is on {match.group(1)} MHz")
+
+
+# ─── Node diagnostics on the wire (2026-09-30) ───────────────────────────────────────────
+# The node went silent four times 9/27-9/29 and nothing in the telemetry could say whether it
+# had reset, resumed, or was awake with a dead radio. These tests pin the three fields that
+# answer that, and the frame budget they have to fit in.
+
+NODE_SRC = ROOT / "firmware" / "moteino_creek_node" / "src" / "main.cpp"
+GATEWAY_H = (ROOT / "firmware" / "esp32_rfm69_gateway" / "components" / "rfm69_gateway"
+             / "rfm69_gateway.h")
+GATEWAY_PY = (ROOT / "firmware" / "esp32_rfm69_gateway" / "components" / "rfm69_gateway"
+              / "__init__.py")
+
+# RFM69::sendFrame() silently truncates past RF69_MAX_DATA_LEN (61). The node comment says so;
+# this is the number it has to be checked against.
+RF69_MAX_DATA_LEN = 61
+
+# Widest value each key can carry: SEN0676 40 m ceiling, the VIN divider's 6600 mV ceiling,
+# one-digit flags, a full byte for the reset cause and init-failure count, uint16 cycles.
+PAYLOAD_WORST_CASE = {"d": "40000", "v": "6600", "f": "1", "g": "1",
+                      "r": "255", "n": "65535", "i": "255"}
+
+
+def node_payload_formats() -> list[str]:
+    """Every snprintf(payload, ...) format string in main.cpp, with C escapes resolved.
+
+    Adjacent string literals are concatenated the way the compiler would, so a format split
+    across lines is read as one string.
+    """
+    src = NODE_SRC.read_text(encoding="utf-8")
+    formats = []
+    for m in re.finditer(r"snprintf\(payload,\s*sizeof\(payload\),", src):
+        pos = m.end()
+        pieces = []
+        while True:
+            lit = re.match(r'\s*"((?:[^"\\]|\\.)*)"', src[pos:])
+            if not lit:
+                break
+            pieces.append(lit.group(1))
+            pos += lit.end()
+        assert pieces, "snprintf(payload, ...) with no format string"
+        formats.append("".join(pieces).replace('\\"', '"'))
+    assert len(formats) >= 2, "expected a with-distance and a null-distance payload format"
+    return formats
+
+
+def payload_keys(fmt: str) -> list[str]:
+    return re.findall(r'"(\w+)":', fmt)
+
+
+def worst_case_payload(fmt: str) -> str:
+    def sub(m):
+        key = m.group(1)
+        assert key in PAYLOAD_WORST_CASE, f"no worst-case value defined for payload key {key!r}"
+        return f'"{key}":{PAYLOAD_WORST_CASE[key]}'
+    return re.sub(r'"(\w+)":%(?:ld|lu|u|d)', sub, fmt)
+
+
+def test_payload_reports_reset_cause_cycle_and_radio_init_failures():
+    """`r` is PM->RCAUSE, `n` counts cycles since boot, `i` counts radio init attempts that
+    failed since the last successful transmit. Together the first packet after an outage says
+    whether the node rebooted (n back to 0, r says why), resumed (n continues), or sat awake
+    with a radio that would not come up (i > 0)."""
+    for fmt in node_payload_formats():
+        keys = set(payload_keys(fmt))
+        assert {"r", "n", "i"} <= keys, f"payload {fmt!r} is missing diagnostics: {sorted(keys)}"
+
+
+def test_payload_worst_case_fits_the_radio_frame():
+    """Past 61 bytes the radio truncates and the gateway logs a JSON parse failure while the
+    node logs a perfect packet. Check the widest possible rendering of every format."""
+    for fmt in node_payload_formats():
+        rendered = worst_case_payload(fmt)
+        assert "%" not in rendered, f"unhandled placeholder in {rendered!r}"
+        assert len(rendered) <= RF69_MAX_DATA_LEN, (
+            f"{len(rendered)} bytes > {RF69_MAX_DATA_LEN}: {rendered}")
+
+
+def test_gateway_reads_every_key_the_node_sends():
+    """A key the node sends and the gateway never looks up is a field that costs radio bytes
+    and reaches nobody."""
+    gateway = GATEWAY_H.read_text(encoding="utf-8")
+    for fmt in node_payload_formats():
+        for key in payload_keys(fmt):
+            assert f'root["{key}"]' in gateway, f"gateway never reads payload key {key!r}"
+
+
+def test_gateway_still_accepts_the_previous_payload_keys():
+    """The gateway is flashed over WiFi and the node over the radio, so for a while one side
+    runs the old format. The gateway has to decode both or the swap-over blanks the creek."""
+    gateway = GATEWAY_H.read_text(encoding="utf-8")
+    for key in ("distance_mm", "battery_mv", "fast", "diag"):
+        assert f'root["{key}"]' in gateway, f"gateway dropped the legacy payload key {key!r}"
+
+
+def test_gateway_publishes_the_node_diagnostic_entities():
+    names = set(gateway_entity_ids())
+    for required in ("Creek Node Reset Cause", "Creek Node Cycle",
+                     "Creek Node Radio Init Failures"):
+        assert required in names, f"gateway does not publish {required!r}: {sorted(names)}"
+    ids = gateway_entity_ids()
+    assert ids["Creek Node Reset Cause"].startswith("text_sensor."), (
+        "reset cause must be a text_sensor so HA shows the cause by name")
+    py = GATEWAY_PY.read_text(encoding="utf-8")
+    for conf in ("reset_cause", "cycle", "radio_init_failures"):
+        assert f'"{conf}"' in py, f"component schema has no {conf!r} option"
+
+
+def _node_define(src: str, name: str) -> float:
+    m = re.search(rf"#define\s+{name}\s+([\d.]+)", src)
+    assert m, f"could not find {name} in the node firmware"
+    return float(m.group(1))
+
+
+def test_fast_mode_trigger_cannot_be_tripped_by_sensor_jitter():
+    """9/27-9/29 the node spent ~90 % of its time in 5 s fast mode on a quiet creek: a 1 mm
+    jitter over 6 s read as 10 mm/min. The trigger must ask for a drop no single-sample
+    jitter can produce (the SEN0676 is +/-5 mm), measured against a reading minutes old."""
+    src = NODE_SRC.read_text(encoding="utf-8")
+    assert _node_define(src, "RISE_MIN_DROP_MM") >= 5, "trigger drop is inside single-sample jitter"
+    assert _node_define(src, "RISE_LOOKBACK_MIN_S") >= 240, "lookback shorter than four minutes"
+
+
+def test_fast_mode_still_engages_before_a_warning_is_plausible():
+    """The node must be sampling fast before the add-on's Warning rate can trip, so the crest
+    is sampled at 5 s. The implied trigger rate is the minimum drop over the *longest* lookback
+    the node accepts."""
+    src = NODE_SRC.read_text(encoding="utf-8")
+    tiers = (ROOT / "rate_of_rise" / "app" / "tiers.py").read_text(encoding="utf-8")
+    warning_in_min = float(
+        re.search(r"WARNING_RATE_OF_RISE_IN_MIN\s*=\s*([\d.]+)", tiers).group(1))
+    node_mm_min = (_node_define(src, "RISE_MIN_DROP_MM") * 60.0
+                   / _node_define(src, "RISE_LOOKBACK_MAX_S"))
+    assert node_mm_min <= warning_in_min * 25.4, (
+        f"node fast-mode trigger {node_mm_min:.2f} mm/min is above the add-on Warning "
+        f"{warning_in_min * 25.4:.2f} mm/min; the crest would be sampled at 60 s")
+
+
+def _function_body(src: str, signature: str) -> str:
+    body = src[src.index(signature):]
+    return body[:body.index("\n}\n") + 3]
+
+
+def test_watchdog_is_clocked_from_the_internal_oscillator():
+    """The #43 watchdog ran from GCLK2, the RTC's own crystal generator. A stalled crystal
+    then stopped the wake alarm and the watchdog together. The WDT has to run from OSCULP32K,
+    which cannot stop, on a generator the RTC does not use."""
+    body = _function_body(NODE_SRC.read_text(encoding="utf-8"), "static void wdtEnable()")
+    assert "GCLK_GENCTRL_SRC_OSCULP32K" in body, "watchdog generator is not sourced from OSCULP32K"
+    assert "GCLK_CLKCTRL_GEN_GCLK2" not in body, "watchdog still shares the RTC's GCLK2"
+
+
+def test_watchdog_stays_armed_through_standby():
+    """A node that never wakes is the failure that needed catching. sleepSeconds() must not
+    stand the watchdog down; it naps in slices shorter than the WDT period and feeds it."""
+    src = NODE_SRC.read_text(encoding="utf-8")
+    body = _function_body(src, "static void sleepSeconds(")
+    assert "wdtDisable()" not in body, "sleepSeconds() disarms the watchdog before standby"
+    assert "wdtFeed()" in body, "sleepSeconds() never feeds the watchdog between naps"
+    assert _node_define(src, "SLEEP_NAP_MAX_S") < 16, (
+        "a nap longer than the 16 s watchdog period would reset the node")
+
+
+def test_standby_entry_disables_systick():
+    """ArduinoLowPower's guard for the SAMD21 'sporadically never wakes from standby' lockup:
+    SysTick's interrupt is masked across the WFI and restored after."""
+    src = NODE_SRC.read_text(encoding="utf-8")
+    assert "SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk" in src, "SysTick not masked before WFI"
+    assert "SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk" in src, "SysTick not restored after WFI"
+    assert "LowPower.standby()" not in src, (
+        "LowPower.standby() has no SysTick guard; use the local wrapper")
+
+
+def test_radio_init_retries_before_skipping_a_transmit():
+    """The leading theory for the silent nights is the RFM69 failing its 50 ms ModeReady
+    check after the per-wake reset pulse. One attempt per wake turns a slow radio into a
+    mute node; a few attempts with a longer settle should not."""
+    src = NODE_SRC.read_text(encoding="utf-8")
+    assert _node_define(src, "RADIO_INIT_ATTEMPTS") >= 2
+
+
+def test_battery_is_read_before_the_radar_rail_comes_up():
+    """Since the 2026-10-04 rework one cable down the pole arm carries the radar boost and the
+    Moteino together, so the Moteino's VIN sits below the charger's output by the cable's drop
+    at whatever current is flowing. Read with the radar powered (~60 mA) that was ~0.2 V, which
+    hid the charger's 4.4 V daytime rail from the pack-health check. Read before the rail comes
+    up, only the Moteino's own ~10 mA flows and the error is a few hundredths of a volt."""
+    src = NODE_SRC.read_text(encoding="utf-8")
+    loop = src[src.index("void loop() {"):]
+    battery = loop.index("readBatteryMv()")
+    radar = loop.index("readRadarDistance()")
+    assert battery < radar, "loop() reads the battery after powering the radar rail"
 
 
 def main():

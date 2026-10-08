@@ -201,6 +201,17 @@ rfm69_gateway:
             const float d = x;
             if (isnan(mount)) return;
 
+            // No reading: a failed radar read (null distance on the wire), or the component
+            // clearing distance because the node went offline (clear_measurements_). Stage
+            // and depth are unknown too -- holding the last depth would draw an outage as a
+            // level creek. NaN would reach publish_state through `mount - d` anyway, but
+            // only implicitly, through range checks that were not written with NaN in mind.
+            if (isnan(d)) {
+              id(creek_stage).publish_state(NAN);
+              id(creek_depth_in).publish_state(NAN);
+              return;
+            }
+
             // Too FAR is a lost target -- nothing reflected, so the depth is genuinely
             // unknown and NaN is honest.
             if (d > mount + ${overrange_slack_mm}) {
@@ -247,6 +258,16 @@ rfm69_gateway:
     name: Creek Node Status
   ota_status:
     name: Node OTA Status
+  # Outage diagnostics from the node (moteino_creek_node/src/main.cpp, "Diagnostics on the
+  # wire"). After a silence, the first packet's reset cause and cycle count say whether the
+  # node rebooted (and why) or resumed, and the init-failure count says whether the radio
+  # was what kept it quiet.
+  reset_cause:
+    name: Creek Node Reset Cause
+  cycle:
+    name: Creek Node Cycle
+  radio_init_failures:
+    name: Creek Node Radio Init Failures
 
 # --- Calibration ------------------------------------------------------------------------
 # Surveyed 2026-09-12: creekbed -> sensor face = 43.5 in = 1105 mm. Bank top was re-measured
@@ -329,6 +350,5 @@ button:
     on_press:
       - lambda: id(creek_radio).start_ota_push(true);
 
-switch:
   - platform: restart
     name: "Restart Creek Gateway"

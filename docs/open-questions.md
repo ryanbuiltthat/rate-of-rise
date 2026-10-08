@@ -194,6 +194,15 @@ short list of real engineering work that is known, scoped, and deliberately not 
   gateway entity, and restoring the regression test that enforced the node/add-on
   threshold ordering, which the port also removed.
 
+  **UPDATE 2026-09-30 — the trigger was noise-dominated in practice, not just in theory.**
+  From 9/27 the node sat in fast mode about 90 % of the time on a creek that was not moving:
+  at the 5 s cadence any 1 mm wobble between consecutive readings read as 10 mm/min, and
+  leaving needed ten samples in a row with no wobble at all. The trigger now asks for a
+  5 mm drop against a reading 4–7 minutes old (`RISE_MIN_DROP_MM`, `RISE_LOOKBACK_*` in
+  `main.cpp`), which is ~0.7 mm/min, still under the add-on's 1.27 mm/min Warning. Both
+  follow-ups above are done as well: `Creek Node Fast Sampling` is a gateway entity, and
+  `test_fast_mode_still_engages_before_a_warning_is_plausible` enforces the ordering.
+
 - **#16.** ~~Optional: raise the pole 24–36 in.~~ **COMPLETED.** Pole raised. Buys overbank
   depth headroom for model training (un-censoring the rare big events) and reduces the
   debris-impact risk to the sensor at the property low spot.
@@ -239,6 +248,16 @@ the calibration phase.
   wait on more storms.
 - **#10.** Rain-on-snow thresholds (`app/features.py`: 0.20 in SWE, 34 °F) are placeholders, and
   the flag cannot be validated until a winter rain-on-snow event is actually captured.
+
+- **#18.** Is the predicted crest right where it matters? `app/crest.py` (0.25.0) is trained
+  on every rise in the record, and every rise so far is inches from a creek near 1 ft. Its
+  held-out scores say how well it calls those. Whether it calls a crest within the last foot
+  below the bank (Emergency 30 in, bank top 44.25 in) can only be answered by a storm that
+  gets there. Until then `beyond_training` is true up there, and the crest stays
+  informational. When such a storm comes, compare the card's crest and time to crest from
+  an hour or two before against the recorded peak (storm runbook, *During*). The same
+  storm is what would let a predicted crest raise a tier (spec E.4). Duration — "for how
+  long" — is also still to build (spec E.4).
 
 - *#11 is Closed, above; its load figure was settled by #17 at ~2 mA, which makes the 80 mA
   analysis below moot for the as-built node.* What follows is the
@@ -286,7 +305,10 @@ the calibration phase.
   **~2 mA** (#17, measured 2026-09-25), so the charger's efficiency still is not
   load-bearing, and the bq24074 stays. It is simpler and has proven reliable in field
   operation.
-  Pair with low-voltage protection on the pack. Choose the 5 V boost with an enable pin — 
+  Pair with low-voltage protection on the pack. **As built (2026-10-04) there is none, by
+  decision, and the bq24074 has no battery-side cutoff of its own** — see
+  `docs/node-hardware.md`, "What the bq24074 does and does not protect".
+  Choose the 5 V boost with an enable pin — 
   that EN line is the radar load switch, so duty-cycling costs a GPIO and a 100 ms settle 
   rather than a separate MOSFET.
   **OTA over winter:** bring the node indoors with the pack; on USB it stays on WiFi and

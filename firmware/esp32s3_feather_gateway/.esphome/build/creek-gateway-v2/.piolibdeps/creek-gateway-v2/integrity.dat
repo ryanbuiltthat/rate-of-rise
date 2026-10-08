@@ -1,0 +1,9 @@
+WiFi
+Network
+HTTPClient
+FS
+esphome/noise-c@0.1.11
+SPI
+NetworkClientSecure
+lowpowerlab/RFM69@1.6.0
+SD

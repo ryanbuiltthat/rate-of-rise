@@ -471,6 +471,34 @@ def test_data_problem_pushes_respect_the_pause():
                for c in push["conditions"])
 
 
+def test_telemetry_recovery_reports_the_node_diagnostics():
+    """When the creek node comes back, the phone should say why it was gone, not just fall
+    silent. The node's first packet carries the answer (reset cause, cycle count, radio
+    init failures); the recovery push reads those three entities after a short delay so
+    the same packet's values have landed, on the ordinary Creek Watch channel, and only
+    for the telemetry watchdog -- a cleared rain-gauge fault has nothing to say about the
+    node. It respects the pause like every other push here."""
+    clear = _health_automation("creek_data_watchdog_clear")
+    branches = [a for a in clear["actions"] if isinstance(a, dict) and "if" in a]
+    assert branches, "the clear automation has no conditional recovery push"
+    branch = branches[0]
+    conditions = " ".join(c.get("value_template", "") for c in branch["if"])
+    assert "binary_sensor.creek_telemetry_stale" in conditions
+    assert "creek_alerts_paused" in conditions
+    then = branch["then"]
+    assert any(isinstance(a, dict) and "delay" in a for a in then), (
+        "no delay: the diagnostics from the same packet may not have landed yet")
+    steps = [a for a in then if isinstance(a, dict) and "device_id" in a]
+    assert {s["device_id"] for s in steps} == {s["device_id"] for s in push_steps()}
+    for step in steps:
+        assert step["continue_on_error"] is True
+        assert step["data"]["channel"] == "Creek Watch", "no new channel names"
+        for entity_id in ("sensor.outside_creek_gateway_creek_node_reset_cause",
+                          "sensor.outside_creek_gateway_creek_node_cycle",
+                          "sensor.outside_creek_gateway_creek_node_radio_init_failures"):
+            assert entity_id in step["message"], f"recovery push does not report {entity_id}"
+
+
 def test_every_watchdog_the_pushes_name_exists():
     """A trigger on an entity nothing creates never fires — the silent version of the
     dashboard's "Entity not found"."""
