@@ -254,7 +254,7 @@ sensor:
   
   - platform: max17043
     id: max17043_id
-    i2c_id: i2c_max17043
+    i2c_id: i2c_bus
     battery_voltage:
       name: "Gateway Battery Voltage"
     battery_level:
