@@ -251,6 +251,14 @@ sensor:
     name: Uptime
     entity_category: diagnostic
     update_interval: 300s
+  
+  - platform: max17043
+    id: max17043_id
+    i2c_id: i2c_max17043
+    battery_voltage:
+      name: "Gateway Battery Voltage"
+    battery_level:
+      name: "Gateway Battery Level"
 
 text_sensor:
   - platform: wifi_info
