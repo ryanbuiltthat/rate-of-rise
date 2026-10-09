@@ -74,6 +74,11 @@ esp32:
     type: arduino
     sdkconfig_options:
       CONFIG_APP_REPRODUCIBLE_BUILD: "n"   # Windows CreateProcess limit; see v1
+      # The store's block files are NNNNNN.ndjson. The default FATFS_LFN_NONE is 8.3-only, so
+      # fopen() of them fails while store_id.txt (8.3) works: "SD write failed" on a good card.
+      # The LFN options are a Kconfig choice, so NONE must be switched off as well.
+      CONFIG_FATFS_LFN_NONE: "n"
+      CONFIG_FATFS_LFN_HEAP: "y"
   toolchain: platformio                    # RFM69's stale library.json; see v1
 
 logger:
