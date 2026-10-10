@@ -82,6 +82,11 @@ class Reconciler:
     def cursor(self) -> dict[str, int]:
         return dict(self._cursor)
 
+    @property
+    def store_id(self) -> str | None:
+        """The card the cursor belongs to (None until backfill has seen a v2 store)."""
+        return self._store_id
+
     def _load(self) -> dict[str, int]:
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
@@ -252,6 +257,14 @@ class BackfillService:
         self._now = now_fn
         self._stop = threading.Event()
         self._last_bad_token_warn: float | None = None
+
+    @property
+    def client(self):
+        return self._client
+
+    @property
+    def reconciler(self) -> Reconciler:
+        return self._rec
 
     def start(self) -> None:
         threading.Thread(target=self._run, name="backfill", daemon=True).start()

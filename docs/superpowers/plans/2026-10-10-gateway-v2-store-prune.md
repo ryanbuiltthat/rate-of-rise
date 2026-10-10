@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 Date: 2026-10-10
-Status: Approved 2026-10-10
+Status: Implemented 2026-10-10 (add-on 0.27.0); bench check in Task 7 pending
 
 **Goal:** Add a Home Assistant button that tells the add-on to delete stored records older than
 N days from the v2 gateway's SD card. N is an add-on option. It must work during the v2 trial
@@ -173,7 +173,7 @@ opt-in, button-only action. It never runs automatically.
 
 ## Task 4: `StoreClient.prune()`
 
-**Files:** `rate_of_rise/app/backfill/client.py`, `rate_of_rise/tests/test_backfill_client.py`
+**Files:** `rate_of_rise/app/backfill/client.py`, `rate_of_rise/tests/test_backfill_prune.py` (client tests live with the prune tests, sharing their fake gateway)
 
 - [ ] Add `prune(before: float, through: dict[str, int], store_id: str) -> dict`. It sends
   a POST with the query parameters above and the same headers and timeout as `records()`.

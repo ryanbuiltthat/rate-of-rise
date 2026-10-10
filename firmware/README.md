@@ -321,13 +321,19 @@ line, 10 000 records per file (`000001.ndjson` holds seq 10000–19999). Files a
 sequence, not date, so a record written before the clock is known can't land out of order.
 Sequence numbers are assigned when a record is written to the card, not when it is queued.
 Each record has `ts_src`: `ntp` (synced within 24 h), `rtc` (RTC only), or `none` (no
-trustworthy time; the add-on skips these). Nothing is ever deleted. At the worst case of 5 s
+trustworthy time; the add-on skips these). Nothing is deleted except by `POST /store/prune`,
+which the add-on's Prune Gateway Store button sends (see below). At the worst case of 5 s
 fast mode all day that's about 3.5 MB/day. SD support needs ESP-IDF's VFS directory support,
 which `creek_store` requests itself (`esp32.require_vfs_dir()`), so no `sdkconfig` option is
 needed in the YAML.
 
 **Replay API** (port 80, `Authorization: Bearer <creek_store_token>`):
-`GET /store/status`, `GET /store/records?stream=node|ecowitt&after=<seq>&limit=<≤500>`.
+`GET /store/status`, `GET /store/records?stream=node|ecowitt&after=<seq>&limit=<≤500>`,
+and `POST /store/prune` (form fields `before=<epoch s>`, `node_through=<seq>`,
+`ecowitt_through=<seq>`, `store_id=<id>`). Prune deletes whole block files, oldest first, only
+while a block's last record is at or below that stream's `*_through` and older than
+`before`, never the newest block, at most 8 per request (`"more": true` means ask again). A
+`store_id` that is not the mounted card's is 409.
 A quick look from a laptop:
 
 ```bash

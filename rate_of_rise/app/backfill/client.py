@@ -24,6 +24,14 @@ PAGE_LIMIT = 500
 TIMEOUT_S = 10.0
 
 
+class PruneUnsupported(Exception):
+    """The gateway answered /store/prune with 404 or 405: v2 firmware older than pruning."""
+
+
+class StoreChanged(Exception):
+    """The gateway answered /store/prune with 409: its card is not the one the cursor is for."""
+
+
 class ProbeState(Enum):
     OK = "ok"
     NO_STORE = "no_store"          # answered, but not a v2 store: v1, or web server off
@@ -108,3 +116,25 @@ class StoreClient:
             if cursor >= last:
                 break
         return out
+
+    def prune(self, before: float, through: dict[str, int], store_id: str) -> dict:
+        """Ask the gateway to delete its oldest blocks whose records are all older than
+        `before` and at or below `through[stream]` (the backfill cursor). One request deletes
+        at most a few blocks; the reply's `more` says whether to ask again.
+
+        The arguments go as a form body: the gateway's POST handler insists on a
+        Content-Length, and reads form fields the same way as query parameters.
+        """
+        data = {"before": f"{before:.0f}", "store_id": store_id,
+                **{f"{s}_through": str(int(n)) for s, n in through.items()}}
+        r = self._session.post(f"{self._url}/store/prune", headers=self._headers,
+                               timeout=self._timeout, data=data)
+        if r.status_code in (404, 405):
+            raise PruneUnsupported(f"HTTP {r.status_code}")
+        if r.status_code == 409:
+            raise StoreChanged(r.text.strip())
+        r.raise_for_status()
+        body = r.json()
+        if not isinstance(body, dict):
+            raise ValueError("prune reply is not a JSON object")
+        return body

@@ -189,6 +189,34 @@ static void test_civil_valid() {
                            bcd2bin(0x7F), bcd2bin(0x7F), 0}));
 }
 
+static void test_prune() {
+  CHECK(parse_ts("{\"seq\":42,\"ts\":1791378600.4,\"ts_src\":\"ntp\"}") &&
+        near((float) (*parse_ts("{\"seq\":42,\"ts\":1791378600.4,\"ts_src\":\"ntp\"}") -
+                      1791378600.0), 0.4f));
+  CHECK(!parse_ts("{\"seq\":42,\"ts\":1.0"));        // torn
+  CHECK(!parse_ts("{\"seq\":42,\"rssi\":-70}"));     // no ts
+
+  const std::string tail = "s\":1.0}\n{\"seq\":7,\"ts\":20.5}\n{\"seq\":8,\"ts\":3";
+  const auto last = last_record_in_tail(tail);
+  CHECK(last && last->seq == 7 && last->ts == 20.5);
+  CHECK(!last_record_in_tail("{\"seq\":7,\"rssi\":1}\n"));
+  CHECK(!last_record_in_tail(""));
+
+  const std::optional<TailInfo> rec = TailInfo{19999, 100.0};
+  CHECK(block_prunable(1, 3, rec, 19999, 100.5));    // seq == through is prunable
+  CHECK(!block_prunable(1, 3, rec, 19998, 100.5));   // add-on has not consumed it all
+  CHECK(!block_prunable(1, 3, rec, 19999, 100.0));   // ts == before is kept
+  CHECK(!block_prunable(3, 3, rec, 99999, 1e12));    // newest block
+  CHECK(!block_prunable(4, 3, rec, 99999, 1e12));    // past newest
+  CHECK(!block_prunable(1, 3, std::nullopt, 99999, 1e12));  // unreadable tail
+
+  CHECK(first_seq_from(-1, 0) == 0);
+  CHECK(first_seq_from(0, 0) == 0);
+  CHECK(first_seq_from(0, 5) == 1);
+  CHECK(first_seq_from(-1, 5) == 1);
+  CHECK(first_seq_from(3, 31234) == 30000);
+}
+
 int main() {
   test_stage_matches_v1_lambda();
   test_node_record_encoding();
@@ -199,6 +227,7 @@ int main() {
   test_blocks();
   test_civil_time();
   test_civil_valid();
+  test_prune();
   if (failures) {
     std::printf("%d failure(s)\n", failures);
     return 1;

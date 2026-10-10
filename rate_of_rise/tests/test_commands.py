@@ -88,6 +88,13 @@ def test_handler_returning_none_defaults_to_ok():
     assert res.message == "ok"
 
 
+def test_prune_store_is_a_known_command():
+    proc = CommandProcessor({"prune_store": lambda payload: "pruned 0 node / 0 ecowitt"})
+    res = proc.handle("prune_store", "run")
+    assert res.ok is True and res.message.startswith("pruned"), res
+    assert CommandQueue.command_from_topic("creek/cmd/prune_store") == "prune_store"
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

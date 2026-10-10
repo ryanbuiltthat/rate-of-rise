@@ -236,6 +236,40 @@ inline std::optional<uint32_t> last_seq_in_tail(const std::string &tail) {
   return last;
 }
 
+// The record's "ts" (epoch seconds). Only for a complete line: a torn one has no reliable ts.
+inline std::optional<double> parse_ts(const char *line) {
+  if (!parse_seq(line)) return std::nullopt;
+  static const char KEY[] = ",\"ts\":";
+  const char *p = std::strstr(line, KEY);
+  if (p == nullptr) return std::nullopt;
+  p += sizeof(KEY) - 1;
+  char *end = nullptr;
+  const double v = std::strtod(p, &end);
+  if (end == p) return std::nullopt;
+  return v;
+}
+
+struct TailInfo {
+  uint32_t seq;
+  double ts;
+};
+
+// The last complete record in a block's tail that carries both a seq and a ts.
+inline std::optional<TailInfo> last_record_in_tail(const std::string &tail) {
+  std::optional<TailInfo> last;
+  size_t start = 0;
+  while (start < tail.size()) {
+    const size_t nl = tail.find('\n', start);
+    if (nl == std::string::npos) break;  // torn
+    const std::string line = tail.substr(start, nl - start);
+    const auto seq = parse_seq(line.c_str());
+    const auto ts = parse_ts(line.c_str());
+    if (seq && ts) last = TailInfo{*seq, *ts};
+    start = nl + 1;
+  }
+  return last;
+}
+
 // --- Files -------------------------------------------------------------------------------
 // Files hold fixed seq blocks rather than days: a record's place on the card must not depend
 // on the clock, which is exactly the thing that can be wrong (ts_src "none").
@@ -260,6 +294,26 @@ inline std::optional<uint32_t> parse_block_name(const char *name) {
     v = v * 10 + (uint32_t) (base[i] - '0');
   }
   return v;
+}
+
+// --- Pruning (POST /store/prune) ----------------------------------------------------------
+// A block may be deleted only when the add-on has consumed every record in it (its cursor,
+// `through`) and its last record is older than `before`. The newest block is never deleted:
+// seq is recovered from it at boot. A block whose tail will not read is kept.
+inline bool block_prunable(uint32_t block, int64_t newest_block,
+                           const std::optional<TailInfo> &last, uint32_t through, double before) {
+  if ((int64_t) block >= newest_block) return false;
+  if (!last) return false;
+  if (last->seq > through) return false;
+  return last->ts < before;
+}
+
+// The first seq still on the card. Blocks are pruned oldest-first and contiguously, so it is
+// the oldest block's first seq (seq 0 is never written, so block 0 starts at 1).
+inline uint32_t first_seq_from(int64_t oldest_block, uint32_t written) {
+  if (written == 0) return 0;
+  if (oldest_block <= 0) return 1;
+  return (uint32_t) oldest_block * BLOCK;
 }
 
 // --- Civil time (PCF8523 registers are calendar fields, the system clock is epoch) --------

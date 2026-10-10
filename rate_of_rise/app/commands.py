@@ -27,7 +27,7 @@ log = logging.getLogger("app.commands")
 
 # The commands the dashboard publishes. Anything else is rejected.
 KNOWN_COMMANDS = ("run_inference", "retrain", "promote", "rollback", "annotate",
-                  "backfill_undo")
+                  "backfill_undo", "prune_store")
 
 
 @dataclass

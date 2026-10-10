@@ -6,8 +6,9 @@
 //    They are encoded and queued there, never written there.
 //  * loop() writes the queue to SD with a NON-BLOCKING take, as rfm69_gateway's loop does,
 //    so an OTA transfer holding the bus for minutes never stalls the main task.
-//  * HTTP requests run on the httpd task. Only /store/records takes the bus (3 s wait);
-//    /store/status reads atomics and the mutex-guarded store id, so it never waits on it.
+//  * HTTP requests run on the httpd task. Only /store/records and /store/prune take the bus
+//    (3 s wait); /store/status reads atomics and the mutex-guarded store id, so it never
+//    waits on it.
 #pragma once
 
 #include <atomic>
@@ -57,6 +58,7 @@ static const size_t PAGE_MAX_BYTES = 32 * 1024;
 static const uint32_t PAGE_MAX_LINES = 500;
 static const TickType_t HTTP_BUS_WAIT = pdMS_TO_TICKS(3000);
 static const size_t SEEK_RESOLUTION = 512;
+static const uint8_t PRUNE_MAX_BLOCKS = 8;  // per request: bounds how long the bus is held
 
 enum StreamId : uint8_t { NODE = 0, ECOWITT = 1, STREAM_COUNT = 2 };
 static const char *const STREAM_NAMES[STREAM_COUNT] = {"node", "ecowitt"};
@@ -207,6 +209,7 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
   struct StreamState {
     uint32_t last{0};
     int64_t newest{-1};
+    int64_t oldest{-1};
     bool torn{false};
   };
 
@@ -237,6 +240,7 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
     for (uint8_t s = 0; s < STREAM_COUNT; s++) {
       // The card is the truth: seq continues from what is on it, never from RAM.
       this->newest_block_[s] = st[s].newest;
+      this->oldest_block_[s] = st[s].oldest;
       this->needs_newline_[s] = st[s].torn;
       this->last_seq_[s] = st[s].last;
       this->written_seq_[s] = st[s].last;
@@ -288,6 +292,7 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
     for (File e = root.openNextFile(); e; e = root.openNextFile()) {
       const auto b = creek_core::parse_block_name(e.name());
       if (b && (int64_t) *b > out.newest) out.newest = *b;
+      if (b && (out.oldest < 0 || (int64_t) *b < out.oldest)) out.oldest = *b;
       e.close();
     }
     root.close();
@@ -326,6 +331,7 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
     }
     this->needs_newline_[p.stream] = false;
     if ((int64_t) block > this->newest_block_[p.stream]) this->newest_block_[p.stream] = block;
+    if (this->oldest_block_[p.stream] < 0) this->oldest_block_[p.stream] = block;
     this->last_seq_[p.stream] = seq;
     this->written_seq_[p.stream] = seq;
     return true;
@@ -371,9 +377,11 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
   void publish_health_(bool force) {
     const uint32_t now = millis();
     this->last_health_ms_ = now;
-    if (this->sd_ok_ && (force || now - this->last_free_ms_ >= FREE_SPACE_INTERVAL_MS) &&
+    if (this->sd_ok_ &&
+        (force || this->refresh_free_ || now - this->last_free_ms_ >= FREE_SPACE_INTERVAL_MS) &&
         xSemaphoreTake(this->bus_, 0) == pdTRUE) {
       this->last_free_ms_ = now;
+      this->refresh_free_ = false;
       this->free_mb_ = (uint32_t) ((SD.totalBytes() - SD.usedBytes()) / (1024ULL * 1024ULL));
       xSemaphoreGive(this->bus_);
     }
@@ -490,8 +498,11 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
     return buf;
   }
 
-  // The store never deletes, so the first record is seq 1 once anything has been written.
-  unsigned first_seq_(uint8_t s) const { return this->written_seq_[s] > 0 ? 1 : 0; }
+  // POST /store/prune deletes whole blocks, oldest first, so the first record still on the
+  // card is the oldest block's first seq.
+  unsigned first_seq_(uint8_t s) const {
+    return creek_core::first_seq_from(this->oldest_block_[s].load(), this->written_seq_[s].load());
+  }
 
   // Bus mutex held. Byte offset at or before the first line whose seq > after: binary search
   // on byte offsets, resyncing to the next newline at each probe. A torn line counts as
@@ -517,7 +528,10 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
     if (this->newest_block_[s] < 0) return body;
     uint32_t n = 0;
     bool first = true;
-    for (uint32_t b = creek_core::block_of(after + 1);
+    const int64_t oldest = this->oldest_block_[s];
+    uint32_t start = creek_core::block_of(after + 1);
+    if (oldest > (int64_t) start) start = (uint32_t) oldest;  // pruned blocks: nothing to open
+    for (uint32_t b = start;
          (int64_t) b <= this->newest_block_[s] && n < limit && body.size() < PAGE_MAX_BYTES; b++) {
       File f = SD.open(creek_core::block_path(STREAM_NAMES[s], b).c_str());
       if (!f) continue;
@@ -536,6 +550,104 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
       f.close();
     }
     return body;
+  }
+
+  // Bus mutex held. The last complete record of a block, read from its tail as load_stream_
+  // does; nullopt if the block will not open or holds no complete record.
+  std::optional<creek_core::TailInfo> block_tail_(uint8_t s, uint32_t b) {
+    File f = SD.open(creek_core::block_path(STREAM_NAMES[s], b).c_str());
+    if (!f) return std::nullopt;
+    const size_t size = f.size();
+    const size_t from = size > TAIL_BYTES ? size - TAIL_BYTES : 0;
+    std::string tail(size - from, '\0');
+    f.seek(from);
+    tail.resize(f.read((uint8_t *) &tail[0], tail.size()));
+    f.close();
+    return creek_core::last_record_in_tail(tail);
+  }
+
+  // Bus mutex held. Deletes stream s's oldest blocks while they qualify (block_prunable), at
+  // most `budget` of them. Stops at the first block that does not, so the store never has a
+  // hole. Returns the number deleted; sets `more` if it stopped on the budget with the next
+  // block also prunable.
+  uint32_t prune_stream_(uint8_t s, uint32_t through, double before, uint32_t budget,
+                         bool &more) {
+    uint32_t n = 0;
+    const int64_t newest = this->newest_block_[s];
+    for (int64_t b = this->oldest_block_[s]; b >= 0 && b < newest; b++) {
+      const auto last = this->block_tail_(s, (uint32_t) b);
+      if (!creek_core::block_prunable((uint32_t) b, newest, last, through, before)) break;
+      if (n >= budget) {
+        more = true;
+        break;
+      }
+      const std::string path = creek_core::block_path(STREAM_NAMES[s], (uint32_t) b);
+      if (!SD.remove(path.c_str())) {
+        ESP_LOGW(TAG, "prune: could not remove %s; keeping it and everything after it",
+                 path.c_str());
+        break;
+      }
+      this->oldest_block_[s] = b + 1;
+      n++;
+    }
+    return n;
+  }
+
+  void handle_prune_(AsyncWebServerRequest *request) {
+    if (request->method() != HTTP_POST) {
+      request->send(405, "text/plain", "POST only");
+      return;
+    }
+    auto param = [request](const char *name) -> std::string {
+      const AsyncWebParameter *p = request->getParam(name);
+      return p != nullptr ? p->value() : std::string();
+    };
+    const double before = strtod(param("before").c_str(), nullptr);
+    const std::string want_id = param("store_id");
+    if (!(before > 0) || want_id.empty()) {
+      request->send(400, "text/plain", "before and store_id are required");
+      return;
+    }
+    const uint32_t through[STREAM_COUNT] = {
+        (uint32_t) strtoul(param("node_through").c_str(), nullptr, 10),
+        (uint32_t) strtoul(param("ecowitt_through").c_str(), nullptr, 10)};
+    if (xSemaphoreTake(this->bus_, HTTP_BUS_WAIT) != pdTRUE) {
+      request->send(503, "text/plain", "bus busy");
+      return;
+    }
+    if (!this->sd_ok_) {
+      xSemaphoreGive(this->bus_);
+      request->send(503, "text/plain", "sd unavailable");
+      return;
+    }
+    {
+      std::lock_guard<std::mutex> lock(this->id_mutex_);
+      if (want_id != this->store_id_) {
+        xSemaphoreGive(this->bus_);
+        request->send(409, "text/plain", "store id mismatch");
+        return;
+      }
+    }
+    uint32_t deleted[STREAM_COUNT]{0, 0};
+    bool more = false;
+    uint32_t budget = PRUNE_MAX_BLOCKS;
+    for (uint8_t s = 0; s < STREAM_COUNT; s++) {
+      deleted[s] = this->prune_stream_(s, through[s], before, budget, more);
+      budget -= deleted[s];
+    }
+    xSemaphoreGive(this->bus_);
+    this->refresh_free_ = true;  // Store Free Space refreshes at the next health publish
+    if (deleted[NODE] || deleted[ECOWITT])
+      ESP_LOGI(TAG, "pruned %u node / %u ecowitt block(s); store now starts at seq %u / %u",
+               (unsigned) deleted[NODE], (unsigned) deleted[ECOWITT], this->first_seq_(NODE),
+               this->first_seq_(ECOWITT));
+    char buf[160];
+    snprintf(buf, sizeof buf,
+             "{\"deleted\":{\"node\":%u,\"ecowitt\":%u},\"first\":{\"node\":%u,"
+             "\"ecowitt\":%u},\"more\":%s}",
+             (unsigned) deleted[NODE], (unsigned) deleted[ECOWITT], this->first_seq_(NODE),
+             this->first_seq_(ECOWITT), more ? "true" : "false");
+    request->send(200, "application/json", buf);
   }
 
  public:
@@ -561,6 +673,10 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
     if (url == "/store/status") {
       const std::string body = this->status_json_();
       request->send(200, "application/json", body.c_str());
+      return;
+    }
+    if (url == "/store/prune") {
+      this->handle_prune_(request);
       return;
     }
     if (url != "/store/records") {
@@ -623,6 +739,7 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
   std::atomic<uint32_t> free_mb_{0};
   uint32_t last_health_ms_{0};
   uint32_t last_free_ms_{0};
+  std::atomic<bool> refresh_free_{false};  // set by a prune on the HTTP task
   uint32_t last_remount_ms_{0};
   uint32_t ecowitt_failures_{0};
   std::mutex eco_mutex_;
@@ -637,6 +754,9 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
   uint32_t last_seq_[STREAM_COUNT]{0, 0};
   std::atomic<uint32_t> written_seq_[STREAM_COUNT]{};
   int64_t newest_block_[STREAM_COUNT]{-1, -1};
+  // Oldest block on the card. Atomic: pruning moves it on the HTTP task, and
+  // /store/status reads it without the bus.
+  std::atomic<int64_t> oldest_block_[STREAM_COUNT]{{-1}, {-1}};
   bool needs_newline_[STREAM_COUNT]{false, false};
   std::deque<Pending> queue_;
 

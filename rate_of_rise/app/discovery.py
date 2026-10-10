@@ -570,6 +570,12 @@ class DiscoveryPublisher:
             ("button", "creek_rollback_model", {
                 "name": "Creek Rollback Model",
                 "command_topic": f"{b}/cmd/rollback", "payload_press": "run", "icon": "mdi:undo-variant"}),
+            # Deletes old records from the v2 gateway's SD card (app/backfill/prune.py). Config
+            # category keeps it off auto-generated dashboards, away from stray taps.
+            ("button", "creek_prune_gateway_store", {
+                "name": "Creek Prune Gateway Store",
+                "command_topic": f"{b}/cmd/prune_store", "payload_press": "run",
+                "icon": "mdi:sd", "entity_category": "config"}),
         ]
 
     def entity_ids(self) -> dict[str, str]:

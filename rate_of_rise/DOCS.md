@@ -180,6 +180,7 @@ gap in HA's entity history, hourly statistics, the stage log and the dataset. Bl
 | `gateway_store_token` | The gateway's `creek_store_token` |
 | `backfill_entity_map` | JSON: the entities that receive written history, per stream: `node` and, after cutover, `ecowitt` (`{"node": {"stage_ft": "sensor...", ...}, "ecowitt": {"rain_total_in": "sensor...", ...}}`) |
 | `backfill_shadow_map` | JSON, same shape plus an `ecowitt` stream: entities whose rows are only logged as `backfill shadow: would insert ...`, never written. For rehearsal |
+| `gateway_store_prune_days` | Default 90 (7–3650). What *Creek Prune Gateway Store* (`button.rate_of_rise_creek_prune_gateway_store`) keeps on the gateway's SD card. It deletes only records backfill has already written to HA, in whole ~1-week blocks, never the newest. Nothing is pruned unless the button is pressed |
 
 `sensor.rate_of_rise_creek_backfill_status` reads `off`, `v1 gateway (no store)`, `unreachable`,
 `gateway SD not mounted`, `idle`, `backfilling N`, `waiting for live poll`,

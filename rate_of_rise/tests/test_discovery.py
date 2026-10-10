@@ -32,7 +32,7 @@ def test_topics_and_counts():
     # 3 NWS flags + rain-on-snow + ponding + storm-in-progress + 11 watchdogs
     # + 2 gauge-fault watchdogs (stage frozen, stage implausible) + candidate ready
     assert len(binaries) == 21, len(binaries)
-    assert len(buttons) == 4, len(buttons)
+    assert len(buttons) == 5, len(buttons)   # + Prune Gateway Store
     assert len(texts) == 1, len(texts)   # annotate-latest-storm
     for topic, _ in pairs:
         assert topic.startswith("homeassistant/")
@@ -87,6 +87,16 @@ def test_buttons_have_command_topics():
     cfgs = {c["object_id"]: c for _, c in pub.configs()}
     assert cfgs["creek_retrain_now"]["command_topic"] == "creek/cmd/retrain"
     assert cfgs["creek_run_inference_now"]["command_topic"] == "creek/cmd/run_inference"
+
+
+def test_prune_gateway_store_button():
+    pub, _ = build()
+    cfgs = {c["object_id"]: c for _, c in pub.configs()}
+    prune = cfgs["creek_prune_gateway_store"]
+    assert prune["command_topic"] == "creek/cmd/prune_store"
+    assert prune["entity_category"] == "config"   # off auto-generated dashboards
+    assert pub.entity_ids()["creek_prune_gateway_store"] == \
+        "button.rate_of_rise_creek_prune_gateway_store"
 
 
 def test_annotate_text_entity_has_the_right_command_topic():
@@ -163,7 +173,7 @@ def test_local_gauge_rate_of_rise_sensor_present():
 def test_publish_all_emits_retained_json():
     pub, published = build()
     pub.publish_all()
-    assert len(published) == 92
+    assert len(published) == 93   # + Prune Gateway Store button
     for topic, payload, retain in published:
         assert retain is True
         json.loads(payload)  # valid JSON
