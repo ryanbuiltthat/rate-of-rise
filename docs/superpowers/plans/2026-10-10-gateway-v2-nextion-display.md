@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 Date: 2026-10-10
-Status: Approved 2026-10-10
+Status: Tasks 1-6 implemented 2026-10-10; Tasks 7-8 (HMI build, bench) pending
 
 **Goal:** Drive a Nextion NX3224T024 from gateway v2:
 - a startup image at power-on;
