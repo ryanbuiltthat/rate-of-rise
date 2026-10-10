@@ -217,6 +217,71 @@ static void test_sent_cache() {
   CHECK(d.text && d.color);
 }
 
+static void test_brightness() {
+  CHECK(BRIGHTNESS_DEFAULT == 70);
+  CHECK(step_brightness(70, 1) == 80 && step_brightness(70, -1) == 60);
+  CHECK(step_brightness(100, 1) == 100 && step_brightness(10, -1) == 10);
+  // Restored from flash out of range (Review Focus 1): never dark, never over 100.
+  CHECK(clamp_brightness(0) == 10 && clamp_brightness(-5) == 10 && clamp_brightness(250) == 100);
+  CHECK(step_brightness(0, 1) == 20);
+  CHECK(brightness_text(70) == "70 %" && brightness_text(0) == "10 %");
+}
+
+static void test_sleep() {
+  CHECK(SLEEP_OPTION_COUNT == 6 && SLEEP_DEFAULT == 2);
+  CHECK(sleep_option(SLEEP_DEFAULT).seconds == 120);
+  CHECK(std::string(sleep_option(SLEEP_DEFAULT).label) == "2 min");
+  CHECK(sleep_option(0).seconds == 30 && sleep_option(5).seconds == 0);
+  CHECK(std::string(sleep_option(5).label) == "Never");
+  CHECK(step_sleep(2, 1) == 3 && step_sleep(2, -1) == 1);
+  CHECK(step_sleep(0, -1) == 0 && step_sleep(5, 1) == 5);
+  // A bad restored index is the default, not "Never" (Review Focus 1).
+  CHECK(clamp_sleep_index(-1) == SLEEP_DEFAULT && clamp_sleep_index(6) == SLEEP_DEFAULT);
+  CHECK(sleep_option(99).seconds == 120);
+  CHECK(step_sleep(99, 1) == 3);
+}
+
+static void test_touch_action() {
+  CHECK(touch_action(PAGE_SETTINGS, ID_BRI_DN, false) == Action::BRIGHT_DOWN);
+  CHECK(touch_action(PAGE_SETTINGS, ID_BRI_UP, false) == Action::BRIGHT_UP);
+  CHECK(touch_action(PAGE_SETTINGS, ID_SLP_DN, false) == Action::SLEEP_DOWN);
+  CHECK(touch_action(PAGE_SETTINGS, ID_SLP_UP, false) == Action::SLEEP_UP);
+  CHECK(touch_action(PAGE_SETTINGS, ID_UPDATE, false) == Action::ASK_UPDATE);
+  CHECK(touch_action(PAGE_SETTINGS, ID_RESTART, false) == Action::ASK_RESTART);
+  CHECK(touch_action(PAGE_CONFIRM, ID_YES, false) == Action::CONFIRM);
+  // Press events, other components, other pages: nothing.
+  CHECK(touch_action(PAGE_SETTINGS, ID_RESTART, true) == Action::NONE);
+  CHECK(touch_action(PAGE_CONFIRM, ID_YES, true) == Action::NONE);
+  CHECK(touch_action(PAGE_SETTINGS, 2, false) == Action::NONE);   // bBack navigates in the HMI
+  CHECK(touch_action(PAGE_SETTINGS, 99, false) == Action::NONE);
+  CHECK(touch_action(PAGE_MAIN, ID_RESTART, false) == Action::NONE);  // same id, wrong page
+  CHECK(touch_action(PAGE_CONFIRM, 2, false) == Action::NONE);    // bNo navigates in the HMI
+  CHECK(touch_action(PAGE_SPLASH, ID_YES, false) == Action::NONE);
+  // The ids are the README's creation order.
+  CHECK(ID_BRI_DN == 4 && ID_BRI_UP == 6 && ID_SLP_DN == 8 && ID_SLP_UP == 10);
+  CHECK(ID_UPDATE == 11 && ID_RESTART == 12 && ID_YES == 3);
+  CHECK(PAGE_SPLASH == 0 && PAGE_MAIN == 1 && PAGE_SETTINGS == 2 && PAGE_CONFIRM == 3);
+}
+
+static void test_pending() {
+  CHECK(to_pending(0) == Pending::NONE);
+  CHECK(to_pending(1) == Pending::RESTART && to_pending(2) == Pending::UPDATE);
+  // Garbage is nothing pending, so Confirm does nothing (Review Focus 5).
+  CHECK(to_pending(3) == Pending::NONE && to_pending(-1) == Pending::NONE);
+  CHECK(static_cast<int>(Pending::RESTART) == 1 && static_cast<int>(Pending::UPDATE) == 2);
+  CHECK(std::string(confirm_text(Pending::RESTART)).find("Restart") == 0);
+  CHECK(std::string(confirm_text(Pending::UPDATE)).find("radio") != std::string::npos);
+  CHECK(std::string(confirm_text(Pending::NONE)).empty());
+  CHECK(std::string(working_text(Pending::RESTART)) == "Restarting...");
+  CHECK(std::string(working_text(Pending::UPDATE)) == "Updating display...");
+  // Every message must fit tMsg's txt_maxl (200) and carry no character that breaks the
+  // Nextion's quoted-string syntax.
+  for (Pending p : {Pending::RESTART, Pending::UPDATE}) {
+    const std::string s = confirm_text(p);
+    CHECK(s.size() <= 200 && s.find('"') == std::string::npos && s.find('\\') == std::string::npos);
+  }
+}
+
 int main() {
   test_fixed();
   test_with_unit();
@@ -229,6 +294,10 @@ int main() {
   test_render_main_nothing_known();
   test_render_main_degraded();
   test_sent_cache();
+  test_brightness();
+  test_sleep();
+  test_touch_action();
+  test_pending();
   if (failures) {
     std::printf("%d failure(s)\n", failures);
     return 1;

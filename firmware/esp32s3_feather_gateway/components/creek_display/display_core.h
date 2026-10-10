@@ -243,4 +243,123 @@ class SentCache {
   std::map<std::string, Field> sent_;
 };
 
+// --- settings ------------------------------------------------------------------------------
+inline constexpr int BRIGHTNESS_MIN = 10;
+inline constexpr int BRIGHTNESS_MAX = 100;
+inline constexpr int BRIGHTNESS_STEP = 10;
+inline constexpr int BRIGHTNESS_DEFAULT = 70;
+
+// Restored globals come back from flash; anything out of range is pulled into it, so a bad
+// value can never leave the backlight off.
+inline int clamp_brightness(int pct) {
+  return pct < BRIGHTNESS_MIN ? BRIGHTNESS_MIN : (pct > BRIGHTNESS_MAX ? BRIGHTNESS_MAX : pct);
+}
+
+inline int step_brightness(int pct, int dir) {
+  return clamp_brightness(clamp_brightness(pct) + dir * BRIGHTNESS_STEP);
+}
+
+inline std::string brightness_text(int pct) {
+  char buf[16];
+  std::snprintf(buf, sizeof buf, "%d %%", clamp_brightness(pct));
+  return buf;
+}
+
+struct SleepOption {
+  uint16_t seconds;  // the Nextion's thsp; 0 is never
+  const char *label;
+};
+
+inline constexpr SleepOption SLEEP_OPTIONS[] = {{30, "30 s"},   {60, "1 min"},   {120, "2 min"},
+                                                {300, "5 min"}, {600, "10 min"}, {0, "Never"}};
+inline constexpr int SLEEP_OPTION_COUNT = sizeof(SLEEP_OPTIONS) / sizeof(SLEEP_OPTIONS[0]);
+inline constexpr int SLEEP_DEFAULT = 2;  // 2 min
+
+// An index restored from flash that is not an option becomes the default, not an end of the
+// list: "Never" would keep the backlight on and drain the pack.
+inline int clamp_sleep_index(int idx) {
+  return idx >= 0 && idx < SLEEP_OPTION_COUNT ? idx : SLEEP_DEFAULT;
+}
+
+inline int step_sleep(int idx, int dir) {
+  const int i = clamp_sleep_index(idx) + dir;
+  return i < 0 ? 0 : (i >= SLEEP_OPTION_COUNT ? SLEEP_OPTION_COUNT - 1 : i);
+}
+
+inline const SleepOption &sleep_option(int idx) { return SLEEP_OPTIONS[clamp_sleep_index(idx)]; }
+
+// --- touch ---------------------------------------------------------------------------------
+enum class Action : uint8_t {
+  NONE,
+  BRIGHT_DOWN,
+  BRIGHT_UP,
+  SLEEP_DOWN,
+  SLEEP_UP,
+  ASK_UPDATE,
+  ASK_RESTART,
+  CONFIRM,
+};
+
+// The HMI sends component ids on Touch Release only, and only for these buttons; navigation
+// buttons (Settings, Back, Cancel) change page inside the HMI. Anything else is NONE.
+inline Action touch_action(uint8_t page, uint8_t component, bool press) {
+  if (press) return Action::NONE;
+  if (page == PAGE_SETTINGS) {
+    switch (component) {
+      case ID_BRI_DN:
+        return Action::BRIGHT_DOWN;
+      case ID_BRI_UP:
+        return Action::BRIGHT_UP;
+      case ID_SLP_DN:
+        return Action::SLEEP_DOWN;
+      case ID_SLP_UP:
+        return Action::SLEEP_UP;
+      case ID_UPDATE:
+        return Action::ASK_UPDATE;
+      case ID_RESTART:
+        return Action::ASK_RESTART;
+      default:
+        return Action::NONE;
+    }
+  }
+  if (page == PAGE_CONFIRM && component == ID_YES) return Action::CONFIRM;
+  return Action::NONE;
+}
+
+// --- confirm -------------------------------------------------------------------------------
+enum class Pending : uint8_t { NONE = 0, RESTART = 1, UPDATE = 2 };
+
+// The pending action is kept in an int global. Anything that is not a known action (say the
+// confirm page is still up after a gateway restart, when the global is back to 0) is NONE,
+// so Confirm then does nothing.
+inline Pending to_pending(int raw) {
+  return raw == 1 ? Pending::RESTART : (raw == 2 ? Pending::UPDATE : Pending::NONE);
+}
+
+// tMsg's txt_maxl is 200. No double quotes or backslashes: the text goes out inside a
+// Nextion string literal.
+inline const char *confirm_text(Pending p) {
+  switch (p) {
+    case Pending::RESTART:
+      return "Restart the gateway? It is back in about 30 s. Records already on the SD card "
+             "are kept.";
+    case Pending::UPDATE:
+      return "Update the display from GitHub? The radio is paused for the transfer (minutes), "
+             "so node packets in that time are lost. The gateway restarts afterwards.";
+    default:
+      return "";
+  }
+}
+
+inline const char *working_text(Pending p) {
+  switch (p) {
+    case Pending::RESTART:
+      return "Restarting...";
+    case Pending::UPDATE:
+      return "Updating display...";
+    default:
+      return "";
+  }
+}
+
 }  // namespace creek_display
