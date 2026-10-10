@@ -95,7 +95,8 @@ Both must match exactly. The README in that folder repeats this contract as a bu
   - **font 1**: 24 px, for the tier and rain rate.
   - **font 2**: 48 px, for stage.
 - Text components: `sta` = crop image, `picc` = 1, so the background shows through. The default
-  `pco` is white (65535).
+  `pco` is white (65535). `txt_maxl` is 20, except `tMsg`, which is 200; the Editor's
+  default of 10 would cut off `depth 28.9 in`.
 - Buttons: `sta` = solid color, with a distinct `bco2` (pressed colour) so a resistive press
   gives visible feedback.
 - Every page's **Postinitialize Event** contains `sendme`. That is the only way ESPHome learns the

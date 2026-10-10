@@ -129,6 +129,15 @@ The result appears on the add-on's last-command sensor:
 | `pruning not configured (gateway_store_prune_days)` | The option is blank. |
 | `gateway store backfill is off ...` | `gateway_store_url` is blank. |
 
+### The display
+
+v2 drives a Nextion NX3224T024 touch display (package `display.yaml`, in both wrappers).
+Stage, rain, batteries and link status come from the gateway itself, so the screen keeps
+working with HA down. The alert tier and rate of rise come from HA and read `--` without it.
+The HMI contract, wiring, the TFT export-and-ship steps and the bring-up checklist are in
+[firmware/nextion_display/README.md](../firmware/nextion_display/README.md). A gateway with no
+display attached runs as before.
+
 ## 2. Acceptance checks (all required before cutover)
 
 | # | Check | Pass when |

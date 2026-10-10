@@ -102,6 +102,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the TFT-export guard below reads the history of two files
 
       - name: store_core host tests
         # creek_store's pure logic (record format, stage math, seq recovery, clock) runs on
@@ -116,6 +118,23 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -I firmware/esp32s3_feather_gateway/components/creek_display firmware/esp32s3_feather_gateway/tests/test_display_core.cpp -o /tmp/test_display_core
           /tmp/test_display_core
+
+      - name: Nextion TFT is exported from the latest HMI
+        # The display runs the .tft, not the .HMI, and only the Nextion Editor can make one
+        # from the other. A commit that changes the HMI without a fresh export would ship a
+        # display that silently lacks the change, so the last commit touching the .tft must
+        # include (or come after) the last one touching the .HMI.
+        run: |
+          hmi=firmware/nextion_display/creek_gateway_v2_display.HMI
+          tft=firmware/nextion_display/creek_gateway_v2_display.tft
+          h=$(git log -1 --format=%H -- "$hmi")
+          [ -z "$h" ] && { echo "no HMI committed yet"; exit 0; }
+          t=$(git log -1 --format=%H -- "$tft")
+          if [ -z "$t" ] || ! git merge-base --is-ancestor "$h" "$t"; then
+            echo "::error file=$tft::$hmi changed after the last TFT export; export it in the Nextion Editor and commit both"
+            exit 1
+          fi
+          echo "TFT export is current"
 
       - uses: actions/setup-python@v5
         with:
