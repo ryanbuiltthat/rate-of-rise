@@ -109,6 +109,13 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror             -I firmware/esp32s3_feather_gateway/components/creek_store             firmware/esp32s3_feather_gateway/tests/test_store_core.cpp -o /tmp/test_store_core
           /tmp/test_store_core
 
+      - name: display_core host tests
+        # creek_display's pure logic (formatting, colours, settings steps, touch dispatch) runs
+        # on the host; display.yaml's glue is covered by the compile below and the bench.
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -I firmware/esp32s3_feather_gateway/components/creek_display firmware/esp32s3_feather_gateway/tests/test_display_core.cpp -o /tmp/test_display_core
+          /tmp/test_display_core
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
