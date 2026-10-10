@@ -93,6 +93,130 @@ static void test_gauge() {
   CHECK(gauge_color(20) == YELLOW && gauge_color(19) == RED);
 }
 
+static const Field *field(const std::vector<Field> &fields, const char *name) {
+  for (const auto &f : fields)
+    if (f.name == name) return &f;
+  return nullptr;
+}
+
+static MainInputs all_known() {
+  MainInputs in;
+  in.stage_ft = 2.414f;
+  in.depth_in = 28.94f;
+  in.ha_connected = true;
+  in.tier = 2;
+  in.rise_in_min = 0.05f;
+  in.rain_fresh = true;
+  in.rain_rate_in_hr = 0.42f;
+  in.rain_event_in = 1.37f;
+  in.rain_24h_in = 1.52f;
+  in.temp_f = 61.4f;
+  in.node_online = 1;
+  in.node_heard = true;
+  in.node_age_ms = 42000;
+  in.node_batt_mv = 4021;
+  in.gw_batt_pct = 87.2f;
+  in.sd_fault = 0;
+  return in;
+}
+
+static void test_render_main_all_known() {
+  const auto f = render_main(all_known());
+  const char *order[] = {"tStage", "tDepth", "tTier", "tRise", "tRate", "tTemp", "tEvent",
+                         "t24h", "tNode", "tHA", "tSD", "tNodeBat", "jNodeBat", "tGwBat",
+                         "jGwBat"};
+  CHECK(f.size() == sizeof(order) / sizeof(order[0]));
+  for (size_t i = 0; i < f.size() && i < sizeof(order) / sizeof(order[0]); i++)
+    CHECK(f[i].name == order[i]);
+  CHECK(field(f, "tStage")->text == "2.41 ft" && field(f, "tStage")->color == WHITE);
+  CHECK(field(f, "tDepth")->text == "depth 28.9 in");
+  CHECK(field(f, "tTier")->text == "Watch" && field(f, "tTier")->color == ORANGE);
+  CHECK(field(f, "tRise")->text == "+0.05 in/min");
+  CHECK(field(f, "tRate")->text == "0.42 in/h");
+  CHECK(field(f, "tTemp")->text == "61\xB0" "F");
+  CHECK(field(f, "tEvent")->text == "event 1.37 in");
+  CHECK(field(f, "t24h")->text == "24 h 1.52 in");
+  CHECK(field(f, "tNode")->text == "node 42 s" && field(f, "tNode")->color == WHITE);
+  CHECK(field(f, "tHA")->text == "HA ok" && field(f, "tHA")->color == GREEN);
+  CHECK(field(f, "tSD")->text == "SD ok" && field(f, "tSD")->color == GREEN);
+  CHECK(field(f, "tNodeBat")->text == "node 4.02 V");
+  CHECK(field(f, "jNodeBat")->value == 75 && field(f, "jNodeBat")->color == GREEN);
+  CHECK(field(f, "tGwBat")->text == "gw 87 %");
+  CHECK(field(f, "jGwBat")->value == 87 && field(f, "jGwBat")->color == GREEN);
+  for (const auto &x : f) CHECK((x.name[0] == 'j') == (x.value >= 0));  // only bars carry .val
+}
+
+static void test_render_main_nothing_known() {
+  const auto f = render_main(MainInputs{});
+  CHECK(field(f, "tStage")->text == "--" && field(f, "tStage")->color == GREY);
+  CHECK(field(f, "tDepth")->text == "depth --" && field(f, "tDepth")->color == GREY);
+  CHECK(field(f, "tTier")->text == "--" && field(f, "tTier")->color == GREY);
+  CHECK(field(f, "tRise")->text == "--");
+  CHECK(field(f, "tRate")->text == "--" && field(f, "tEvent")->text == "event --");
+  CHECK(field(f, "tNode")->text == "node --" && field(f, "tNode")->color == GREY);
+  CHECK(field(f, "tHA")->text == "HA offline" && field(f, "tHA")->color == RED);
+  CHECK(field(f, "tSD")->text == "SD --" && field(f, "tSD")->color == GREY);
+  CHECK(field(f, "tNodeBat")->text == "node --");
+  CHECK(field(f, "jNodeBat")->value == 0 && field(f, "jNodeBat")->color == GREY);
+  CHECK(field(f, "tGwBat")->text == "gw --");
+  CHECK(field(f, "jGwBat")->value == 0 && field(f, "jGwBat")->color == GREY);
+}
+
+static void test_render_main_degraded() {
+  // HA down: the add-on's values blank even though the imported sensors still hold them.
+  auto in = all_known();
+  in.ha_connected = false;
+  auto f = render_main(in);
+  CHECK(field(f, "tTier")->text == "--" && field(f, "tTier")->color == GREY);
+  CHECK(field(f, "tRise")->text == "--");
+  CHECK(field(f, "tHA")->text == "HA offline" && field(f, "tHA")->color == RED);
+  CHECK(field(f, "tStage")->text == "2.41 ft");  // local values unaffected
+
+  // Ecowitt stale: rain and temperature blank, the last values notwithstanding.
+  in = all_known();
+  in.rain_fresh = false;
+  f = render_main(in);
+  CHECK(field(f, "tRate")->text == "--" && field(f, "tTemp")->text == "--");
+  CHECK(field(f, "t24h")->text == "24 h --");
+
+  // Node offline outranks a recent packet; SD fault is red.
+  in = all_known();
+  in.node_online = 0;
+  in.sd_fault = 1;
+  f = render_main(in);
+  CHECK(field(f, "tNode")->text == "node offline" && field(f, "tNode")->color == RED);
+  CHECK(field(f, "tSD")->text == "SD fault" && field(f, "tSD")->color == RED);
+
+  // Status unknown but a packet arrived: show its age.
+  in = all_known();
+  in.node_online = -1;
+  in.node_age_ms = 4 * 60000;
+  CHECK(render_main(in)[8].text == "node 4 min");
+}
+
+static void test_sent_cache() {
+  SentCache c;
+  const Field text{"tStage", "2.41 ft", WHITE, -1};
+  Delta d = c.update(text);
+  CHECK(d.text && d.color && !d.value);  // first time: everything a text field has
+  d = c.update(text);
+  CHECK(!d.text && !d.color && !d.value);  // unchanged: nothing
+  d = c.update({"tStage", "2.42 ft", WHITE, -1});
+  CHECK(d.text && !d.color);
+  d = c.update({"tStage", "--", GREY, -1});
+  CHECK(d.text && d.color);
+
+  const Field bar{"jGwBat", "", GREEN, 87};
+  d = c.update(bar);
+  CHECK(!d.text && d.color && d.value);  // first time: everything a bar has
+  d = c.update({"jGwBat", "", GREEN, 86});
+  CHECK(d.value && !d.color && !d.text);
+
+  c.clear();  // page re-entered or display woke: resend all
+  d = c.update(text);
+  CHECK(d.text && d.color);
+}
+
 int main() {
   test_fixed();
   test_with_unit();
@@ -101,6 +225,10 @@ int main() {
   test_tier();
   test_node_battery();
   test_gauge();
+  test_render_main_all_known();
+  test_render_main_nothing_known();
+  test_render_main_degraded();
+  test_sent_cache();
   if (failures) {
     std::printf("%d failure(s)\n", failures);
     return 1;

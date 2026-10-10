@@ -133,4 +133,114 @@ inline uint16_t gauge_color(int pct) {
   return RED;
 }
 
+// --- main page -----------------------------------------------------------------------------
+// One value per data source; NaN or -1 means unknown. Time-dependent facts (node age, rain
+// freshness) are worked out by the caller, so render_main is pure.
+struct MainInputs {
+  float stage_ft = NAN;
+  float depth_in = NAN;
+  bool ha_connected = false;
+  float tier = NAN;         // add-on alert tier, 0-4 (HA import)
+  float rise_in_min = NAN;  // add-on rate of rise (HA import)
+  bool rain_fresh = false;  // a good Ecowitt poll within RAIN_MAX_AGE_MS
+  float rain_rate_in_hr = NAN;
+  float rain_event_in = NAN;
+  float rain_24h_in = NAN;
+  float temp_f = NAN;
+  int node_online = -1;      // node status: -1 unknown, 0 offline, 1 online
+  bool node_heard = false;   // a packet since boot
+  uint32_t node_age_ms = 0;  // since that packet; meaningful only when node_heard
+  float node_batt_mv = NAN;
+  float gw_batt_pct = NAN;
+  int sd_fault = -1;  // -1 unknown, 0 ok, 1 fault
+};
+
+// One main-page component's state. value >= 0 marks a progress bar (.val; text unused),
+// -1 a text component (.txt).
+struct Field {
+  std::string name;
+  std::string text;
+  uint16_t color;
+  int value;
+};
+
+// Every main-page component the gateway writes, in the README's creation order.
+inline std::vector<Field> render_main(const MainInputs &in) {
+  std::vector<Field> out;
+  auto text = [&out](const char *name, const Shown &s, uint16_t color) {
+    out.push_back({name, s.text, s.missing ? GREY : color, -1});
+  };
+  auto bar = [&out](const char *name, int level, uint16_t color) {
+    out.push_back({name, "", color, level < 0 ? 0 : level});
+  };
+  auto rain = [&in](float v) { return in.rain_fresh ? v : NAN; };
+
+  text("tStage", with_unit(in.stage_ft, 2, "", " ft"), WHITE);
+  text("tDepth", with_unit(in.depth_in, 1, "depth ", " in"), WHITE);
+  // The add-on's values are only as good as the link to HA: blank them when it is down,
+  // rather than show the last tier as if it were current.
+  const char *label = in.ha_connected ? tier_label(in.tier) : nullptr;
+  text("tTier", label ? Shown{label, false} : Shown{MISSING, true}, tier_color(in.tier));
+  text("tRise", with_unit(in.ha_connected ? in.rise_in_min : NAN, 2, "", " in/min", true), WHITE);
+  text("tRate", with_unit(rain(in.rain_rate_in_hr), 2, "", " in/h"), WHITE);
+  text("tTemp", with_unit(rain(in.temp_f), 0, "", "\xB0" "F"), WHITE);
+  text("tEvent", with_unit(rain(in.rain_event_in), 2, "event ", " in"), WHITE);
+  text("t24h", with_unit(rain(in.rain_24h_in), 2, "24 h ", " in"), WHITE);
+
+  if (in.node_online == 0)
+    text("tNode", {"node offline", false}, RED);
+  else if (in.node_heard)
+    text("tNode", {"node " + age_text(in.node_age_ms), false}, WHITE);
+  else
+    text("tNode", {std::string("node ") + MISSING, true}, WHITE);
+  text("tHA", {in.ha_connected ? "HA ok" : "HA offline", false}, in.ha_connected ? GREEN : RED);
+  if (in.sd_fault < 0)
+    text("tSD", {std::string("SD ") + MISSING, true}, WHITE);
+  else
+    text("tSD", {in.sd_fault ? "SD fault" : "SD ok", false}, in.sd_fault ? RED : GREEN);
+
+  const int node_level = node_battery_level(in.node_batt_mv);
+  text("tNodeBat", with_unit(in.node_batt_mv / 1000.0f, 2, "node ", " V"), WHITE);
+  bar("jNodeBat", node_level, node_battery_color(node_level));
+  const int gw = gauge_percent(in.gw_batt_pct);
+  text("tGwBat", with_unit(gw < 0 ? NAN : static_cast<float>(gw), 0, "gw ", " %"), WHITE);
+  bar("jGwBat", gw, gauge_color(gw));
+  return out;
+}
+
+// Which of a field's attributes need sending.
+struct Delta {
+  bool text = false;
+  bool color = false;
+  bool value = false;
+};
+
+// What the display was last sent, per component, so the periodic refresh sends only changes.
+// clear() whenever the main page is (re)entered or the display wakes: the Nextion resets a
+// page's components on entry and drops updates while asleep.
+class SentCache {
+ public:
+  Delta update(const Field &f) {
+    Delta d;
+    const bool is_bar = f.value >= 0;
+    auto it = this->sent_.find(f.name);
+    if (it == this->sent_.end()) {
+      d.text = !is_bar;
+      d.color = true;
+      d.value = is_bar;
+      this->sent_.emplace(f.name, f);
+      return d;
+    }
+    d.text = !is_bar && it->second.text != f.text;
+    d.color = it->second.color != f.color;
+    d.value = is_bar && it->second.value != f.value;
+    it->second = f;
+    return d;
+  }
+  void clear() { this->sent_.clear(); }
+
+ private:
+  std::map<std::string, Field> sent_;
+};
+
 }  // namespace creek_display
