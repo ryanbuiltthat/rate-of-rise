@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 Date: 2026-10-10
-Status: Draft, awaiting review
+Status: Approved 2026-10-10
 
 **Goal:** Add a Home Assistant button that tells the add-on to delete stored records older than
 N days from the v2 gateway's SD card. N is an add-on option. It must work during the v2 trial
