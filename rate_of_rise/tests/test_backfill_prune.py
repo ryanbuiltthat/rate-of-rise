@@ -37,7 +37,7 @@ def blocks(n, newest_age_days=0.0, step_days=7.0):
 
 
 class Gateway(BaseHTTPRequestHandler):
-    mode = "v2"          # v2 | v1 | old_fw | conflict | busy
+    mode = "v2"          # v2 | v1 | old_fw | conflict | busy | status503 | slow_prune
     sd_ok = True
     store_id = STORE_ID
     budget = 2
@@ -68,6 +68,8 @@ class Gateway(BaseHTTPRequestHandler):
         if self.headers.get("Authorization") != f"Bearer {TOKEN}":
             return self._send(401, "unauthorized", "text/plain")
         if self.path.startswith("/store/status"):
+            if cls.mode == "status503":
+                return self._send(503, "bus busy", "text/plain")
             return self._send(200, json.dumps({
                 "store_schema": 1, "device": "creek-gateway-v2", "now": NOW, "ts_src": "ntp",
                 "sd_ok": cls.sd_ok, "store_id": cls.store_id if cls.sd_ok else "",
@@ -92,6 +94,9 @@ class Gateway(BaseHTTPRequestHandler):
             return self._send(401, "unauthorized", "text/plain")
         if self.path != "/store/prune":
             return self._send(404, "not found", "text/plain")
+        if cls.mode == "slow_prune":
+            import time
+            time.sleep(1.0)
         if cls.mode == "busy":
             return self._send(503, "bus busy", "text/plain")
         q = {k: v[0] for k, v in parse_qs(body).items()}
@@ -290,7 +295,9 @@ def test_nothing_backfilled_yet():
 def test_old_firmware_conflict_busy_unreachable():
     for mode, want in (("old_fw", "gateway firmware has no prune endpoint; update v2"),
                        ("conflict", "not pruned: gateway card changed"),
-                       ("busy", "not pruned: gateway unreachable")):
+                       # The message names the step and the reason, so a failed press can
+                       # be told apart from a gateway that is off the network.
+                       ("busy", "not pruned: prune request failed (HTTP 503 bus busy)")):
         srv, client = serve(mode=mode)
         try:
             msg = no_warnings(lambda: run(client))
@@ -298,7 +305,27 @@ def test_old_firmware_conflict_busy_unreachable():
         finally:
             srv.shutdown()
     dead = StoreClient("http://127.0.0.1:9", TOKEN, timeout=0.5)
-    assert run(dead) == "not pruned: gateway unreachable"
+    assert run(dead) == "not pruned: gateway status unreachable (connection failed)", run(dead)
+
+
+def test_status_probe_failure_names_the_reason():
+    srv, client = serve(mode="status503")
+    try:
+        msg = run(client)
+        assert msg == "not pruned: gateway status unreachable (HTTP 503 bus busy)", msg
+        assert Gateway.posts == []
+    finally:
+        srv.shutdown()
+
+
+def test_prune_timeout_is_named():
+    srv, _ = serve(mode="slow_prune")
+    try:
+        client = StoreClient(f"http://127.0.0.1:{srv.server_address[1]}", TOKEN, timeout=0.3)
+        msg = run(client)
+        assert msg == "not pruned: prune request failed (timed out)", msg
+    finally:
+        srv.shutdown()
 
 
 def test_bad_token():

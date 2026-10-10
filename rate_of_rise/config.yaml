@@ -1,5 +1,5 @@
 name: Rate of Rise
-version: "0.27.0"
+version: "0.27.1"
 slug: rate_of_rise
 description: Rise probability, predicted crest and flood-probability inference, with nightly retrain, for the creek.
 url: https://github.com/ryanbuiltthat/rate-of-rise

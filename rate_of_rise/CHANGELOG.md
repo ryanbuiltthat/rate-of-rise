@@ -3,6 +3,15 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.27.1
+
+- **Prune Gateway Store now says which step failed, and why.** Every network failure used
+  to read `not pruned: gateway unreachable`, which could not tell a gateway that is off the
+  network from one that answered the prune with a 503 or a 400. The message is now either
+  `gateway status unreachable (<reason>)` (the status check failed, nothing was sent) or
+  `prune request failed (<reason>)` (status answered, the prune did not), with the reason as
+  `connection failed`, `timed out`, or the gateway's HTTP status and reply.
+
 ## 0.27.0
 
 - **New: *Creek Prune Gateway Store* button** (`button.rate_of_rise_creek_prune_gateway_store`).
