@@ -32,6 +32,23 @@ class StoreChanged(Exception):
     """The gateway answered /store/prune with 409: its card is not the one the cursor is for."""
 
 
+def _http_detail(r) -> str:
+    text = " ".join((r.text or "").split())[:60]
+    return f"HTTP {r.status_code}" + (f" {text}" if text else "")
+
+
+def describe_error(exc: Exception) -> str:
+    """A short, human-readable reason for a failed request: which kind of failure, not the
+    whole urllib3 traceback text."""
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        return _http_detail(exc.response)
+    if isinstance(exc, requests.Timeout):
+        return "timed out"
+    if isinstance(exc, requests.ConnectionError):
+        return "connection failed"
+    return type(exc).__name__
+
+
 class ProbeState(Enum):
     OK = "ok"
     NO_STORE = "no_store"          # answered, but not a v2 store: v1, or web server off
@@ -43,6 +60,7 @@ class ProbeState(Enum):
 class Probe:
     state: ProbeState
     status: dict = field(default_factory=dict)
+    detail: str = ""               # why UNREACHABLE, for messages a person reads
 
 
 class StoreClient:
@@ -59,14 +77,14 @@ class StoreClient:
                                   timeout=self._timeout)
         except requests.RequestException as exc:
             log.debug("gateway store unreachable: %s", exc)
-            return Probe(ProbeState.UNREACHABLE)
+            return Probe(ProbeState.UNREACHABLE, detail=describe_error(exc))
         if r.status_code == 401:
             return Probe(ProbeState.BAD_TOKEN)
         if r.status_code >= 500:
             # A store that is there but busy (bus held by a node OTA push) or failing: retry
             # on the pass interval, not the hourly v1 re-probe.
             log.debug("gateway store probe got HTTP %s: treating as unreachable", r.status_code)
-            return Probe(ProbeState.UNREACHABLE)
+            return Probe(ProbeState.UNREACHABLE, detail=_http_detail(r))
         if r.status_code != 200:
             log.debug("gateway store probe got HTTP %s: not a v2 store", r.status_code)
             return Probe(ProbeState.NO_STORE)

@@ -122,7 +122,9 @@ The result appears on the add-on's last-command sensor:
 | `not a v2 gateway store; nothing pruned` | The URL is a v1 gateway (or not a store). Nothing was sent. |
 | `not pruned: backfill has not read this card yet` | The card is not the one backfill's cursors belong to. Let backfill reach `idle` first. |
 | `nothing backfilled yet; nothing to prune` | Both cursors are 0. |
-| `not pruned: gateway SD not mounted` / `gateway unreachable` / `gateway card changed` | Nothing deleted; press again once fixed. A node OTA push holding the bus also reads as unreachable. |
+| `not pruned: gateway SD not mounted` / `gateway card changed` | Nothing deleted; press again once fixed. |
+| `not pruned: gateway status unreachable (<reason>)` | `GET /store/status` failed before anything was sent: `connection failed` (gateway off the network, or the add-on cannot reach its port 80), `timed out`, or an `HTTP 5xx` from the gateway. Backfill's status will read `unreachable` too. |
+| `not pruned: prune request failed (<reason>)` | Status answered but `POST /store/prune` did not: `HTTP 503 bus busy` (a node OTA push held the bus; press again after it), `HTTP 400 ...` (the gateway did not get the fields), `timed out`, or `reply was not JSON`. Nothing was deleted. |
 | `gateway firmware has no prune endpoint; update v2` | v2 runs firmware from before pruning. |
 | `pruning not configured (gateway_store_prune_days)` | The option is blank. |
 | `gateway store backfill is off ...` | `gateway_store_url` is blank. |

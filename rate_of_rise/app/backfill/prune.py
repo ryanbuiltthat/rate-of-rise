@@ -17,7 +17,7 @@ import time
 
 import requests
 
-from .client import ProbeState, PruneUnsupported, StoreChanged
+from .client import ProbeState, PruneUnsupported, StoreChanged, describe_error
 from .entity_map import STREAMS
 
 log = logging.getLogger("app.backfill.prune")
@@ -26,7 +26,6 @@ MAX_ROUNDS = 50     # each round deletes at most a few blocks; this is far more 
 
 _PROBE_REFUSALS = {
     ProbeState.NO_STORE: "not a v2 gateway store; nothing pruned",
-    ProbeState.UNREACHABLE: "not pruned: gateway unreachable",
     ProbeState.BAD_TOKEN: "not pruned: gateway rejected gateway_store_token",
 }
 
@@ -35,6 +34,10 @@ def prune_store(client, reconciler, days: int | None, now_fn=time.time) -> str:
     if not days:
         return "pruning not configured (gateway_store_prune_days)"
     probe = client.probe()
+    if probe.state is ProbeState.UNREACHABLE:
+        # Name the step and the reason: "unreachable" alone cannot tell a gateway that is
+        # off the network from one that answered 503.
+        return f"not pruned: gateway status unreachable ({probe.detail or 'no detail'})"
     if probe.state is not ProbeState.OK:
         return _PROBE_REFUSALS[probe.state]
     status = probe.status
@@ -65,11 +68,13 @@ def prune_store(client, reconciler, days: int | None, now_fn=time.time) -> str:
     except StoreChanged:
         return "not pruned: gateway card changed"
     except (requests.RequestException, ValueError) as exc:
-        log.debug("gateway store prune failed: %s", exc)
+        reason = (describe_error(exc) if isinstance(exc, requests.RequestException)
+                  else "reply was not JSON")
+        log.info("gateway store prune request failed: %s (%s)", reason, exc)
         if any(deleted.values()):
-            return (f"pruned {_counts(deleted)} block(s), then lost the gateway; "
-                    "press again to finish")
-        return "not pruned: gateway unreachable"
+            return (f"pruned {_counts(deleted)} block(s), then the prune request failed "
+                    f"({reason}); press again to finish")
+        return f"not pruned: prune request failed ({reason})"
 
     msg = f"pruned {_counts(deleted)} block(s) older than {days} d"
     if first:
