@@ -1501,7 +1501,9 @@ git commit -m "display: HMI contract README, TFT-export guard in CI, trial doc p
 - [ ] Merge the branch to `main`.
 - [ ] Copy the updated `creek-gateway-v2.yaml` to `/config/esphome/`: diff against the live copy
   first and back it up. Then install from the Device Builder.
-- [ ] Load the TFT: press **Update Display Firmware** in HA.
+- [ ] Load the **first** TFT by microSD or by Editor upload. A new panel talks at 9600 baud, so
+  the gateway's 115200 upload cannot reach it (README "First load"). Use **Update Display
+  Firmware** in HA for every later TFT.
 - [ ] Run the README bring-up checklist. Record:
   - TFT transfer time at 115200, then at 921600 (change the `display_upload_baud` default if
     921600 is clean);

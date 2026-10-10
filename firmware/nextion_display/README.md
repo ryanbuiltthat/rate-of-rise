@@ -148,9 +148,15 @@ constants and their test).
    - The radio is not serviced during the transfer, so node packets in that window are lost.
    - The gateway restarts when the transfer ends, whether it worked or not.
 
-**First load:** the display's factory demo TFT accepts ESPHome's upload, so step 4 works on a
-new display. The fallback is a FAT32 microSD with only the `.tft` on it, in the display's slot,
-then power-cycle the display.
+**First load: not over WiFi.** A new panel talks at its factory 9600 baud. The gateway talks
+(and starts an upload) at 115200, so step 4 cannot reach it, and the failed upload restarts the
+gateway. Load the first TFT one of these ways:
+- a FAT32 microSD with only the `.tft` on it, in the display's slot, then power-cycle the
+  display and remove the card when it reports success;
+- or Upload from the Nextion Editor through a USB-serial adapter.
+
+Once a TFT with `baud=115200` in `program.s` is on the panel, step 4 works for every later
+update.
 
 ## Wiring
 

@@ -61,6 +61,26 @@ def test_display_imports_entities_the_addon_publishes():
     assert not missing, f"display imports entities the add-on does not publish: {missing}"
 
 
+def test_ha_link_means_a_state_subscriber_not_any_api_client():
+    # is_connected() counts every API client, and `esphome logs` from the Device Builder is
+    # one. Opening the logs during an HA outage, exactly when someone would, would then show
+    # "HA ok" and present the last tier and rise as current. Only HA subscribes to states.
+    raw = DISPLAY.read_text(encoding="utf-8")
+    assert "is_connected_with_state_subscription()" in raw
+    assert "->is_connected()" not in raw, "display.yaml treats any API client as HA"
+
+
+def test_ecowitt_time_is_read_before_it_is_used():
+    # last_ecowitt() fills eco_ms through a reference. Passing eco_ms by value in the same
+    # call, fresh(last_ecowitt(eco, eco_ms), eco_ms, ...), leaves the order unspecified: if the
+    # copy happens first, every poll looks like it came at boot, and rain reads `--` from five
+    # minutes after startup on. The read must be a statement of its own.
+    raw = DISPLAY.read_text(encoding="utf-8")
+    calls = [line for line in raw.splitlines() if "last_ecowitt(" in line]
+    assert calls, "display.yaml no longer reads the Ecowitt reading"
+    assert all("fresh(" not in line for line in calls), calls
+
+
 def test_every_v2_wrapper_loads_the_display():
     for path in WRAPPERS:
         doc = load(path)

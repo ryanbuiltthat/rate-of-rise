@@ -130,12 +130,17 @@ script:
           MainInputs in;
           in.stage_ft = id(creek_stage).state;
           in.depth_in = id(creek_depth_in).state;
-          in.ha_connected = api::global_api_server != nullptr && api::global_api_server->is_connected();
+          // HA, not just any API client: `esphome logs` connects too, and must not make the
+          // last tier look current during an HA outage. Only HA subscribes to states.
+          in.ha_connected = api::global_api_server != nullptr &&
+                            api::global_api_server->is_connected_with_state_subscription();
           in.tier = id(ha_alert_tier).state;
           in.rise_in_min = id(ha_rate_of_rise).state;
           creek_core::EcowittReading eco;
           uint32_t eco_ms = 0;
-          in.rain_fresh = fresh(id(store).last_ecowitt(eco, eco_ms), eco_ms, now, RAIN_MAX_AGE_MS);
+          // Its own statement: eco_ms is filled here, and must be before fresh() copies it.
+          const bool eco_seen = id(store).last_ecowitt(eco, eco_ms);
+          in.rain_fresh = fresh(eco_seen, eco_ms, now, RAIN_MAX_AGE_MS);
           in.rain_rate_in_hr = eco.rain_rate_in_hr.value_or(NAN);
           in.rain_event_in = eco.rain_event_in.value_or(NAN);
           in.rain_24h_in = eco.rain_24h_in.value_or(NAN);
