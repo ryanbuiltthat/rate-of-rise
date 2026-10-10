@@ -1,10 +1,16 @@
-# Creek gateway v2 — Home Assistant Device Builder wrapper, TRIAL (no node-OTA buttons).
+# Creek gateway v2 — Home Assistant Device Builder wrapper, TRIAL (no node-OTA buttons), and
+# the Nextion display (display.yaml).
 # Tracked mirror of /config/esphome/creek-gateway-v2.yaml; copy it there by hand.
 packages:
   gateway:
     url: https://github.com/ryanbuiltthat/rate-of-rise
     ref: main
     files: [firmware/esp32s3_feather_gateway/gateway.base.yaml]
+    refresh: 0s
+  display:
+    url: https://github.com/ryanbuiltthat/rate-of-rise
+    ref: main
+    files: [firmware/esp32s3_feather_gateway/display.yaml]
     refresh: 0s
 
 external_components:
@@ -20,5 +26,5 @@ external_components:
       url: https://github.com/ryanbuiltthat/rate-of-rise
       ref: main
       path: firmware/esp32s3_feather_gateway/components
-    components: [creek_store]
+    components: [creek_store, creek_display]
     refresh: 0s

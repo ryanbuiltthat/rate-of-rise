@@ -242,21 +242,21 @@ static void test_sleep() {
 }
 
 static void test_touch_action() {
-  CHECK(touch_action(PAGE_SETTINGS, ID_BRI_DN, false) == Action::BRIGHT_DOWN);
-  CHECK(touch_action(PAGE_SETTINGS, ID_BRI_UP, false) == Action::BRIGHT_UP);
-  CHECK(touch_action(PAGE_SETTINGS, ID_SLP_DN, false) == Action::SLEEP_DOWN);
-  CHECK(touch_action(PAGE_SETTINGS, ID_SLP_UP, false) == Action::SLEEP_UP);
-  CHECK(touch_action(PAGE_SETTINGS, ID_UPDATE, false) == Action::ASK_UPDATE);
-  CHECK(touch_action(PAGE_SETTINGS, ID_RESTART, false) == Action::ASK_RESTART);
-  CHECK(touch_action(PAGE_CONFIRM, ID_YES, false) == Action::CONFIRM);
+  CHECK(touch_action(PAGE_SETTINGS, ID_BRI_DN, false) == TouchAction::BRIGHT_DOWN);
+  CHECK(touch_action(PAGE_SETTINGS, ID_BRI_UP, false) == TouchAction::BRIGHT_UP);
+  CHECK(touch_action(PAGE_SETTINGS, ID_SLP_DN, false) == TouchAction::SLEEP_DOWN);
+  CHECK(touch_action(PAGE_SETTINGS, ID_SLP_UP, false) == TouchAction::SLEEP_UP);
+  CHECK(touch_action(PAGE_SETTINGS, ID_UPDATE, false) == TouchAction::ASK_UPDATE);
+  CHECK(touch_action(PAGE_SETTINGS, ID_RESTART, false) == TouchAction::ASK_RESTART);
+  CHECK(touch_action(PAGE_CONFIRM, ID_YES, false) == TouchAction::CONFIRM);
   // Press events, other components, other pages: nothing.
-  CHECK(touch_action(PAGE_SETTINGS, ID_RESTART, true) == Action::NONE);
-  CHECK(touch_action(PAGE_CONFIRM, ID_YES, true) == Action::NONE);
-  CHECK(touch_action(PAGE_SETTINGS, 2, false) == Action::NONE);   // bBack navigates in the HMI
-  CHECK(touch_action(PAGE_SETTINGS, 99, false) == Action::NONE);
-  CHECK(touch_action(PAGE_MAIN, ID_RESTART, false) == Action::NONE);  // same id, wrong page
-  CHECK(touch_action(PAGE_CONFIRM, 2, false) == Action::NONE);    // bNo navigates in the HMI
-  CHECK(touch_action(PAGE_SPLASH, ID_YES, false) == Action::NONE);
+  CHECK(touch_action(PAGE_SETTINGS, ID_RESTART, true) == TouchAction::NONE);
+  CHECK(touch_action(PAGE_CONFIRM, ID_YES, true) == TouchAction::NONE);
+  CHECK(touch_action(PAGE_SETTINGS, 2, false) == TouchAction::NONE);   // bBack navigates in the HMI
+  CHECK(touch_action(PAGE_SETTINGS, 99, false) == TouchAction::NONE);
+  CHECK(touch_action(PAGE_MAIN, ID_RESTART, false) == TouchAction::NONE);  // same id, wrong page
+  CHECK(touch_action(PAGE_CONFIRM, 2, false) == TouchAction::NONE);    // bNo navigates in the HMI
+  CHECK(touch_action(PAGE_SPLASH, ID_YES, false) == TouchAction::NONE);
   // The ids are the README's creation order.
   CHECK(ID_BRI_DN == 4 && ID_BRI_UP == 6 && ID_SLP_DN == 8 && ID_SLP_UP == 10);
   CHECK(ID_UPDATE == 11 && ID_RESTART == 12 && ID_YES == 3);

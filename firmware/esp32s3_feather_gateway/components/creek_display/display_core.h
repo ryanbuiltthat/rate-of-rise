@@ -289,7 +289,7 @@ inline int step_sleep(int idx, int dir) {
 inline const SleepOption &sleep_option(int idx) { return SLEEP_OPTIONS[clamp_sleep_index(idx)]; }
 
 // --- touch ---------------------------------------------------------------------------------
-enum class Action : uint8_t {
+enum class TouchAction : uint8_t {
   NONE,
   BRIGHT_DOWN,
   BRIGHT_UP,
@@ -302,28 +302,28 @@ enum class Action : uint8_t {
 
 // The HMI sends component ids on Touch Release only, and only for these buttons; navigation
 // buttons (Settings, Back, Cancel) change page inside the HMI. Anything else is NONE.
-inline Action touch_action(uint8_t page, uint8_t component, bool press) {
-  if (press) return Action::NONE;
+inline TouchAction touch_action(uint8_t page, uint8_t component, bool press) {
+  if (press) return TouchAction::NONE;
   if (page == PAGE_SETTINGS) {
     switch (component) {
       case ID_BRI_DN:
-        return Action::BRIGHT_DOWN;
+        return TouchAction::BRIGHT_DOWN;
       case ID_BRI_UP:
-        return Action::BRIGHT_UP;
+        return TouchAction::BRIGHT_UP;
       case ID_SLP_DN:
-        return Action::SLEEP_DOWN;
+        return TouchAction::SLEEP_DOWN;
       case ID_SLP_UP:
-        return Action::SLEEP_UP;
+        return TouchAction::SLEEP_UP;
       case ID_UPDATE:
-        return Action::ASK_UPDATE;
+        return TouchAction::ASK_UPDATE;
       case ID_RESTART:
-        return Action::ASK_RESTART;
+        return TouchAction::ASK_RESTART;
       default:
-        return Action::NONE;
+        return TouchAction::NONE;
     }
   }
-  if (page == PAGE_CONFIRM && component == ID_YES) return Action::CONFIRM;
-  return Action::NONE;
+  if (page == PAGE_CONFIRM && component == ID_YES) return TouchAction::CONFIRM;
+  return TouchAction::NONE;
 }
 
 // --- confirm -------------------------------------------------------------------------------

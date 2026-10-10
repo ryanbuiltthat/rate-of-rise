@@ -1,0 +1,207 @@
+# Creek gateway v2: Nextion NX3224T024 touch display. Its own package (like ota-push.yaml) so
+# the display is one include in each wrapper. Spec:
+# docs/superpowers/specs/2026-10-10-gateway-v2-nextion-display-design.md. The pure logic is
+# components/creek_display/display_core.h (host-tested); the HMI it drives, with the names
+# and ids this file and that header rely on: firmware/nextion_display/README.md.
+#
+# WIRING (4-pin Nextion harness; the display runs from the LiPo through a Pololu U1V11F5):
+#   Feather BAT -> U1V11F5 VIN, SHDN tied to VIN; U1V11F5 VOUT -> Nextion 5V (red)
+#   Feather GND -> U1V11F5 GND and Nextion GND (black)
+#   Feather TX GPIO39 -> Nextion RX (yellow); Feather RX GPIO38 <- Nextion TX (blue)
+# The logger is on USB-Serial-JTAG, so ESPHome's UART driver hands the display UART0. Arduino's
+# `Serial`, where the RFM69 library prints, is UART0 too, but nothing calls Serial.begin(),
+# so those prints are dropped inside the core and never reach the display.
+
+substitutions:
+  display_tx_pin: "39"
+  display_rx_pin: "38"
+  display_tft_url: "https://raw.githubusercontent.com/ryanbuiltthat/rate-of-rise/main/firmware/nextion_display/creek_gateway_v2_display.tft"
+  # TFT upload baud; 0 = the running 115200. The main task (and so the radio) is not serviced
+  # during an upload, so faster is better if the wiring holds it (bring-up tries 921600).
+  display_upload_baud: "0"
+
+creek_display:
+
+uart:
+  - id: display_uart
+    tx_pin: ${display_tx_pin}
+    rx_pin: ${display_rx_pin}
+    baud_rate: 115200
+
+globals:
+  - id: disp_brightness
+    type: int
+    restore_value: true
+    initial_value: "70"  # creek_display::BRIGHTNESS_DEFAULT
+  - id: disp_sleep_idx
+    type: int
+    restore_value: true
+    initial_value: "2"  # creek_display::SLEEP_DEFAULT (2 min)
+  - id: disp_page
+    type: int
+    initial_value: "0"
+  - id: disp_pending
+    type: int
+    initial_value: "0"  # creek_display::Pending::NONE
+  - id: disp_node_heard
+    type: bool
+    initial_value: "false"
+  - id: disp_node_ms
+    type: uint32_t
+    initial_value: "0"
+  - id: disp_sent
+    type: creek_display::SentCache
+
+esphome:
+  on_boot:
+    # Packages concatenate lists, so the base's priority-1100 I2C power-up step stays.
+    - priority: -100
+      then:
+        - lambda: |-
+            id(creek_radio).add_on_packet_callback([](const char *, int16_t) {
+              id(disp_node_ms) = millis();
+              id(disp_node_heard) = true;
+            });
+
+display:
+  - platform: nextion
+    id: disp
+    uart_id: display_uart
+    tft_url: ${display_tft_url}
+    start_up_page: 0  # splash; the Nextion also shows it on its own at power-on
+    wake_up_page: 1
+    auto_wake_on_touch: true
+    on_setup:
+      - lambda: |-
+          using namespace creek_display;
+          id(disp).set_backlight_brightness(clamp_brightness(id(disp_brightness)) / 100.0f);
+          id(disp).set_touch_sleep_timeout(sleep_option(id(disp_sleep_idx)).seconds);
+      - delay: 3s  # the splash stays up
+      - lambda: id(disp).goto_page("main");
+    on_page:
+      # The HMI's pages run `sendme` on entry, which is what reports navigation done inside
+      # the HMI (Settings, Back, Cancel).
+      - lambda: |-
+          using namespace creek_display;
+          id(disp_page) = x;
+          if (x != PAGE_CONFIRM) id(disp_pending) = 0;
+          if (x == PAGE_MAIN) {
+            id(disp_sent).clear();
+            id(disp_refresh_main).execute();
+          } else if (x == PAGE_SETTINGS) {
+            id(disp_show_settings).execute();
+          }
+    on_wake:
+      - lambda: id(disp_sent).clear();
+      - script.execute: disp_refresh_main
+    on_touch:
+      - lambda: |-
+          using namespace creek_display;
+          ESP_LOGI("display", "touch: page %u component %u %s", (unsigned) page_id,
+                   (unsigned) component_id, touch_event ? "press" : "release");
+          const TouchAction a = touch_action(page_id, component_id, touch_event);
+          if (a == TouchAction::BRIGHT_DOWN || a == TouchAction::BRIGHT_UP) {
+            id(disp_brightness) = step_brightness(id(disp_brightness), a == TouchAction::BRIGHT_UP ? 1 : -1);
+            id(disp).set_backlight_brightness(id(disp_brightness) / 100.0f);
+            id(disp).set_component_text("tBri", brightness_text(id(disp_brightness)).c_str());
+          } else if (a == TouchAction::SLEEP_DOWN || a == TouchAction::SLEEP_UP) {
+            id(disp_sleep_idx) = step_sleep(id(disp_sleep_idx), a == TouchAction::SLEEP_UP ? 1 : -1);
+            id(disp).set_touch_sleep_timeout(sleep_option(id(disp_sleep_idx)).seconds);
+            id(disp).set_component_text("tSlp", sleep_option(id(disp_sleep_idx)).label);
+          } else if (a == TouchAction::ASK_UPDATE || a == TouchAction::ASK_RESTART) {
+            const Pending p = a == TouchAction::ASK_UPDATE ? Pending::UPDATE : Pending::RESTART;
+            id(disp_pending) = static_cast<int>(p);
+            id(disp).goto_page("confirm");
+            id(disp).set_component_text("tMsg", confirm_text(p));
+          } else if (a == TouchAction::CONFIRM) {
+            const Pending p = to_pending(id(disp_pending));
+            id(disp_pending) = 0;
+            if (p == Pending::RESTART) id(disp_restart).execute();
+            else if (p == Pending::UPDATE) id(disp_upload).execute();
+          }
+
+script:
+  - id: disp_refresh_main
+    then:
+      - lambda: |-
+          using namespace creek_display;
+          if (!id(disp).is_setup() || id(disp).is_sleeping() || id(disp_page) != PAGE_MAIN) return;
+          const uint32_t now = millis();
+          MainInputs in;
+          in.stage_ft = id(creek_stage).state;
+          in.depth_in = id(creek_depth_in).state;
+          in.ha_connected = api::global_api_server != nullptr && api::global_api_server->is_connected();
+          in.tier = id(ha_alert_tier).state;
+          in.rise_in_min = id(ha_rate_of_rise).state;
+          creek_core::EcowittReading eco;
+          uint32_t eco_ms = 0;
+          in.rain_fresh = fresh(id(store).last_ecowitt(eco, eco_ms), eco_ms, now, RAIN_MAX_AGE_MS);
+          in.rain_rate_in_hr = eco.rain_rate_in_hr.value_or(NAN);
+          in.rain_event_in = eco.rain_event_in.value_or(NAN);
+          in.rain_24h_in = eco.rain_24h_in.value_or(NAN);
+          in.temp_f = eco.temp_f.value_or(NAN);
+          in.node_online = id(node_online).has_state() ? (id(node_online).state ? 1 : 0) : -1;
+          in.node_heard = id(disp_node_heard);
+          in.node_age_ms = now - id(disp_node_ms);
+          in.node_batt_mv = id(node_battery_mv).state;
+          in.gw_batt_pct = id(gw_battery_level).state;
+          in.sd_fault = id(store_sd_fault).has_state() ? (id(store_sd_fault).state ? 1 : 0) : -1;
+          for (const auto &f : render_main(in)) {
+            const Delta d = id(disp_sent).update(f);
+            if (d.text) id(disp).set_component_text(f.name.c_str(), f.text.c_str());
+            if (d.value) id(disp).set_component_value(f.name.c_str(), f.value);
+            if (d.color) id(disp).set_component_font_color(f.name.c_str(), f.color);
+          }
+
+  - id: disp_show_settings
+    then:
+      - lambda: |-
+          using namespace creek_display;
+          id(disp).set_component_text("tBri", brightness_text(id(disp_brightness)).c_str());
+          id(disp).set_component_text("tSlp", sleep_option(id(disp_sleep_idx)).label);
+
+  - id: disp_restart
+    then:
+      - lambda: id(disp).set_component_text("tMsg", creek_display::working_text(creek_display::Pending::RESTART));
+      - delay: 500ms  # let the message reach the display first
+      - lambda: App.safe_reboot();
+
+  - id: disp_upload
+    then:
+      - lambda: id(disp).set_component_text("tMsg", creek_display::working_text(creek_display::Pending::UPDATE));
+      - delay: 500ms
+      - script.execute: disp_upload_now
+
+  # Blocks the main task for the whole transfer, then ESPHome reboots the gateway whether it
+  # worked or not (nextion_upload.cpp).
+  - id: disp_upload_now
+    then:
+      - lambda: |-
+          ESP_LOGW("display", "TFT upload from ${display_tft_url}; the radio is not serviced "
+                              "until it ends, and the gateway restarts after");
+          id(disp).upload_tft(${display_upload_baud});
+
+interval:
+  - interval: 5s
+    then:
+      - script.execute: disp_refresh_main
+
+# The add-on's outputs. HA only, so the display blanks them when the API is down.
+sensor:
+  - platform: homeassistant
+    id: ha_alert_tier
+    entity_id: sensor.rate_of_rise_creek_alert_tier
+    internal: true
+  - platform: homeassistant
+    id: ha_rate_of_rise
+    entity_id: sensor.rate_of_rise_creek_rate_of_rise
+    internal: true
+
+button:
+  # The same upload as the screen's Update button, so a new TFT can be pushed from HA.
+  - platform: template
+    name: Update Display Firmware
+    icon: mdi:monitor-arrow-down
+    entity_category: config
+    on_press:
+      - script.execute: disp_upload_now

@@ -68,7 +68,8 @@ jobs:
                     ".github/workflows/tests.yml",
                     "firmware/esp32_rfm69_gateway/gateway.base.yaml",
                     "firmware/esp32s3_feather_gateway/gateway.base.yaml",
-                    "firmware/esp32s3_feather_gateway/ota-push.yaml"]:
+                    "firmware/esp32s3_feather_gateway/ota-push.yaml",
+                    "firmware/esp32s3_feather_gateway/display.yaml"]:
               try:
                   yaml.load(pathlib.Path(p).read_text(encoding="utf-8"), Loader=Loader)
                   print("ok  ", p)
