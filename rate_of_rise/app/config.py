@@ -67,6 +67,18 @@ def _num(env, name: str, default: float) -> float:
         return default
 
 
+def _prune_days(raw) -> int | None:
+    """gateway_store_prune_days from options.json. Blank, absent or unparseable reads as not
+    configured (the Prune Gateway Store button then refuses); the schema already bounds it to
+    7..3650, and the floor is enforced again here so a hand-edited options.json cannot prune
+    ahead of a week of backfill."""
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return days if days >= 7 else None
+
+
 def _options() -> dict:
     try:
         return json.loads(_OPTIONS_JSON.read_text(encoding="utf-8"))
@@ -166,6 +178,9 @@ class Config:
     gateway_store_token: str = ""
     backfill_entity_map: str = ""
     backfill_shadow_map: str = ""
+    # Days of records the gateway's card keeps when the Prune Gateway Store button is pressed.
+    # Only records backfill has already written to HA are ever deleted. None: not configured.
+    gateway_store_prune_days: int | None = None
 
     # MQTT (from service discovery via run.sh)
     mqtt_host: str = "core-mosquitto"
@@ -228,6 +243,7 @@ class Config:
             gateway_store_token=(opts.get("gateway_store_token") or "").strip(),
             backfill_entity_map=(opts.get("backfill_entity_map") or "").strip(),
             backfill_shadow_map=(opts.get("backfill_shadow_map") or "").strip(),
+            gateway_store_prune_days=_prune_days(opts.get("gateway_store_prune_days")),
             mqtt_host=env.get("MQTT_HOST", "core-mosquitto"),
             mqtt_port=int(env.get("MQTT_PORT", 1883)),
             mqtt_user=env.get("MQTT_USER", ""),

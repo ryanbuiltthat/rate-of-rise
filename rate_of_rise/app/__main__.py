@@ -34,6 +34,7 @@ from .rise import HORIZONS_MIN, LABELS as RISE_LABELS, RiseModels, train_rise
 from .stagelog import StageLogger, stage_log_dir
 from .storms import StormLog
 from .backfill import build_backfill, recorder_db_path
+from .backfill.prune import prune_store
 from .backfill.undo import undo as backfill_undo
 from .sources import FEATURE_KEYS, SourceCoordinator
 from . import train
@@ -368,6 +369,7 @@ def main() -> int:
             "rollback": lambda payload: _rollback(mqtt, registry, refresh_health),
             "annotate": lambda payload: _annotate(mqtt, storms, payload),
             "backfill_undo": lambda payload: _backfill_undo(payload),
+            "prune_store": lambda payload: _prune_store(cfg, backfill),
         }
     )
 
@@ -470,6 +472,15 @@ def _backfill_undo(payload: str) -> str:
     since = datetime.fromisoformat(text).timestamp() if text else 0.0
     n = backfill_undo(recorder_db_path(), since)
     return f"removed {n} backfilled recorder row(s) since {text or 'the beginning'}"
+
+
+def _prune_store(cfg, backfill) -> str:
+    """The Prune Gateway Store button (app/backfill/prune.py). Runs on the main loop like the
+    other commands; the cursor it reads is a copy, and it only ever rises, so a stale one can
+    only prune less."""
+    if backfill is None:
+        return "gateway store backfill is off (gateway_store_url blank); nothing to prune"
+    return prune_store(backfill.client, backfill.reconciler, cfg.gateway_store_prune_days)
 
 
 def _annotate(mqtt: MqttClient, storms: StormLog, payload: str) -> str:

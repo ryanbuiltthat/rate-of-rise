@@ -101,6 +101,32 @@ Recorder writer rules, useful when reading the history afterwards:
 Gateway records with untrustworthy time (`ts_src: none`, a missing or non-numeric timestamp, or a timestamp more than 1 h in the
 future) are skipped and counted in `skipped_no_time` / `skipped_bad_time`.
 
+### Pruning the card
+
+*Creek Prune Gateway Store* (`button.rate_of_rise_creek_prune_gateway_store`, under the Rate of
+Rise device's configuration entities) deletes old records from v2's SD card. It works during
+the trial: it only talks to `gateway_store_url`, and never touches HA entities or v1.
+
+What a press deletes, per stream: the oldest block files (10,000 records, about a week each)
+while every record in the block is **both** already written to HA by backfill (at or below the
+cursor) **and** older than `gateway_store_prune_days` (default 90). It stops at the first
+block that fails either, and the newest block always stays. Pruned records can no longer be
+re-backfilled (after `backfill_undo`, or after a card change resets the cursors), and the
+card was their only raw copy, so keep the setting generous. A 32 GB card holds years.
+
+The result appears on the add-on's last-command sensor:
+
+| Message | Meaning |
+|---|---|
+| `pruned N node / M ecowitt block(s) older than D d; store now starts at ...` | Done. `0 / 0` just means nothing qualified yet. |
+| `not a v2 gateway store; nothing pruned` | The URL is a v1 gateway (or not a store). Nothing was sent. |
+| `not pruned: backfill has not read this card yet` | The card is not the one backfill's cursors belong to. Let backfill reach `idle` first. |
+| `nothing backfilled yet; nothing to prune` | Both cursors are 0. |
+| `not pruned: gateway SD not mounted` / `gateway unreachable` / `gateway card changed` | Nothing deleted; press again once fixed. A node OTA push holding the bus also reads as unreachable. |
+| `gateway firmware has no prune endpoint; update v2` | v2 runs firmware from before pruning. |
+| `pruning not configured (gateway_store_prune_days)` | The option is blank. |
+| `gateway store backfill is off ...` | `gateway_store_url` is blank. |
+
 ## 2. Acceptance checks (all required before cutover)
 
 | # | Check | Pass when |

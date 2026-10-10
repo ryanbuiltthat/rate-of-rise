@@ -38,7 +38,9 @@ features.
   by the add-on after an outage instead (see section 6).
 - Re-fetching forecasts as they were issued (QPF, NWM, ERO, Google Floods). These have no
   historical endpoint; gap rows leave them empty.
-- SD retention or pruning. The worst case is about 3.5 MB/day, so a 32 GB card holds years.
+- Automatic SD retention or pruning. The worst case is about 3.5 MB/day, so a 32 GB card
+  holds years. (Amended 2026-10-10: an opt-in, button-triggered prune was added; see
+  [the prune plan](../plans/2026-10-10-gateway-v2-store-prune.md).)
 - HA short-term (5-min) statistics. They purge after 10 days.
 - Putting the gateway in Ecowitt's push path, or two gateways pushing node OTA.
 

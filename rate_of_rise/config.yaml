@@ -1,5 +1,5 @@
 name: Rate of Rise
-version: "0.26.0"
+version: "0.27.0"
 slug: rate_of_rise
 description: Rise probability, predicted crest and flood-probability inference, with nightly retrain, for the creek.
 url: https://github.com/ryanbuiltthat/rate-of-rise
@@ -150,6 +150,13 @@ options:
   # which no other source here does, on a day-ahead horizon.
   wpc_ero: true
   onsite_temp_entity: sensor.outside_weather_station_outdoors_temp
+  # --- Gateway v2 store pruning (Prune Gateway Store button) ---------------------------
+  # Pressing the button deletes records older than this many days from the v2 gateway's SD
+  # card, but only records backfill has already written to HA, and only in whole blocks of
+  # 10,000 records (about a week each); the newest block always stays. Pruned records can no
+  # longer be re-backfilled. Nothing is ever pruned unless the button is pressed, and the
+  # button does nothing while gateway_store_url is blank or points at a v1 gateway.
+  gateway_store_prune_days: 90
 
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)
@@ -191,5 +198,6 @@ schema:
   onsite_temp_entity: str?
   gateway_store_url: str?
   gateway_store_token: password?
+  gateway_store_prune_days: int(7,3650)?
   backfill_entity_map: str?
   backfill_shadow_map: str?

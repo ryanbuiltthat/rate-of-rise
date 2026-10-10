@@ -3,6 +3,17 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.27.0
+
+- **New: *Creek Prune Gateway Store* button** (`button.rate_of_rise_creek_prune_gateway_store`).
+  It deletes old records from the v2 gateway's SD card: only ones backfill has already
+  written to HA and older than the new `gateway_store_prune_days` option (default 90), in
+  whole blocks of about a week, never the newest. Nothing is pruned unless it is pressed.
+  It needs v2 firmware with `POST /store/prune`; older v2 firmware just reports that.
+- **Harmless against v1.** It goes through backfill's feature detection: blank
+  `gateway_store_url`, a v1 gateway, or a card backfill has not read yet are refused with a
+  message on the last-command sensor and nothing is sent to the gateway.
+
 ## 0.26.0
 
 - **New: backfill from gateway v2's SD store.** When `gateway_store_url` points at the new
