@@ -135,6 +135,11 @@ WARNING_RATE_OF_RISE_CONFIRM_SAMPLES = 2
 # --- Tier 4 Emergency: overbank imminent (gauge required) ---
 EMERGENCY_STAGE_FT = 2.5           # bank top (3.69 ft, surveyed 2026-09-14) minus ~14 in margin
 EMERGENCY_PROBABILITY = 0.80
+# A probability alone does not make an Emergency. It is a model output, and an unproven one
+# has read 82-99 % on ordinary 1 ft rises, so at EMERGENCY_PROBABILITY it needs the creek
+# itself to agree: a stage at least this high now, or a trustworthy predicted crest that
+# reaches EMERGENCY_STAGE_FT. Without that it is held at Warning and says why.
+EMERGENCY_PROBABILITY_MIN_STAGE_FT = 2.0
 # The bank top itself (44.25 in above the creekbed, surveyed 2026-09-14). No tier keys on
 # it — Emergency is meant to fire before it — but crest.py reports a predicted crest
 # against it, since "will it leave the channel?" is the question that crest answers.
@@ -192,11 +197,16 @@ def compute_tier(
     flood_probability: float | None,
     ror_confirm_samples: int | None = None,
     radar_hold: RadarWatchHold | None = None,
+    predicted_crest_ft: float | None = None,
 ) -> tuple[int, str, list[str]]:
     """Highest tier whose conditions are met, with the reasons that got it there.
 
     `radar_hold`, when given, keeps a radar Watch up after its cell has passed — see
-    RadarWatchHold. The service passes one; without it every row is judged alone."""
+    RadarWatchHold. The service passes one; without it every row is judged alone.
+
+    `predicted_crest_ft` is the crest model's answer, passed only when that model is
+    trustworthy (None otherwise). It lets a high probability reach Emergency before the
+    stage has — see EMERGENCY_PROBABILITY_MIN_STAGE_FT."""
     p = flood_probability or 0.0
     if ror_confirm_samples is None:
         ror_confirm_samples = WARNING_RATE_OF_RISE_CONFIRM_SAMPLES
@@ -303,14 +313,28 @@ def compute_tier(
                 "since the creek node last reconnected (need %d)",
                 row.rate_of_rise_in_min, int(count), ror_confirm_samples,
             )
-    if p >= WARNING_PROBABILITY:
+    # At EMERGENCY_PROBABILITY the Emergency block below speaks for the probability, either
+    # promoting it or holding it at Warning with the reason — not both.
+    if WARNING_PROBABILITY <= p < EMERGENCY_PROBABILITY:
         reasons.append((3, f"model probability {p * 100:.0f}%"))
 
     # --- Tier 4 Emergency (needs the creek node) ---
     if _ge(row.stage_ft, EMERGENCY_STAGE_FT):
         reasons.append((4, f"stage {row.stage_ft:.2f} ft — near bank top{held}"))
     if p >= EMERGENCY_PROBABILITY:
-        reasons.append((4, f"model probability {p * 100:.0f}%"))
+        stage_agrees = _ge(row.stage_ft, EMERGENCY_PROBABILITY_MIN_STAGE_FT)
+        crest_agrees = _ge(predicted_crest_ft, EMERGENCY_STAGE_FT)
+        if stage_agrees or crest_agrees:
+            reasons.append((4, f"model probability {p * 100:.0f}%"))
+        else:
+            stage_txt = ("no stage reading" if row.stage_ft is None
+                         else f"stage {row.stage_ft:.2f} ft")
+            crest_txt = ("no trusted crest" if predicted_crest_ft is None
+                         else f"predicted crest {predicted_crest_ft:.2f} ft")
+            reasons.append((3, f"model probability {p * 100:.0f}% held at Warning: "
+                               f"{stage_txt} and {crest_txt} do not corroborate "
+                               f"(need stage >= {EMERGENCY_PROBABILITY_MIN_STAGE_FT:g} ft or "
+                               f"a crest >= {EMERGENCY_STAGE_FT:g} ft)"))
 
     # --- NWS force-promotion (spec §6) ---
     # These are floors, not additions: a forecaster issuing a product knows things our
