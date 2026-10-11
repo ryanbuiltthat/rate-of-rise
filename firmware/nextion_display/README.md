@@ -7,11 +7,13 @@ design is in the
 [spec](../../docs/superpowers/specs/2026-10-10-gateway-v2-nextion-display-design.md).
 
 This file is the **contract** between the HMI and the firmware. The firmware writes components
-by **name** and recognises buttons by **page id + component id**. The Editor assigns component
-ids in creation order (the page itself is 0), so create the components **in the order the
-tables list them**. If a name or id differs, the field stays blank or the button does nothing.
-The fix then goes either here (re-create in order) or in `display_core.h` (its `ID_*`
-constants and their test).
+by **name**, so every name in the tables must match exactly. It recognises the seven
+touch-reporting buttons by **page id + component id**, which must match
+[Touch ids](#touch-ids) below and the `ID_*` constants in `display_core.h`. The Editor assigns
+component ids in creation order (the page itself is 0), so deleting or re-creating a component
+can shift them. After any structural edit, re-check the ids in the simulator. If one moved,
+change the table, the `ID_*` constant and its test together. If a name or id is wrong, the
+field stays blank or the button does nothing.
 
 | File | What it is |
 |---|---|
@@ -83,21 +85,23 @@ constants and their test).
 
 ### Page 2 `settings`
 
-| # | Name | Type | x, y, w, h | Font | Touch Release |
+The id column is the HMI as built. Only the touch-reporting buttons' ids matter to the firmware.
+
+| id | Name | Type | x, y, w, h | Font | Touch Release |
 |---|---|---|---|---|---|
-| 1 | `tTitle` | Text | 4, 6, 200, 30 | 1 | – (text `Settings`) |
-| 2 | `bBack` | Button | 240, 4, 76, 40 | 0 | code `page main` (`Back`) |
-| 3 | `tBriLbl` | Text | 4, 60, 112, 24 | 0 | – (`Brightness`) |
-| 4 | `bBriDn` | Button | 120, 52, 50, 40 | 1 | **Send Component ID** (`-`) |
-| 5 | `tBri` | Text, center | 172, 58, 76, 28 | 0 | – (`70 %`) |
-| 6 | `bBriUp` | Button | 250, 52, 50, 40 | 1 | **Send Component ID** (`+`) |
-| 7 | `tSlpLbl` | Text | 4, 108, 112, 24 | 0 | – (`Sleep after`) |
-| 8 | `bSlpDn` | Button | 120, 100, 50, 40 | 1 | **Send Component ID** (`-`) |
-| 9 | `tSlp` | Text, center | 172, 106, 76, 28 | 0 | – (`2 min`) |
-| 10 | `bSlpUp` | Button | 250, 100, 50, 40 | 1 | **Send Component ID** (`+`) |
-| 11 | `bUpdate` | Button | 4, 156, 150, 50 | 0 | **Send Component ID** (`Update display`) |
-| 12 | `bRestart` | Button | 166, 156, 150, 50 | 0 | **Send Component ID** (`Restart gateway`) |
-| 13 | `tVer` | Text | 4, 216, 312, 20 | 0 | – (`HMI v1  2026-10-10`; bump on each export) |
+| – | `tTitle` | Text | 4, 6, 200, 30 | 1 | – (text `Settings`) |
+| – | `bBack` | Button | 240, 4, 76, 40 | 0 | code `page main` (`Back`) |
+| – | `tBriLbl` | Text | 4, 60, 112, 24 | 0 | – (`Brightness`) |
+| **4** | `bBriDn` | Button | 120, 52, 50, 40 | 1 | **Send Component ID** (`-`) |
+| – | `tBri` | Text, center | 172, 58, 76, 28 | 0 | – (`70 %`) |
+| **9** | `bBriUp` | Button | 250, 52, 50, 40 | 1 | **Send Component ID** (`+`) |
+| – | `tSlpLbl` | Text | 4, 108, 112, 24 | 0 | – (`Sleep after`) |
+| **10** | `bSlpDn` | Button | 120, 100, 50, 40 | 1 | **Send Component ID** (`-`) |
+| – | `tSlp` | Text, center | 172, 106, 76, 28 | 0 | – (`2 min`) |
+| **11** | `bSlpUp` | Button | 250, 100, 50, 40 | 1 | **Send Component ID** (`+`) |
+| **12** | `bUpdate` | Button | 4, 156, 150, 50 | 0 | **Send Component ID** (`Update display`) |
+| **13** | `bRestart` | Button | 166, 156, 150, 50 | 0 | **Send Component ID** (`Restart gateway`) |
+| – | `tVer` | Text | 4, 216, 312, 20 | 0 | – (`HMI v1  2026-10-10`; bump on each export) |
 
 ### Page 3 `confirm`
 
@@ -122,18 +126,23 @@ constants and their test).
 ## Check in the simulator (Debug)
 
 - [ ] Each page renders over its background; Settings, Back and Cancel navigate.
-- [ ] In the return-data pane, releasing each button shows the bytes in the table (the
-  Send-Component-ID ones only):
+- [ ] In the return-data pane, releasing each touch-reporting button shows its bytes from
+  [Touch ids](#touch-ids).
 
-  | Button | Bytes on release |
-  |---|---|
-  | `bBriDn` | `65 02 04 00 FF FF FF` |
-  | `bBriUp` | `65 02 06 00 FF FF FF` |
-  | `bSlpDn` | `65 02 08 00 FF FF FF` |
-  | `bSlpUp` | `65 02 0A 00 FF FF FF` |
-  | `bUpdate` | `65 02 0B 00 FF FF FF` |
-  | `bRestart` | `65 02 0C 00 FF FF FF` |
-  | `bYes` | `65 03 03 00 FF FF FF` |
+### Touch ids
+
+As built, read from the Editor on 2026-10-11. These are the `ID_*` constants in
+`display_core.h`, and its test pins them.
+
+| Button | Page | id | Bytes on release |
+|---|---|---|---|
+| `bBriDn` | settings (2) | 4 | `65 02 04 00 FF FF FF` |
+| `bBriUp` | settings (2) | 9 | `65 02 09 00 FF FF FF` |
+| `bSlpDn` | settings (2) | 10 | `65 02 0A 00 FF FF FF` |
+| `bSlpUp` | settings (2) | 11 | `65 02 0B 00 FF FF FF` |
+| `bUpdate` | settings (2) | 12 | `65 02 0C 00 FF FF FF` |
+| `bRestart` | settings (2) | 13 | `65 02 0D 00 FF FF FF` |
+| `bYes` | confirm (3) | 3 | `65 03 03 00 FF FF FF` |
 
 - [ ] Entering a page also shows `66 0N FF FF FF` (the `sendme`).
 

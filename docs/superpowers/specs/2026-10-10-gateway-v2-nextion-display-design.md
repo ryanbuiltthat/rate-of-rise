@@ -115,6 +115,11 @@ Component ids are assigned by the Editor in creation order (the page itself is 0
 components **in the order listed**. The firmware relies on the ids of the touch-reporting
 buttons, and on every page's ids if components are added later.
 
+> **Amended 2026-10-11:** the HMI as built numbers the settings buttons differently from the
+> table below: `bBriUp` 9, `bSlpDn` 10, `bSlpUp` 11, `bUpdate` 12, `bRestart` 13. `bBriDn` 4
+> and confirm's `bYes` 3 are unchanged. The firmware follows the HMI (`ID_*` in
+> `display_core.h`). The live list is "Touch ids" in `firmware/nextion_display/README.md`.
+
 ### Page 1 `main` (component name = what the firmware writes)
 
 | # | Name | Type | x, y, w, h | Font | Example text |
