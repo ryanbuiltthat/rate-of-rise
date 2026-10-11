@@ -3,6 +3,16 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.27.2
+
+- **A high model probability alone no longer raises Emergency.** At 80 % or more, the
+  probability now reaches Tier 4 only if the creek agrees: the current stage is at least
+  2.0 ft, or the crest model is trustworthy and predicts a crest of 2.5 ft or more.
+  Otherwise it is held at Warning and the reason says why (e.g. "model probability 98 %
+  held at Warning: stage 1.02 ft and predicted crest 1.13 ft do not corroborate"). Stage
+  at 2.5 ft still raises Emergency on its own. This stops an unproven model reading 98 %
+  on an ordinary rise from showing "Flooding imminent or underway".
+
 ## 0.27.1
 
 - **Prune Gateway Store now says which step failed, and why.** Every network failure used

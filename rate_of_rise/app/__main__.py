@@ -85,8 +85,10 @@ def _run_inference_once(
         mqtt.publish(f"rise/{RISE_LABELS[horizon]}", payload)
     crest = crest_model.predict(row) if crest_model is not None else {"value": None}
     mqtt.publish("predicted_crest", crest)
+    # Only a crest from a trustworthy model may corroborate a high probability.
+    trusted_crest = crest.get("value") if crest.get("trustworthy") else None
     tier, label, reasons = compute_tier(row, pred.flood_probability, ror_confirm_samples,
-                                        radar_hold)
+                                        radar_hold, predicted_crest_ft=trusted_crest)
     mqtt.publish("alert_tier", {"value": tier, "label": label, "reasons": reasons,
                                 "why": "; ".join(reasons) or "nothing elevated"})
     mqtt.publish("features",

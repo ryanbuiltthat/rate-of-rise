@@ -290,7 +290,31 @@ def test_rate_of_rise_drives_warning():
 def test_probability_still_escalates():
     assert compute_tier(row(), 0.25)[0] == 2
     assert compute_tier(row(), 0.60)[0] == 3
-    assert compute_tier(row(), 0.85)[0] == 4
+    # 80 %+ reaches Emergency only with the creek agreeing -- see the gate tests below.
+    assert compute_tier(row(stage_ft=2.0), 0.85)[0] == 4
+
+
+def test_high_probability_alone_is_held_at_warning():
+    # The 98 % on a ~1 ft rise: no gauge, a low stage, or a low crest all cap at Warning.
+    for r, crest in ((row(), None), (row(stage_ft=1.0), None), (row(stage_ft=1.0), 1.13)):
+        tier, label, reasons = compute_tier(r, 0.98, predicted_crest_ft=crest)
+        assert (tier, label) == (3, "Warning")
+        assert "held at Warning" in reasons[0] and "98%" in reasons[0]
+
+
+def test_high_probability_reaches_emergency_when_stage_agrees():
+    assert compute_tier(row(stage_ft=1.99), 0.98)[0] == 3
+    tier, _, reasons = compute_tier(row(stage_ft=2.0), 0.98)
+    assert tier == 4 and reasons == ["model probability 98%"]
+
+
+def test_high_probability_reaches_emergency_when_trusted_crest_reaches_it():
+    assert compute_tier(row(stage_ft=1.0), 0.98, predicted_crest_ft=2.5)[0] == 4
+    assert compute_tier(row(stage_ft=1.0), 0.98, predicted_crest_ft=2.49)[0] == 3
+
+
+def test_stage_emergency_does_not_need_probability_or_crest():
+    assert compute_tier(row(stage_ft=2.6), 0.0, predicted_crest_ft=1.0)[0] == 4
 
 
 def test_highest_tier_wins_and_only_its_reasons_are_returned():
