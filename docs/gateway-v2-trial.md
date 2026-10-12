@@ -131,7 +131,8 @@ The result appears on the add-on's last-command sensor:
 
 ### The display
 
-v2 drives a Nextion NX3224T024 touch display (package `display.yaml`, in both wrappers).
+v2 drives a TJC3224T024_011R touch display, the Chinese-market twin of the Nextion NX3224T024
+(package `display.yaml`, in both wrappers; HMI built in TJC's USART HMI).
 Stage, rain, batteries and link status come from the gateway itself, so the screen keeps
 working with HA down. The alert tier and rate of rise come from HA and read `--` without it.
 The HMI contract, wiring, the TFT export-and-ship steps and the bring-up checklist are in

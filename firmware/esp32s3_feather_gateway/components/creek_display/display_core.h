@@ -20,16 +20,16 @@ inline constexpr uint8_t PAGE_MAIN = 1;
 inline constexpr uint8_t PAGE_SETTINGS = 2;
 inline constexpr uint8_t PAGE_CONFIRM = 3;
 
-// Ids of the buttons that report a touch ("Send Component ID" on release), as the built HMI
-// has them (read from the Editor's attribute panel, 2026-10-11; README "Touch ids"). The Editor
-// numbers components in creation order, so deleting or re-creating one can shift these: check
-// them in the simulator's return data after any structural HMI edit.
+// Ids of the buttons that report a touch ("Send Component ID" on release), as the HMI has them
+// (README "Touch ids"; the TJC build of 2026-10-12 follows the tables' creation order). The
+// editor numbers components in creation order, so deleting or re-creating one can shift these:
+// check them in the simulator's return data after any structural HMI edit.
 inline constexpr uint8_t ID_BRI_DN = 4;  // settings
-inline constexpr uint8_t ID_BRI_UP = 9;
-inline constexpr uint8_t ID_SLP_DN = 10;
-inline constexpr uint8_t ID_SLP_UP = 11;
-inline constexpr uint8_t ID_UPDATE = 12;
-inline constexpr uint8_t ID_RESTART = 13;
+inline constexpr uint8_t ID_BRI_UP = 6;
+inline constexpr uint8_t ID_SLP_DN = 8;
+inline constexpr uint8_t ID_SLP_UP = 10;
+inline constexpr uint8_t ID_UPDATE = 11;
+inline constexpr uint8_t ID_RESTART = 12;
 inline constexpr uint8_t ID_YES = 3;  // confirm
 
 // RGB565, as the Nextion's pco takes them.

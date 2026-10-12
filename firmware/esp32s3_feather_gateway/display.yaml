@@ -1,5 +1,6 @@
-# Creek gateway v2: Nextion NX3224T024 touch display. Its own package (like ota-push.yaml) so
-# the display is one include in each wrapper. Spec:
+# Creek gateway v2: TJC3224T024_011R touch display (the Chinese-market twin of the Nextion
+# NX3224T024; same instruction set, driven by ESPHome's `nextion`). Its own package (like
+# ota-push.yaml) so the display is one include in each wrapper. Spec:
 # docs/superpowers/specs/2026-10-10-gateway-v2-nextion-display-design.md. The pure logic is
 # components/creek_display/display_core.h (host-tested); the HMI it drives, with the names
 # and ids this file and that header rely on: firmware/nextion_display/README.md.

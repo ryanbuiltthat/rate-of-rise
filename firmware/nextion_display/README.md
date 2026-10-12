@@ -1,6 +1,10 @@
 # Gateway v2 Nextion display: HMI contract and build checklist
 
-The NX3224T024 (2.4", 320×240, resistive touch) on gateway v2. The firmware side is
+The TJC3224T024_011R (2.4", 320×240, resistive touch) on gateway v2: TJC's Chinese-market
+twin of the Nextion NX3224T024. Same hardware and instruction set, but the panel only accepts a
+TFT compiled for a TJC model by TJC's editor, **USART HMI** (a Nextion Editor TFT is refused
+with "Model does not match"). USART HMI is Chinese-only; see [Editor glossary](#editor-glossary).
+The firmware side is
 [`display.yaml`](../esp32s3_feather_gateway/display.yaml) plus
 [`display_core.h`](../esp32s3_feather_gateway/components/creek_display/display_core.h). The
 design is in the
@@ -17,14 +21,15 @@ field stays blank or the button does nothing.
 
 | File | What it is |
 |---|---|
-| `creek_gateway_v2_display.HMI` | Editor source |
+| `creek_gateway_v2_display.HMI` | USART HMI project (source) |
 | `creek_gateway_v2_display.tft` | The export the display runs. The gateway downloads it from `main` on GitHub. |
 | `assets/startup.png` | Splash, 320×240 |
 | `assets/bg.png` | Background for every other page, 320×240 |
+| `assets/ror16.zi`, `ror24.zi`, `ror48.zi` | Fonts 0 / 1 / 2 (16, 24 and 48 px) from the font generator (工具 → 字库制作). Kept so the HMI can be rebuilt. |
 
 ## Global settings
 
-- [ ] Device: **NX3224T024**, display direction **horizontal** (landscape), 320×240.
+- [ ] Device (设备): **TJC3224T024_011**, display direction **landscape** (横屏), 320×240.
 - [ ] `program.s`, before `page 0`:
 
   ```
@@ -33,7 +38,7 @@ field stays blank or the button does nothing.
   ```
 
 - [ ] Pictures, in this order: **pic 0** = `assets/startup.png`, **pic 1** = `assets/bg.png`.
-- [ ] Fonts (Tools > Font Generator), encoding **iso-8859-1** (so `°` is one byte), in this
+- [ ] Fonts (工具 → 字库制作, the font generator), encoding **iso-8859-1** (so `°` is one byte), in this
   order:
   - **font 0**: 16 px.
   - **font 1**: 24 px.
@@ -85,23 +90,24 @@ field stays blank or the button does nothing.
 
 ### Page 2 `settings`
 
-The id column is the HMI as built. Only the touch-reporting buttons' ids matter to the firmware.
+The id column is the HMI as built (TJC build, 2026-10-12: table order). Only the
+touch-reporting buttons' ids (bold) matter to the firmware.
 
 | id | Name | Type | x, y, w, h | Font | Touch Release |
 |---|---|---|---|---|---|
-| – | `tTitle` | Text | 4, 6, 200, 30 | 1 | – (text `Settings`) |
-| – | `bBack` | Button | 240, 4, 76, 40 | 0 | code `page main` (`Back`) |
-| – | `tBriLbl` | Text | 4, 60, 112, 24 | 0 | – (`Brightness`) |
+| 1 | `tTitle` | Text | 4, 6, 200, 30 | 1 | – (text `Settings`) |
+| 2 | `bBack` | Button | 240, 4, 76, 40 | 0 | code `page main` (`Back`) |
+| 3 | `tBriLbl` | Text | 4, 60, 112, 24 | 0 | – (`Brightness`) |
 | **4** | `bBriDn` | Button | 120, 52, 50, 40 | 1 | **Send Component ID** (`-`) |
-| – | `tBri` | Text, center | 172, 58, 76, 28 | 0 | – (`70 %`) |
-| **9** | `bBriUp` | Button | 250, 52, 50, 40 | 1 | **Send Component ID** (`+`) |
-| – | `tSlpLbl` | Text | 4, 108, 112, 24 | 0 | – (`Sleep after`) |
-| **10** | `bSlpDn` | Button | 120, 100, 50, 40 | 1 | **Send Component ID** (`-`) |
-| – | `tSlp` | Text, center | 172, 106, 76, 28 | 0 | – (`2 min`) |
-| **11** | `bSlpUp` | Button | 250, 100, 50, 40 | 1 | **Send Component ID** (`+`) |
-| **12** | `bUpdate` | Button | 4, 156, 150, 50 | 0 | **Send Component ID** (`Update display`) |
-| **13** | `bRestart` | Button | 166, 156, 150, 50 | 0 | **Send Component ID** (`Restart gateway`) |
-| – | `tVer` | Text | 4, 216, 312, 20 | 0 | – (`HMI v1  2026-10-10`; bump on each export) |
+| 5 | `tBri` | Text, center | 172, 58, 76, 28 | 0 | – (`70 %`) |
+| **6** | `bBriUp` | Button | 250, 52, 50, 40 | 1 | **Send Component ID** (`+`) |
+| 7 | `tSlpLbl` | Text | 4, 108, 112, 24 | 0 | – (`Sleep after`) |
+| **8** | `bSlpDn` | Button | 120, 100, 50, 40 | 1 | **Send Component ID** (`-`) |
+| 9 | `tSlp` | Text, center | 172, 106, 76, 28 | 0 | – (`2 min`) |
+| **10** | `bSlpUp` | Button | 250, 100, 50, 40 | 1 | **Send Component ID** (`+`) |
+| **11** | `bUpdate` | Button | 4, 156, 150, 50 | 0 | **Send Component ID** (`Update display`) |
+| **12** | `bRestart` | Button | 166, 156, 150, 50 | 0 | **Send Component ID** (`Restart gateway`) |
+| 13 | `tVer` | Text | 4, 216, 312, 20 | 0 | – (`HMI v1  2026-10-10`; bump on each export) |
 
 ### Page 3 `confirm`
 
@@ -123,7 +129,7 @@ The id column is the HMI as built. Only the touch-reporting buttons' ids matter 
 | red | 63488 | Warning, `node offline`, `HA offline`, `SD fault`, low batteries |
 | magenta | 63519 | Emergency |
 
-## Check in the simulator (Debug)
+## Check in the simulator (调试, Debug)
 
 - [ ] Each page renders over its background; Settings, Back and Cancel navigate.
 - [ ] In the return-data pane, releasing each touch-reporting button shows its bytes from
@@ -131,24 +137,25 @@ The id column is the HMI as built. Only the touch-reporting buttons' ids matter 
 
 ### Touch ids
 
-As built, read from the Editor on 2026-10-11. These are the `ID_*` constants in
-`display_core.h`, and its test pins them.
+As built (TJC build, 2026-10-12, created in the tables' order). These are the `ID_*`
+constants in `display_core.h`, and its test pins them.
 
 | Button | Page | id | Bytes on release |
 |---|---|---|---|
 | `bBriDn` | settings (2) | 4 | `65 02 04 00 FF FF FF` |
-| `bBriUp` | settings (2) | 9 | `65 02 09 00 FF FF FF` |
-| `bSlpDn` | settings (2) | 10 | `65 02 0A 00 FF FF FF` |
-| `bSlpUp` | settings (2) | 11 | `65 02 0B 00 FF FF FF` |
-| `bUpdate` | settings (2) | 12 | `65 02 0C 00 FF FF FF` |
-| `bRestart` | settings (2) | 13 | `65 02 0D 00 FF FF FF` |
+| `bBriUp` | settings (2) | 6 | `65 02 06 00 FF FF FF` |
+| `bSlpDn` | settings (2) | 8 | `65 02 08 00 FF FF FF` |
+| `bSlpUp` | settings (2) | 10 | `65 02 0A 00 FF FF FF` |
+| `bUpdate` | settings (2) | 11 | `65 02 0B 00 FF FF FF` |
+| `bRestart` | settings (2) | 12 | `65 02 0C 00 FF FF FF` |
 | `bYes` | confirm (3) | 3 | `65 03 03 00 FF FF FF` |
 
 - [ ] Entering a page also shows `66 0N FF FF FF` (the `sendme`).
 
 ## Export and ship
 
-1. File > **Export TFT** to `creek_gateway_v2_display.tft`, next to the HMI.
+1. Output the TFT (the TFT output item in the 文件 / File menu) as
+   `creek_gateway_v2_display.tft`, next to the HMI.
 2. Commit the `.HMI`, the `.tft` and `assets/` together. CI fails if the `.HMI` was committed
    after the last `.tft` ("export the TFT").
 3. Merge to `main`, because the gateway downloads the TFT from `main`'s raw URL.
@@ -162,10 +169,28 @@ As built, read from the Editor on 2026-10-11. These are the `ID_*` constants in
 gateway. Load the first TFT one of these ways:
 - a FAT32 microSD with only the `.tft` on it, in the display's slot, then power-cycle the
   display and remove the card when it reports success;
-- or Upload from the Nextion Editor through a USB-serial adapter.
+- or upload (下载) from USART HMI through a USB-serial adapter.
 
 Once a TFT with `baud=115200` in `program.s` is on the panel, step 4 works for every later
 update.
+
+## Editor glossary
+
+USART HMI has no English UI. Its layout matches the Nextion Editor, and the attribute names
+(`txt`, `pco`, `sta`, `isbr`, `txt_maxl`…) are the same English identifiers. The menu words
+this checklist needs:
+
+| Chinese | Meaning |
+|---|---|
+| 文件 | File (打开 Open, 保存 Save, 另存为 Save As) |
+| 设置 / 设备 / 型号 | Settings / Device / model |
+| 横屏 / 竖屏 | Landscape / portrait |
+| 编译 | Compile |
+| 调试 | Debug (simulator) |
+| 下载 | Upload to the device |
+| 工具 → 字库制作 | Tools → font generator |
+| 页面 / 图片 / 字库 | Pages / Pictures / Fonts |
+| 属性 / 事件 | Attributes / Events |
 
 ## Wiring
 

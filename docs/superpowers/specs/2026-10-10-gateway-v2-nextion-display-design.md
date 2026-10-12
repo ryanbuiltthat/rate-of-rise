@@ -46,6 +46,12 @@ make sense at the box.
 | Nextion NX3224T024 (Basic, 2.4") | 320×240 landscape, resistive touch, 4 MB flash, 5 V supply (4.75–7 V), 3.3 V TTL serial |
 | Pololu U1V11F5 5 V step-up (product 2562) | Display supply from the LiPo. Same part as the creek node's radar rail. 0.5–5.5 V in. |
 
+> **Amended 2026-10-12:** the panel on hand is a **TJC3224T024_011R**, TJC's Chinese-market
+> twin of the NX3224T024. The hardware and instruction set are the same, but it accepts only a
+> TFT compiled for a TJC model by TJC's **USART HMI** editor (Chinese-only UI). A Nextion
+> Editor TFT is refused with "Model does not match". The HMI is built in USART HMI. Nothing
+> on the firmware side changes.
+
 ### Wiring
 
 | From | To | Notes |
@@ -119,6 +125,10 @@ buttons, and on every page's ids if components are added later.
 > table below: `bBriUp` 9, `bSlpDn` 10, `bSlpUp` 11, `bUpdate` 12, `bRestart` 13. `bBriDn` 4
 > and confirm's `bYes` 3 are unchanged. The firmware follows the HMI (`ID_*` in
 > `display_core.h`). The live list is "Touch ids" in `firmware/nextion_display/README.md`.
+>
+> **Superseded 2026-10-12:** the TJC rebuild (see Hardware) creates the components in the
+> table's order, so the ids are the table's again (settings 4 / 6 / 8 / 10 / 11 / 12,
+> confirm 3).
 
 ### Page 1 `main` (component name = what the firmware writes)
 

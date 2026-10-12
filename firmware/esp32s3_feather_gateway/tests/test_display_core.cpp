@@ -257,9 +257,9 @@ static void test_touch_action() {
   CHECK(touch_action(PAGE_MAIN, ID_RESTART, false) == TouchAction::NONE);  // same id, wrong page
   CHECK(touch_action(PAGE_CONFIRM, 2, false) == TouchAction::NONE);    // bNo navigates in the HMI
   CHECK(touch_action(PAGE_SPLASH, ID_YES, false) == TouchAction::NONE);
-  // The ids are the built HMI's, read from the Editor 2026-10-11 (README "Touch ids").
-  CHECK(ID_BRI_DN == 4 && ID_BRI_UP == 9 && ID_SLP_DN == 10 && ID_SLP_UP == 11);
-  CHECK(ID_UPDATE == 12 && ID_RESTART == 13 && ID_YES == 3);
+  // The ids of the TJC build (2026-10-12), which follows the README tables' order ("Touch ids").
+  CHECK(ID_BRI_DN == 4 && ID_BRI_UP == 6 && ID_SLP_DN == 8 && ID_SLP_UP == 10);
+  CHECK(ID_UPDATE == 11 && ID_RESTART == 12 && ID_YES == 3);
   CHECK(PAGE_SPLASH == 0 && PAGE_MAIN == 1 && PAGE_SETTINGS == 2 && PAGE_CONFIRM == 3);
 }
 
