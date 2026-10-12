@@ -44,7 +44,10 @@ field stays blank or the button does nothing.
   - **font 1**: 24 px.
   - **font 2**: 48 px (stage).
 - [ ] Every text component:
-  - `sta` = crop image, `picc` = 1 (the background shows through);
+  - `sta` = crop image (**切图**, not 图片, which draws a whole picture from `pic`), and
+    `picc` = 1, so the background shows through. A wrong one draws nothing at all, and the
+    gateway log fills with `Invalid picture ID` and `Queue empty` (the panel's own `0x04`
+    drawing error). In the simulator, `ref <name>` answers `04 FF FF FF` for a bad label.
   - `pco` = 65535 (white);
   - `txt_maxl` = **20**, except `tMsg`, which is **200**. Longer text is cut off.
 - [ ] Every button: `sta` = solid color, with a `bco2` (pressed colour) different from `bco`,
