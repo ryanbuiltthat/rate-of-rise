@@ -15,6 +15,7 @@
 #   RFM69 RST          GPIO9   (D9, wing jumper pad) — active HIGH, idles low, as v1
 #   I2C SDA / SCL      GPIO3 / GPIO4 (PCF8523 RTC on the Adalogger)
 #   I2C_POWER          GPIO7   — powers the Feather's I2C pull-ups; driven high at boot
+#   Display UART TX/RX GPIO39 / GPIO38 (Feather TX/RX) — Nextion, see display.yaml
 # The S3's strapping pins are GPIO0, 3, 45 and 46. GPIO3 (SDA) only selects the JTAG source,
 # and only when the STRAP_JTAG_SEL eFuse is burned, which it is not on the Feather; Adafruit
 # routes SDA there by design. Nothing here can hold the chip in download mode the way the
@@ -157,6 +158,7 @@ rfm69_gateway:
             id(creek_stage).publish_state(r.stage_ft ? *r.stage_ft : NAN);
             id(creek_depth_in).publish_state(r.depth_in ? *r.depth_in : NAN);
   battery_voltage:
+    id: node_battery_mv
     name: Creek Node Battery
   rssi:
     name: Creek Node RSSI
@@ -171,6 +173,7 @@ rfm69_gateway:
   radar_failures:
     name: Creek Node Radar Failures
   node_status:
+    id: node_online
     name: Creek Node Status
   ota_status:
     name: Node OTA Status
@@ -197,6 +200,7 @@ creek_store:
   blanking_mm: ${blanking_mm}
   overrange_slack_mm: ${overrange_slack_mm}
   sd_fault:
+    id: store_sd_fault
     name: Store SD Fault
   free_space:
     name: Store Free Space
@@ -258,6 +262,7 @@ sensor:
     battery_voltage:
       name: "Gateway Battery Voltage"
     battery_level:
+      id: gw_battery_level
       name: "Gateway Battery Level"
 
 text_sensor:

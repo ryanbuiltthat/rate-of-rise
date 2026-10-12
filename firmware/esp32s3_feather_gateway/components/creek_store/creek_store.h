@@ -421,6 +421,9 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
       }
       r = this->eco_reading_;
     }
+    this->eco_last_ = r;
+    this->eco_last_ms_ = millis();
+    this->eco_last_seen_ = true;
     this->enqueue_(ECOWITT, creek_core::encode_ecowitt_body(now_ts_(), this->ts_src_(), r));
   }
 
@@ -458,6 +461,15 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
   }
 
  public:
+  // The latest good Ecowitt reading and the millis() it was collected; false until the first.
+  // Written by collect_ecowitt_() on the main task, so read it from the main task (display.yaml).
+  bool last_ecowitt(creek_core::EcowittReading &out, uint32_t &at_ms) const {
+    if (!this->eco_last_seen_) return false;
+    out = this->eco_last_;
+    at_ms = this->eco_last_ms_;
+    return true;
+  }
+
   void ecowitt_task() {
     const std::string url = "http://" + this->ecowitt_host_ + "/get_livedata_info";
     for (;;) {
@@ -748,6 +760,10 @@ class CreekStore : public Component, public i2c::I2CDevice, public AsyncWebHandl
   bool eco_ready_{false};
   bool eco_ok_{false};
   creek_core::EcowittReading eco_reading_;
+  // Main task only: the last good reading, for last_ecowitt().
+  creek_core::EcowittReading eco_last_;
+  uint32_t eco_last_ms_{0};
+  bool eco_last_seen_{false};
 
   // last_seq_: last seq on the card, set when a record is written (main task only).
   // written_seq_: the same value, also read by the HTTP task.

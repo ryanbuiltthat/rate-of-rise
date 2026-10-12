@@ -1,9 +1,12 @@
-# Creek gateway v2 — local CLI wrapper (trial: no node-OTA buttons).
+# Creek gateway v2 — local CLI wrapper (trial: no node-OTA buttons), with the Nextion display
+# (display.yaml).
 #   cp secrets.yaml.example secrets.yaml   # then fill in (gitignored)
 #   esphome run gateway.yaml
-# rfm69_gateway comes from v1's directory (shared, unchanged for v1); creek_store from here.
+# rfm69_gateway comes from v1's directory (shared, unchanged for v1); creek_store and
+# creek_display from here.
 packages:
   base: !include gateway.base.yaml
+  display: !include display.yaml
 
 external_components:
   - source:
@@ -13,4 +16,4 @@ external_components:
   - source:
       type: local
       path: components
-    components: [creek_store]
+    components: [creek_store, creek_display]

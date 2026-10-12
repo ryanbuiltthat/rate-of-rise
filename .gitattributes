@@ -1,0 +1,5 @@
+# Nextion Editor source and export. Both are binary; say so outright, so core.autocrlf can never
+# rewrite line endings inside them (a TFT changed by even one byte is a broken display).
+*.HMI binary
+*.tft binary
+*.zi binary
