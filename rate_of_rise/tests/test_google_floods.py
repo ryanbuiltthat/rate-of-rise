@@ -7,8 +7,8 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.sources.google_floods import (  # noqa: E402
-    GAUGE_REFRESH_SECONDS, MAX_GAUGES, MI_PER_DEG_LAT, SEARCH_RADIUS_MI, PAGE_SIZE,
-    FLASH_FLOOD_EVENT_WARN_COUNT, FLASH_FLOOD_POLL_BUDGET_SECONDS, GoogleFloods,
+    GAUGE_REFRESH_SECONDS, MAX_GAUGES, MAX_PAGES, MI_PER_DEG_LAT, SEARCH_RADIUS_MI,
+    PAGE_SIZE, FLASH_FLOOD_POLL_BUDGET_SECONDS, GoogleFloods,
 )
 
 SITE_LAT, SITE_LON = 41.0, -75.5
@@ -67,8 +67,18 @@ class Clock:
         return self.t
 
 
+def _page(rows, body, key, per_page):
+    """Serve `rows` the way the API does: at most `per_page` at a time, with a
+    nextPageToken (here, the next start index) while more remain."""
+    start = int((body or {}).get("pageToken") or 0)
+    out = {key: rows[start:start + per_page]}
+    if start + per_page < len(rows):
+        out["nextPageToken"] = str(start + per_page)
+    return out
+
+
 def build(pairs, fail_search_after=None, flash_events=None, polygons=None,
-          fail_flash_search=False):
+          fail_flash_search=False, per_page=10_000):
     """A source wired to a fake transport, plus the record of what it asked for.
 
     `flash_events`: list of flashFloods:search event dicts (camelCase keys, as the API
@@ -86,7 +96,7 @@ def build(pairs, fail_search_after=None, flash_events=None, polygons=None,
             calls["search"].append((url, body))
             if fail_search_after is not None and len(calls["search"]) > fail_search_after:
                 raise RuntimeError("search is down")
-            return {"gauges": gauges}
+            return _page(gauges, body, "gauges", per_page)
         if "floodStatus:queryLatestFloodStatusByGaugeIds" in url:
             calls["status"].append(url)
             asked = parse_qs(urlparse(url).query).get("gaugeIds", [])
@@ -95,7 +105,7 @@ def build(pairs, fail_search_after=None, flash_events=None, polygons=None,
             calls["flash_search"].append((url, body))
             if fail_flash_search:
                 raise RuntimeError("flash search is down")
-            return {"flashFloodEvents": flash_events}
+            return _page(flash_events, body, "flashFloodEvents", per_page)
         if "serializedPolygons/" in url:
             polygon_id = url.rsplit("/", 1)[-1]
             calls["polygon"].append(polygon_id)
@@ -448,11 +458,54 @@ def test_flash_flood_search_requests_the_full_page_size():
     assert calls["flash_search"][0][1]["pageSize"] == PAGE_SIZE
 
 
-def test_more_than_the_warn_count_of_events_are_capped_not_all_resolved():
-    events = [_flash_event(f"ev{i}")[0] for i in range(FLASH_FLOOD_EVENT_WARN_COUNT + 5)]
-    src, calls, _ = build([], flash_events=events)
+# --- paging (0.28.0: the first page was all that was ever read) --------------------
+
+def test_every_page_of_flash_flood_events_is_read():
+    """Regression: the server pages well under PAGE_SIZE. Only page one was read, so an
+    event covering the site on a later page was never seen, and the poll reported a
+    confident 0.0."""
+    others = [_flash_event(f"far{i}", union_kml=_rect_kml(*FAR_HIGHLY_LIKELY_BOX))
+              for i in range(7)]
+    hit = _flash_event("hit", union_kml=_rect_kml(*SITE_UNION_BOX))
+    events = [e for e, _ in others] + [hit[0]]          # the site's event on the last page
+    polygons = {k: v for _, p in others + [hit] for k, v in p.items()}
+    src, calls, _ = build([], flash_events=events, polygons=polygons, per_page=3)
+    out = src.poll()
+    assert len(calls["flash_search"]) == 3              # 3 + 3 + 2
+    assert [b.get("pageToken") for _, b in calls["flash_search"]] == [None, "3", "6"]
+    assert out["google_flash_flood_events"] == 1.0
+    assert out["google_flash_flood_likely"] == 1.0
+
+
+def test_every_page_of_gauges_is_read_and_the_nearest_kept():
+    """Regression: the nearest gauges can be on any page; page one alone ranked only
+    whatever the server happened to send first."""
+    far = [at(20 + i * 0.1, f"far{i}") for i in range(9)]
+    near = at(1.0, "near")
+    src, calls, _ = build(far + [near], per_page=4)
+    out = src.poll()
+    assert len(calls["search"]) == 3
+    assert out["google_flood_gauge_mi"] == 1.0          # the gauge from the last page
+
+
+def test_paging_stops_at_max_pages():
+    events = [_flash_event(f"ev{i}")[0] for i in range(MAX_PAGES + 5)]
+    src, calls, _ = build([], flash_events=events, per_page=1)
     src.poll()
-    assert len(calls["polygon"]) == FLASH_FLOOD_EVENT_WARN_COUNT
+    assert len(calls["flash_search"]) == MAX_PAGES
+
+
+def test_polygons_of_ended_events_leave_the_cache():
+    ev1, poly1 = _flash_event("ev1", union_kml=_rect_kml(*FAR_HIGHLY_LIKELY_BOX))
+    ev2, poly2 = _flash_event("ev2", union_kml=_rect_kml(*FAR_HIGHLY_LIKELY_BOX))
+    events = [ev1, ev2]
+    src, calls, clock = build([], flash_events=events, polygons={**poly1, **poly2})
+    src.poll()
+    assert set(src._polygon_cache) == {"ev1_event", "ev2_event"}
+    events.remove(ev1)                                  # ev1 has ended
+    clock.t += 1.0
+    src.poll()
+    assert set(src._polygon_cache) == {"ev2_event"}
 
 
 def test_a_polygons_geometry_is_cached_across_polls():

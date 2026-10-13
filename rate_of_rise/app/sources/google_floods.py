@@ -97,13 +97,12 @@ BASE_URL = "https://floodforecasting.googleapis.com/v1"
 SEARCH_RADIUS_MI = 25.0
 MAX_GAUGES = 10                  # nearest N; a status further out is regional noise
 GAUGE_REFRESH_SECONDS = 24 * 3600
-PAGE_SIZE = 1000                 # a box this size holds tens of gauges, not thousands
-
-# Above this many active national events in one flashFloods:search response, log a
-# warning rather than silently resolving geometry for all of them — there is no
-# geographic prefilter at the API level (see the module docstring), so an unbounded
-# severe-weather day is the one scenario where this read could get expensive.
-FLASH_FLOOD_EVENT_WARN_COUNT = 50
+PAGE_SIZE = 1000                 # what is asked for; the server may send fewer per page
+# Both searches are paged. The server caps a page well below PAGE_SIZE and says so with a
+# nextPageToken; reading only the first page (as this did until 0.28.1) saw only part of
+# the gauges near the site and part of the national flash-flood list, logging "returned
+# a full page of 1000" every poll. MAX_PAGES bounds a runaway token chain.
+MAX_PAGES = 20
 
 # Wall-clock budget for resolving flash-flood polygons in one poll() call. This runs on
 # the same thread as feature-build -> predict -> tier -> publish (app/__main__.py), so an
@@ -207,10 +206,24 @@ class GoogleFloods:
     def _headers(self) -> dict:
         return {"X-Goog-Api-Key": self._key, "Content-Type": "application/json"}
 
+    def _paged(self, url: str, body: dict, list_key: str, what: str) -> list[dict]:
+        """Every row of a paged POST search, following nextPageToken up to MAX_PAGES."""
+        rows: list[dict] = []
+        token = None
+        for _ in range(MAX_PAGES):
+            payload = self._fetch(url, self._headers(),
+                                  {**body, "pageToken": token} if token else body)
+            rows.extend(payload.get(list_key) or [])
+            token = payload.get("nextPageToken")
+            if not token:
+                return rows
+        log.warning("%s: stopped after %d pages (%d rows); the rest were not read",
+                    what, MAX_PAGES, len(rows))
+        return rows
+
     def _discover(self) -> dict[str, dict]:
-        payload = self._fetch(
+        rows = self._paged(
             f"{BASE_URL}/gauges:searchGaugesByArea",
-            self._headers(),
             {
                 "loop": {"vertices": search_box(self._lat, self._lon, SEARCH_RADIUS_MI)},
                 # A creek this small will have a virtual HydroBASINS gauge at best, and
@@ -221,15 +234,8 @@ class GoogleFloods:
                 "includeGaugesWithoutHydroModel": False,
                 "pageSize": PAGE_SIZE,
             },
+            "gauges", "gauge search",
         )
-        rows = payload.get("gauges") or []
-        if payload.get("nextPageToken"):
-            # Only reachable if the box somehow held more than PAGE_SIZE modelled gauges,
-            # which at this radius would mean the loop was read as the complement. The
-            # distance filter below still yields the right answer, so this is a note that
-            # far too much was fetched, not a failure.
-            log.warning("gauge search returned a full page of %d — check the loop winding",
-                        PAGE_SIZE)
 
         found: dict[str, dict] = {}
         for row in rows:
@@ -251,7 +257,8 @@ class GoogleFloods:
 
         nearest = dict(sorted(found.items(), key=lambda kv: kv[1]["mi"])[:MAX_GAUGES])
         if nearest:
-            log.info("Google Flood gauges within %.0f mi: %s", SEARCH_RADIUS_MI,
+            log.info("Google Flood gauges within %.0f mi (%d searched, %d in range): %s",
+                     SEARCH_RADIUS_MI, len(rows), len(found),
                      "; ".join(self._describe(gid, g) for gid, g in nearest.items()))
         else:
             # The answer to open question #2, if this is what it keeps saying: Google
@@ -315,25 +322,19 @@ class GoogleFloods:
     # --- flash flood polygons --------------------------------------------------------
 
     def _flash_flood_events(self) -> list[dict]:
-        payload = self._fetch(
-            f"{BASE_URL}/flashFloods:search", self._headers(),
-            {"countryCodes": ["US"], "pageSize": PAGE_SIZE},
-        )
-        events = payload.get("flashFloodEvents") or []
-        if payload.get("nextPageToken"):
-            # Only reachable with more than PAGE_SIZE active events nationally at once --
-            # matches _discover()'s own page-size note: a real occurrence would be a
-            # once-in-a-generation nationwide event, not something to build pagination
-            # for speculatively. FLASH_FLOOD_EVENT_WARN_COUNT below already bounds the
-            # per-poll cost regardless of how many pages exist.
-            log.warning("flashFloods:search returned a full page of %d events", PAGE_SIZE)
-        if len(events) > FLASH_FLOOD_EVENT_WARN_COUNT:
-            log.warning(
-                "flashFloods:search returned %d active events nationally -- resolving "
-                "geometry for only the first %d this poll",
-                len(events), FLASH_FLOOD_EVENT_WARN_COUNT,
-            )
-            events = events[:FLASH_FLOOD_EVENT_WARN_COUNT]
+        """Every active US event. There is no geographic filter at the API level, so the
+        whole national list is read; what bounds the cost is the polygon cache (each
+        event's geometry is fetched once) and FLASH_FLOOD_POLL_BUDGET_SECONDS (a cold cache
+        is filled over a few polls, reporting unknown meanwhile, never a false 0.0)."""
+        events = self._paged(f"{BASE_URL}/flashFloods:search",
+                             {"countryCodes": ["US"], "pageSize": PAGE_SIZE},
+                             "flashFloodEvents", "flashFloods:search")
+        # Keep the cache to polygons a current event still names: events end, and their
+        # geometry would otherwise accumulate for the life of the process.
+        live = {event.get(k) for event in events
+                for k in ("eventPolygonId", "highlyLikelyAffectedPolygonId")}
+        for polygon_id in [p for p in self._polygon_cache if p not in live]:
+            del self._polygon_cache[polygon_id]
         return events
 
     def _polygon_kml(self, polygon_id: str) -> str:
