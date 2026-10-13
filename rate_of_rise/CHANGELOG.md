@@ -3,6 +3,17 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.28.1
+
+- **Fix: Google Flood Forecasting read only the first page of each search.** Google
+  pages its gauge and flash-flood searches well below the 1000 asked for, and only page
+  one was ever read: the nearest gauges were ranked from a partial list, and a flash-flood
+  event covering the site on a later page was never seen while the flags read a confident
+  "not affected". That is the "returned a full page of 1000" warning logged every 30 min
+  (it printed the size asked for, not what came back). Every page is now read (up to 20),
+  the startup log line says how many gauges were searched, and polygons of ended events
+  leave the cache.
+
 ## 0.28.0
 
 - **The lag estimate now works, measured storm by storm.** It had been blank every night:
