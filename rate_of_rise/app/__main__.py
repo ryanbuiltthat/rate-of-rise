@@ -135,7 +135,12 @@ def _publish_lag(mqtt: MqttClient, lag: dict) -> None:
     mqtt.publish("lag_estimate", {"value": lag["lag_minutes"],
                                   "response": lag["response"],
                                   "correlation": lag["correlation"],
-                                  "reason": lag["reason"]})
+                                  "reason": lag["reason"],
+                                  # .get: a lag.json saved by an older version lacks these
+                                  "method": lag.get("method"),
+                                  "response_lag_minutes": lag.get("response_lag_minutes"),
+                                  "storms": lag.get("storms", 0),
+                                  "storm_detail": lag.get("storm_detail", [])})
 
 
 def _publish_model_health(cfg: Config, mqtt: MqttClient, rows: int, model: Model,
@@ -259,7 +264,7 @@ def _nightly_batch(
 
     # First lag/response estimate (§7 Phase 3). Falls back to a downstream gauge while the
     # creek node is missing — that number is the sanity check, not the creek's lag.
-    lag = estimate_lag(dataset.frame())
+    lag = estimate_lag(dataset.frame(), _storm_windows(storms))
     save_lag(DATA_DIR, lag)      # so a restart republishes it instead of showing unknown
     _publish_lag(mqtt, lag)
 

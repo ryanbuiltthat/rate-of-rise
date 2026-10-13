@@ -1,8 +1,17 @@
 """Rainfall→response lag estimation (spec §7 Phase 3).
 
 §1 calls the rainfall-to-crest lag "the warning window", and measuring it empirically a
-core project outcome. This estimates it by cross-correlation: shift a rainfall series
-forward against a response series and take the shift that lines them up best.
+core project outcome. Two ways of measuring it, in order:
+
+  * **Storm by storm** (`storm_lags`). For each storm in the storm log that the creek
+    clearly answered, read two times straight off the record: storm start -> the creek
+    starts up, and heaviest hour of rain -> crest. Report the median across storms. This
+    is the primary method because it is what a person would do with the chart, and it
+    works from one storm.
+  * **Cross-correlation** (`_correlation_lag`), the fallback: shift a rainfall series
+    forward against a response series and take the shift that lines them up best. On this
+    creek it found nothing (best r 0.09 after a 16 in rise on 2026-10-11): a 5-minute stage
+    step is mostly the radar's 1-2 mm flicker, and 90 mostly dry days bury the storms.
 
 The response series is chosen by what exists:
 
@@ -15,14 +24,17 @@ The response series is chosen by what exists:
 
 Correlation is computed on first differences of the response, not its level: a rising
 limb is what rainfall causes, whereas the level itself is dominated by baseflow and would
-correlate with anything that trends. Pearson r is computed directly rather than pulled
-from numpy so the estimator has no dependency beyond pandas.
+correlate with anything that trends.
 """
 from __future__ import annotations
 
 import json
 import logging
 import math
+from datetime import datetime, timezone
+
+import numpy as np
+import pandas as pd
 
 log = logging.getLogger("app.lag")
 
@@ -56,6 +68,20 @@ RESPONSE_PREFERENCE = (
     ("usgs_tunkhannock_rise_3h_ft", "USGS downstream (proxy)"),
 )
 RAIN_PREFERENCE = ("upstream_rain_1h_in", "rain_1h_in")
+# Longest gap between consecutive rows that still counts as one step of the fast loop.
+MAX_STEP_S = 600.0
+
+# --- Storm by storm ------------------------------------------------------------------
+# For each storm in the storm log the creek clearly answered, two times read straight off
+# the record: storm start -> the creek starts up (`response_lag_minutes`, the warning you
+# get before the water moves at all), and the heaviest hour of rain -> the crest
+# (`lag_minutes`, the rainfall-to-crest lag spec §1 calls the warning window). The median
+# across storms is reported, with each storm's numbers alongside.
+STORM_MIN_RISE_IN = 0.5      # smaller than this is the creek sitting still (crest.MIN_RISE_IN)
+RESPONSE_RISE_IN = 0.25      # above the pre-storm level: the creek has started up
+BASELINE_S = 3600.0          # pre-storm level: median stage over the hour before the start
+CREST_SEARCH_S = 12 * 3600.0  # the crest can come well after the rain stops
+STORM_DETAIL_MAX = 10        # newest storms listed in the published detail
 
 
 def _pearson(xs: list[float], ys: list[float]) -> float | None:
@@ -78,14 +104,42 @@ def _pick(df, candidates) -> tuple[str, str] | None:
     return None
 
 
-def estimate_lag(df) -> dict:
-    """Best-fitting lag in minutes, with the series and correlation behind it.
+def estimate_lag(df, storm_windows=()) -> dict:
+    """The rainfall-to-crest lag in minutes, and what it was measured from.
 
-    Returns a dict that is always safe to publish: `lag_minutes` is None whenever the
-    data cannot support an estimate, with `reason` saying why.
+    Measured storm by storm (`storm_lags`) when the storm log has storms the creek clearly
+    answered; otherwise by cross-correlation over the whole record (`_correlation_lag`).
+    Returns a dict that is always safe to publish: `lag_minutes` is None whenever the data
+    cannot support an estimate, with `reason` saying why.
     """
-    result = {"lag_minutes": None, "correlation": None, "response": None,
-              "rain_series": None, "samples": 0, "reason": None}
+    if storm_windows and df is not None and len(df) and "stage_ft" in df.columns:
+        by_storm = storm_lags(df, storm_windows)
+        if by_storm["lag_minutes"] is not None:
+            return by_storm
+        fallback = _correlation_lag(df)
+        if fallback["lag_minutes"] is None:
+            # Neither worked: the storm reason says more about what the record lacks.
+            fallback["reason"] = f"{by_storm['reason']}; correlation: {fallback['reason']}"
+        return fallback
+    return _correlation_lag(df)
+
+
+def _empty() -> dict:
+    return {"lag_minutes": None, "correlation": None, "response": None,
+            "rain_series": None, "samples": 0, "reason": None, "method": None,
+            "response_lag_minutes": None, "storms": 0, "storm_detail": []}
+
+
+def _correlation_lag(df) -> dict:
+    """Best-fitting lag by cross-correlation, with the series and correlation behind it.
+
+    Weak on this creek: a 5-minute stage step is mostly the radar's 1-2 mm flicker, so
+    against 90 mostly dry days the correlation rarely clears MIN_CORRELATION. It stays as
+    the fallback for a record with no storm the creek clearly answered (and for the
+    downstream-gauge proxy, which has no storm log of its own).
+    """
+    result = _empty()
+    result["method"] = "correlation"
 
     if df is None or len(df) < MIN_PAIRS:
         result["reason"] = "not enough data yet"
@@ -119,15 +173,18 @@ def estimate_lag(df) -> dict:
     times = frame["ts"].tolist()
     rain = [float(v) for v in frame[rain_col]]
     level = [float(v) for v in frame[response_col]]
-    # First differences: rainfall drives the *rise*, not the absolute level.
-    rises = [level[i] - level[i - 1] for i in range(1, len(level))]
+    # First differences: rainfall drives the *rise*, not the absolute level. Only between
+    # rows a fast loop apart: across a restart or a node dropout the difference is hours
+    # of movement charged to one step, which is exactly the spike that swamps the fit.
+    rises = [(i, level[i] - level[i - 1]) for i in range(1, len(level))
+             if times[i] - times[i - 1] <= MAX_STEP_S]
     rain_at = dict(zip(times, rain))
 
     best = None
     for lag in range(MIN_LAG_MIN, MAX_LAG_MIN + 1, LAG_STEP_MIN):
         xs, ys = [], []
         offset = lag * 60.0
-        for i, rise in enumerate(rises, start=1):
+        for i, rise in rises:
             source_ts = _nearest(times, times[i] - offset)
             if source_ts is None:
                 continue
@@ -154,6 +211,94 @@ def estimate_lag(df) -> dict:
     log.info("Lag estimate: %d min against %s (r=%.2f, n=%d)",
              lag, response_label, r, samples)
     return result
+
+
+def storm_lags(df, storm_windows) -> dict:
+    """Rain-to-response and rain-to-crest lags measured on each storm. `storm_windows` is
+    [(start_ts, end_ts)] from the storm log; `df` needs ts, stage_ft and a rain column."""
+    result = _empty()
+    result["method"] = "storms"
+    result["response"] = "creek stage"
+    frame = df.sort_values("ts")
+    ts = frame["ts"].to_numpy(dtype=float)
+    stage = (pd.to_numeric(frame["stage_ft"], errors="coerce")
+             # A 3-reading median: the radar's single-reading flicker is not a rise.
+             .rolling(3, center=True, min_periods=1).median().to_numpy(dtype=float))
+    rains = {c: pd.to_numeric(frame[c], errors="coerce").to_numpy(dtype=float)
+             for c in RAIN_PREFERENCE if c in frame.columns}
+    # The same recent window as the correlation, for the same reason: March snowmelt on
+    # saturated ground and an August thunderstorm do not share a warning window.
+    newest = float(ts[-1]) if len(ts) else 0.0
+    windows = sorted((float(s), float(e)) for s, e in storm_windows
+                     if float(s) >= newest - LAG_WINDOW_DAYS * 86400)
+    rows, skipped = [], []
+    for k, (start, end) in enumerate(windows):
+        next_start = windows[k + 1][0] if k + 1 < len(windows) else math.inf
+        row = _one_storm(ts, stage, rains, start, end, next_start)
+        (rows if isinstance(row, dict) else skipped).append(row)
+    usable = [r for r in rows if r["crest_lag_minutes"] is not None]
+    if not usable:
+        result["reason"] = ("no storm the creek answered by "
+                            f"{STORM_MIN_RISE_IN:g} in or more"
+                            + (f" ({len(windows)} storm(s) checked)" if windows else ""))
+        return result
+    crest = sorted(r["crest_lag_minutes"] for r in usable)
+    response = sorted(r["response_lag_minutes"] for r in usable
+                      if r["response_lag_minutes"] is not None)
+    result.update(
+        lag_minutes=_median_5(crest),
+        response_lag_minutes=_median_5(response) if response else None,
+        storms=len(usable), samples=len(usable),
+        rain_series=",".join(sorted({r["rain_series"] for r in usable})),
+        storm_detail=usable[-STORM_DETAIL_MAX:])
+    log.info("Lag by storm: rain->crest %s min, start->response %s min (%d storm(s))",
+             result["lag_minutes"], result["response_lag_minutes"], len(usable))
+    return result
+
+
+def _one_storm(ts, stage, rains, start, end, next_start):
+    """One storm's lags as a dict, or a short string saying why it was not usable."""
+    search_end = min(end + CREST_SEARCH_S, next_start)
+    pre = (ts >= start - BASELINE_S) & (ts < start) & ~np.isnan(stage)
+    during = (ts >= start) & (ts <= search_end) & ~np.isnan(stage)
+    if not during.any():
+        return "no stage readings"
+    baseline = float(np.median(stage[pre])) if pre.any() else float(stage[during][0])
+    idx = np.flatnonzero(during)
+    crest_i = idx[int(np.argmax(stage[idx]))]
+    rise_in = (stage[crest_i] - baseline) * 12.0
+    if rise_in < STORM_MIN_RISE_IN:
+        return "too small a rise"
+    rain_win = (ts >= start) & (ts <= end)
+    rain_col = next((c for c in RAIN_PREFERENCE if c in rains
+                     and np.nan_to_num(rains[c][rain_win]).max(initial=0.0) > 0), None)
+    if rain_col is None:
+        return "no rain recorded"
+    rain = np.nan_to_num(rains[rain_col])
+    rain_idx = np.flatnonzero(rain_win)
+    # rain_*_1h_in is a trailing hour's total: the hour it covers is centred half an hour
+    # before the row that reports it.
+    peak_rain_ts = float(ts[rain_idx[int(np.argmax(rain[rain_idx]))]]) - 1800.0
+    crest_lag = (ts[crest_i] - peak_rain_ts) / 60.0
+    up = idx[(idx <= crest_i) & (stage[idx] >= baseline + RESPONSE_RISE_IN / 12.0)]
+    response_lag = (ts[up[0]] - start) / 60.0 if len(up) else None
+    # Plain Python numbers: this is published as JSON and saved to lag.json.
+    return {"start": _iso(start), "rise_in": round(float(rise_in), 1),
+            "peak_rain": _iso(peak_rain_ts), "crest": _iso(ts[crest_i]),
+            # Crest before the heaviest rain: the rain that mattered fell before the storm
+            # log opened, so there is no rain-to-crest time to read here.
+            "crest_lag_minutes": int(round(float(crest_lag))) if crest_lag >= 0 else None,
+            "response_lag_minutes": (None if response_lag is None
+                                     else int(round(float(response_lag)))),
+            "rain_series": rain_col}
+
+
+def _median_5(values) -> int:
+    return int(5 * round(float(np.median(values)) / 5))
+
+
+def _iso(t: float) -> str:
+    return datetime.fromtimestamp(float(t), timezone.utc).isoformat(timespec="minutes")
 
 
 def _nearest(times: list[float], target: float, tolerance: float = 600.0) -> float | None:
@@ -193,6 +338,6 @@ def load_lag(state_dir) -> dict:
     try:
         return json.loads((state_dir / "state" / "lag.json").read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError, OSError):
-        return {"lag_minutes": None, "correlation": None, "response": None,
-                "rain_series": None, "samples": 0,
-                "reason": "pending the first nightly run"}
+        placeholder = _empty()
+    placeholder["reason"] = "pending the first nightly run"
+    return placeholder

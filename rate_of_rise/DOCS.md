@@ -378,6 +378,12 @@ project that issued it; a project that never enabled it answers 403 for a valid 
 through the first failures and is not a health check for the first two hours.
 
 **Correlate (Phase 3)** — the rainfall→response lag estimate runs nightly (`app/lag.py`).
+*Creek Lag Estimate* is measured storm by storm: for each storm in the storm log that
+raised the creek by 0.5 in or more, the time from the heaviest hour of rain to the crest
+(the sensor's value, the median across storms), and from the storm's start to the creek
+starting up (`response_lag_minutes`). `storm_detail` lists each storm's times and rise.
+With no such storm yet it falls back to cross-correlation over the last 90 days
+(`method: correlation`), which on this creek rarely clears its 0.30 bar.
 
 **Predict (Phase 4)** — built and now running against real data: gradient-boosting
 inference (`app/model.py`), the nightly retrain (`app/train.py`) and the model registry

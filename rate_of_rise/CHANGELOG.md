@@ -3,6 +3,20 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.28.0
+
+- **The lag estimate now works, measured storm by storm.** It had been blank every night:
+  cross-correlating hourly rain against 5-minute stage changes over 90 days scored 0.09
+  after a 16 in rise (the bar is 0.30), because a 5-minute step is mostly the radar's
+  1-2 mm flicker. *Creek Lag Estimate* now reads each storm the creek answered (0.5 in or
+  more) straight off the record: heaviest hour of rain to crest is the value, the median
+  across storms; storm start to the creek starting up is `response_lag_minutes`; each
+  storm's times and rise are in `storm_detail`, and `method` says which way it was found.
+  Cross-correlation is kept as the fallback for a record with no such storm.
+- **Fix: the correlation fallback no longer measures stage change across gaps.** A
+  restart or node dropout made one "5-minute" step hours of creek movement; those steps
+  are now skipped.
+
 ## 0.27.2
 
 - **A high model probability alone no longer raises Emergency.** At 80 % or more, the
