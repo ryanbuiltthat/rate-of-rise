@@ -279,7 +279,7 @@ real:
    below even the ~48 mA this item projected.
 2. **MPPT or buck charger** instead of linear. Recovers the third of the harvest a linear
    charger burns going 6 V → 4 V.
-3. **Low-voltage protection on the pack — required either way.** Without a cutoff the C6
+3. **Low-voltage protection on the pack — required either way.** Without a cutoff the node
    will drag cells into deep discharge and ruin them, which converts "node is down" into
    "pack is scrap, discovered in March." With one, going flat is survivable.
    *As-built: not fitted, by decision (see "Selected power parts"). At ~1.7 mA a full pack
@@ -362,14 +362,16 @@ the charger would have had no current limit at all.
 *galvanically isolated* 12 V step-up — 4.5–5.5 V input (a 1S pack never reaches it), ~50 %
 efficiency by Pololu's own spec, and quiescent that rises to ~100 mA below its input range,
 which is exactly where a Li-ion pack sits. The 820 V isolation is for breaking ground loops;
-here the radar shares a ground with the C6 two inches away.
+here the radar shares a ground with the node's MCU two inches away.
 
 ### Sub-freezing charge cutoff
 
 **KSD9700 bimetallic thermal switch, 5 °C, normally-open**, in the **panel positive line**
 upstream of the charger. Chosen over an NTC-plus-comparator because it draws nothing at
-all and has no electronics to fail; chosen over a charger with a JEITA/NTC input because
-the CN3791 appears not to have one.
+all and has no electronics to fail. (An earlier version of this note rejected a charger
+with its own JEITA/NTC input because the CN3791, the charger first planned, appears not to
+have one. The CN3791 was never installed. The deployed bq24074 does have an NTC input, and
+the switch does the job instead.)
 
 Switching the panel rather than the battery line leaves the discharge path untouched, so a
 failed-open switch costs charging — visible as a declining battery in HA — rather than
@@ -476,8 +478,8 @@ margin. The bq24074 stays: it is simple, robust and field-proven here.
 ### OTA over winter is a solved problem
 
 The one real objection to pulling the pack in December is losing OTA. It costs nothing to
-fix: **bring the node indoors with the pack.** On USB at a desk it stays on WiFi, takes OTA
-updates normally, and is available for bench work — and winter is when firmware iteration
+fix: **bring the node indoors with the pack.** On USB at a desk it can be reflashed directly
+(`pio run -t upload`) and is available for bench work — and winter is when firmware iteration
 would happen anyway, since there is nothing to measure on a frozen creek. Reinstall in
 February with current firmware.
 

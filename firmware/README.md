@@ -6,8 +6,8 @@ project). Replaces the original ESP32-C6 WiFi/ESPHome architecture with a
 lower-power radio link — see the [project spec](../creek-flood-warning-spec.md)
 §2 for the rationale.
 
-The original ESPHome config is retained in [`../esphome/`](../esphome/) for
-reference; it is no longer the active creek-node firmware path.
+The original ESP32-C6 ESPHome node config has been removed; this directory holds the only
+active creek-node firmware.
 
 **Status:** The Moteino M0 + RFM69HW node was successfully deployed to the creek
 pole on 2026-09-19 and is operating normally. After initial diagnosis revealing
@@ -48,10 +48,12 @@ DFRobot SEN0676 (Modbus RTU)
 | Moteino M0 (LowPowerLab) | Creek node MCU, SAMD21 + RFM69HW socket | ~6 µA sleep, onboard radio |
 | RFM69HW 915 MHz × 2 | Node TX + gateway RX | One soldered to Moteino, one wired to ESP32 |
 | DFRobot SEN0676 | 80 GHz FMCW radar, ±5 mm, UART Modbus RTU | 3.5–5 V, ~30 mA active |
-| Seeed XIAO ESP32-C3 | Gateway: RFM69 RX + WiFi + ESPHome API | Plugged in at house, always-on |
-| CN3791 1S MPPT charger | Solar charge controller for creek node | ~0.5 mA idle vs. ~5 mA for linear |
-| 18650 Li-ion (4P–6P) | Creek node battery pack | See open question #11 |
-| 6–7 W solar panel | Creek node power | Ample at the measured ~1.7 mA avg draw (open question #17) |
+| Seeed XIAO ESP32-C3 | Gateway v1: RFM69 RX + WiFi + ESPHome API | Plugged in at house, always-on. Gateway v2 (below) is in trial to replace it |
+| Adafruit bq24074 solar charger ([PID 4755](https://www.adafruit.com/product/4755)) | Solar charge controller for creek node | Linear charger; at the measured ~1.7 mA load its losses don't matter. No battery-side cutoff |
+| 1S4P 18650 Li-ion, 1500 mAh/cell (6 Ah) | Creek node battery pack | As built, no protection board. ~100+ days with no charging |
+| 6 V / 7 W solar panel | Creek node power | Ample at the measured ~1.7 mA avg draw (open question #17) |
+| Pololu U1V11F5 5 V step-up | Radar power rail | True shutdown; its SHDN pin is the radar on/off switch, driven by D4 |
+| KSD9700 thermal switch (5 °C, N/O) | Stops charging below 5 °C | In the panel positive line, upstream of the charger |
 
 ## Wiring — Creek Node (Moteino M0)
 
@@ -60,7 +62,7 @@ Moteino M0 Pin    Connection
 ─────────────────────────────────────
 Serial1 RX (D0)   SEN0676 TX
 Serial1 TX (D1)   SEN0676 RX
-D4                 Boost/buck EN pin (switches 5 V to SEN0676)
+D4                 Pololu U1V11F5 SHDN (switches 5 V to SEN0676)
 A5                 VIN voltage (onboard 50% divider — no external wiring)
 GND                SEN0676 GND, battery GND
 SPI (onboard)      RFM69HW (Moteino socket — no external wiring)
@@ -653,12 +655,12 @@ buffer the transfer task was still reading from. `ota_active_` covers exactly th
    reliability directly and cannot break reception.
 
 2. **Modbus test:** With the SEN0676 powered and wired to Serial1, the creek
-   node should print `TX: {"node":1,"distance_mm":XXXX,...}` with a plausible
-   distance value. A `null` distance means the Modbus exchange failed —
+   node should print `TX: {"d":XXXX,"v":...}` with a plausible
+   distance in `d` (mm). `"d":null` means the Modbus exchange failed —
    check wiring and baud rate (the datasheet default is 115200).
 
 3. **Entity test:** With the gateway on WiFi and added to Home Assistant, confirm
-   `sensor.creek_gateway_sensor_distance` tracks the node's `distance_mm`, that battery and RSSI update
+   `sensor.creek_gateway_sensor_distance` tracks the node's `d` (distance, mm), that battery and RSSI update
    with each packet, and that `binary_sensor.creek_node_status` goes *disconnected* about
    5 minutes after the node stops transmitting (five missed reports).
 
