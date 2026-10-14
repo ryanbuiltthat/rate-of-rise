@@ -42,9 +42,9 @@ to," early enough that you can still move things instead of rescuing them.
 
 ## The 12 data sources
 
-1. **Creek radar gauge:** the creek's height and how fast it's rising
+1. [**Creek radar gauge:**](./docs/node-hardware.md) the creek's height and how fast it's rising
 2. **On-site weather station (Ecowitt):** rain and temperature at the house
-3. **Soil moisture probes (2× Ecowitt WH51):** how wet the ground already is
+3. **Soil moisture probes (Ecowitt WH51 / Generic Zigbee):** how wet the ground already is
 4. **NWS forecast:** rain expected over the next 6 and 24 hours
 5. **NWS alerts:** official flood and flash flood watches and warnings
 6. **WPC Excessive Rainfall Outlook:** rain graded against what the ground can absorb
