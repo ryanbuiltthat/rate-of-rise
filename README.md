@@ -1,13 +1,14 @@
 # Rate of Rise
 
 [![tests](https://github.com/ryanbuiltthat/rate-of-rise/actions/workflows/tests.yml/badge.svg)](https://github.com/ryanbuiltthat/rate-of-rise/actions/workflows/tests.yml)
+![GitHub Release](https://img.shields.io/github/v/release/ryanbuiltthat/rate-of-rise?color=47CBFF)
 
-**Warning arrives before the water does.**
+## Warning arrives before the water does.
 
 There's a small creek near my house that floods fast and has no official gauge. So I built
 one, and taught it to warn me before the water gets here.
 
-A radar on a pole measures the creek's height every minute and sends it to the house by
+A [radar](./docs/node-hardware.md) on a pole measures the creek's height every minute and sends it to the house by
 radio. The add-on checks that against the forecast, upstream rain gauges, storm tracks,
 soil wetness and the National Weather Service, then answers one question: **is the creek
 about to come up, and how high?** If the answer is yes, my phone goes off, even on silent.
