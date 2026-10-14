@@ -30,7 +30,8 @@
 | DFRobot SEN0676 (80 GHz FMCW radar, ±5 mm, ±3° lens, 0.15–40 m, UART Modbus RTU, 3.5–5 V, ~30 mA) | Primary creek level | **Installed** |
 | Moteino M0 (LowPowerLab, SAMD21 + RFM69HW socket) | Creek node MCU, Arduino sketch, RFM69HW TX (915 MHz) | **Installed** |
 | RFM69HW 915 MHz modules × 2 | Node TX + gateway RX, point-to-point radio link | **Installed** |
-| ESP32 (any variant) | Gateway: RFM69HW RX + WiFi + MQTT bridge | On hand |
+| Seeed XIAO ESP32-C3 + RFM69HW | Gateway v1: RFM69HW RX + WiFi, ESPHome native API into HA (no MQTT) | **Installed** |
+| Adafruit ESP32-S3 Feather + RFM69HCW wing + Adalogger wing (microSD, RTC) + TJC3224T024 touch display | Gateway v2: same job as v1, plus an SD record of every packet for backfilling outages, and an on-site display | **In trial**, built to replace v1 (`docs/gateway-v2-trial.md`) |
 | ~~ESP32-C6~~ | ~~Creek node MCU, ESPHome, WiFi~~ — **superseded by Moteino M0 + RFM69HW** (lower power, better range through trees) | ~~On hand~~ |
 | bq24074 linear solar charger + panel + 1S4P Li-ion pack (18650, 6 Ah) | Creek node power. The node draws ~1.7 mA (open question #17), so the linear charger's ~33 % loss going 6 V → 4 V does not matter and the CN3791 MPPT upgrade is not needed (open question #12). | **Installed.** Pack sizing: open questions #11–12. |
 | Ecowitt weather station (uploads to Weather Underground) | On-site rain, temp, wind | Installed |
@@ -105,7 +106,7 @@
 
 ```
 [Creek node: Moteino M0 + SEN0676 + solar] --RFM69HW 915 MHz-->
-  [Gateway: ESP32 + RFM69HW] --WiFi/MQTT--> [Home Assistant (mini PC)]
+  [Gateway: ESP32 + RFM69HW, ESPHome] --WiFi / native API--> [Home Assistant (mini PC)]
 [Ecowitt GW: rain, WH51 soil] --local--> [HA]
 [WU PWS / NWS / NWPS / USGS / Google Floods / SNODAS] --REST sensors--> [HA]
 [HA recorder / InfluxDB] <----> [Modeling service (HAOS add-on)]
@@ -167,8 +168,9 @@ Each tier maps to escalating HA actions (notification → persistent alarm → w
 (active firmware is in `firmware/`; the retired ESPHome node config was removed in v1).
 Creek node firmware (Arduino sketch, `firmware/moteino_creek_node/`) reads SEN0676 via
 Modbus RTU, transmits JSON over RFM69HW to the ESP32 gateway
-(`firmware/esp32_rfm69_gateway/`), which bridges to MQTT. **Written against datasheets
-and never run on hardware** — `firmware/README.md` carries the bench-test procedure.
+(`firmware/esp32_rfm69_gateway/`), which publishes native ESPHome entities (no MQTT).
+**Deployed to the pole 2026-09-19 and running continuously** — `firmware/README.md`
+carries the bring-up and bench-test procedure.
 Pole/arm install per §2 geometry; ~~WH51 probes into Ecowitt~~ **done (×2 installed)**; verify long-term statistics recording in HA.
 
 - **Follow-up:** Confirm WH51 entities appear in HA via the Ecowitt integration and are captured in recorder long-term statistics (check `state_class`); these feed the nightly dataset builder.
@@ -210,7 +212,7 @@ Pressure-transducer redundancy + divergence alarm; creek camera; HACS integratio
 ## 8. Conventions & Environment
 
 - Dev environment: Windows, Git Bash, VS Code + Claude Code; corporate SSL notes apply on work machine only — prefer home environment for this repo.
-- Creek node firmware is Arduino (Moteino M0 + RFM69HW); gateway is Arduino (ESP32 + RFM69HW + MQTT). Sketches in `firmware/`. ESPHome remains the standard for other devices in the fleet (16-ch CT power meter, etc.), and the gateway itself is an ESPHome device; the retired ESP32-C6 creek node config was removed in v1.
+- Creek node firmware is Arduino (Moteino M0 + RFM69HW); the gateway is an ESPHome device (ESP32 + RFM69HW, native API, no MQTT). Sources in `firmware/`. ESPHome remains the standard for other devices in the fleet (16-ch CT power meter, etc.), and the gateway itself is an ESPHome device; the retired ESP32-C6 creek node config was removed in v1.
 - HA config as packages under version control; secrets via `secrets.yaml` / HA credentials — never committed.
 - Modeling service: Python 3.11+, packaged as a **local HAOS add-on** (`config.yaml` + `Dockerfile` + `run.sh`), data in Parquet + SQLite under `/data`, MQTT for HA interface. See [Addendum A](#addendum-a--modeling-service-as-a-haos-add-on-resolves-open-question-1).
 - Every automation that can wake the family must be testable via a dry-run script/service.

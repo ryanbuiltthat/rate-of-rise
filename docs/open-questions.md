@@ -8,7 +8,7 @@ the resolution as each is answered.
 
 **v1 is the line under the build phase, not under the calibration phase.** Everything in the
 signal path is built, wired and tested end to end: the node measures, the radio link carries
-it, the gateway converts distance to depth, the add-on ingests eleven data sources, the tier
+it, the gateway converts distance to depth, the add-on ingests twelve data sources, the tier
 ladder evaluates, and a Tier ≥ 2 sounds a critical alarm on the phones through Do Not Disturb.
 
 What v1 explicitly does **not** claim is calibration. Every threshold in `app/tiers.py` is a
