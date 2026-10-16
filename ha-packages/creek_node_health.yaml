@@ -239,6 +239,16 @@ template:
           {% else %}fas:battery-empty
           {% endif %}
 
+      # The pack verdict's reserve_days attribute as its own entity (updates once a day, 04:30).
+      - name: "Creek Node Battery Days Remaining"
+        unique_id: creek_node_battery_days_remaining
+        unit_of_measurement: d
+        device_class: duration
+        state_class: measurement
+        icon: mdi:battery-clock
+        state: "{{ state_attr('sensor.creek_node_pack_health', 'reserve_days') | float(none) }}"
+        availability: "{{ state_attr('sensor.creek_node_pack_health', 'reserve_days') | is_number }}"
+
 # Inputs to the 04:30 pack verdict above.
 sensor:
   # Mean of the last hour, so a single 6.45 mV ADC step does not decide anything.
