@@ -3,6 +3,17 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.28.2
+
+- **New: *Creek Node Battery Days Remaining* sensor.** The days of reserve the daily
+  04:30 pack verdict works out was only an attribute (`reserve_days`) of
+  `sensor.creek_node_pack_health`. It is now its own entity,
+  `sensor.creek_node_battery_days_remaining`, in days, so it can sit on a dashboard and
+  be charted. It updates once a day with the verdict, and reads unavailable when the
+  verdict had no overnight battery reading. Copy the updated
+  `ha-packages/creek_node_health.yaml` into `/config/ha-packages/` and reload template
+  entities (or restart HA) to get it.
+
 ## 0.28.1
 
 - **Fix: Google Flood Forecasting read only the first page of each search.** Google
