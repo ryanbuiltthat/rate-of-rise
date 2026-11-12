@@ -3,6 +3,35 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.28.3
+
+- **Ready for Google's late-November gauge network switch.** Google is moving its river
+  forecasts to a finer, sub-basin model, and with it the gauges: virtual gauge ids change
+  from `hybas_N` to `subhybas_N` and the old ids stop answering. Nothing here hard-codes
+  an id, but the gauge list is cached for a day, so after the switch the Google flood
+  severity would have read blank (or the whole Google poll failed) until the next daily
+  search. Now a status read that finds none of the known gauges, or is refused, searches
+  for the new network at once (at most once an hour) and reads it straight away. Any
+  change to the gauge set is logged as `Google Flood gauge set changed`, naming the gauges
+  added and removed and how many were renamed. Look for that line after the switch: a
+  finer network may put a gauge closer to the creek.
+- **A Google gauge failure no longer takes the flash-flood check down with it.** The
+  flash-flood read now runs whatever happens on the gauge side. A gauge-side failure
+  still reaches the *Google Flood Status Missing* watchdog, and the gauge sensors keep
+  their last value, as before.
+- **Old Google statuses are ignored.** A status issued more than 48 h ago now reads as
+  unknown rather than as whatever it last said, so a stale "No flooding" can't pass for
+  today's forecast.
+- **Fewer Google requests.** The gauge and flash-flood searches ask for Google's maximum
+  page sizes (50,000 and 10,000, up from 1000), so each is normally one request.
+- **Fix: a dry spell no longer blanks the ML shadow probability.** Each nightly retrain
+  scores its model on the most recent 20 % of the record. After weeks without a rise that
+  window has nothing to score against, and every night's unscorable model replaced the
+  candidate, including a scored one. Since only a scored candidate is shown, *Creek ML
+  Shadow Probability* went blank until a storm put a rise back in the window. A scored
+  candidate is now kept until a retrain produces another scored one; the retrain result
+  says `kept validated candidate ...` when that happens.
+
 ## 0.28.2
 
 - **New: *Creek Node Battery Days Remaining* sensor.** The days of reserve the daily

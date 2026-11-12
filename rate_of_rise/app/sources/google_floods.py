@@ -62,6 +62,21 @@ second fetch to tell "likely" from "highly likely". `inundationMapSet` (raster
 depth/probability maps) is still not ingested — a heavier product than a scalar
 containment read needs.
 
+THE SUB-BASIN SWITCH (late November 2026). Google is replacing its lumped riverine model
+with a semi-distributed one, and with it the gauge network: virtual gauge ids gain a
+`sub` prefix (`hybas_123` becomes `subhybas_123`), some gauges change confidence, and the
+old ids' data stops being served. Nothing here hard-codes an id, so the daily
+re-discovery picks the new network up on its own. What it would not do on its own is
+notice the switch inside that 24 h window: the cached old ids would answer with nothing
+(or an error) until then. So a status read that comes back empty for every known gauge,
+or fails, forces an immediate re-discovery (at most once per FORCED_REDISCOVERY_SECONDS)
+and retries, and any change to the gauge set is logged as added/removed ids. The gauge
+nearest the site may move closer once basins are split finer, which is worth seeing.
+
+STATUS AGE. A status carries its `issuedTime`. One older than MAX_STATUS_AGE_HOURS is
+not a forecast for today, and is read as unknown rather than as whatever it last said
+-- a stale "No flooding" is the dangerous direction.
+
 KEY HANDLING. The key rides in the `X-Goog-Api-Key` header rather than the documented
 `?key=` query parameter, so it cannot reach a log line or a traceback with the URL.
 """
@@ -70,6 +85,7 @@ from __future__ import annotations
 import logging
 import math
 import time
+from datetime import datetime
 from urllib.parse import urlencode
 
 import requests
@@ -97,12 +113,21 @@ BASE_URL = "https://floodforecasting.googleapis.com/v1"
 SEARCH_RADIUS_MI = 25.0
 MAX_GAUGES = 10                  # nearest N; a status further out is regional noise
 GAUGE_REFRESH_SECONDS = 24 * 3600
-PAGE_SIZE = 1000                 # what is asked for; the server may send fewer per page
-# Both searches are paged. The server caps a page well below PAGE_SIZE and says so with a
+# A status read that finds none of the known gauges (the sub-basin id switch, see the
+# module docstring) re-discovers at once -- but no more often than this, so a genuine
+# status outage does not turn every poll into a search as well.
+FORCED_REDISCOVERY_SECONDS = 3600
+# Google's documented per-request maxima (values above are coerced down). Asking for the
+# maximum means one request per search in the normal case.
+GAUGE_PAGE_SIZE = 50_000
+FLASH_FLOOD_PAGE_SIZE = 10_000
+# Both searches are paged, and the server may still send fewer than asked with a
 # nextPageToken; reading only the first page (as this did until 0.28.1) saw only part of
-# the gauges near the site and part of the national flash-flood list, logging "returned
-# a full page of 1000" every poll. MAX_PAGES bounds a runaway token chain.
+# the gauges near the site and part of the national flash-flood list. MAX_PAGES bounds a
+# runaway token chain.
 MAX_PAGES = 20
+# Riverine forecasts are issued roughly daily; two missed cycles is no longer today's.
+MAX_STATUS_AGE_HOURS = 48.0
 
 # Wall-clock budget for resolving flash-flood polygons in one poll() call. This runs on
 # the same thread as feature-build -> predict -> tier -> publish (app/__main__.py), so an
@@ -191,14 +216,19 @@ class GoogleFloods:
     refresh_seconds = 30 * 60
 
     def __init__(self, lat: float, lon: float, api_key: str,
-                 fetch=_default_fetch, now_fn=time.monotonic):
+                 fetch=_default_fetch, now_fn=time.monotonic, wall_fn=time.time):
         self._lat = lat
         self._lon = lon
         self._key = api_key
         self._fetch = fetch
         self._now = now_fn
+        self._wall = wall_fn      # epoch seconds, for issuedTime; _now is monotonic
         self._gauges: dict[str, dict] | None = None   # gauge id -> {name, river, mi, ...}
         self._gauges_at = 0.0
+        self._forced_at: float | None = None
+        # Read by the coordinator: False when the gauge side failed this poll, so the
+        # watchdog still sees it even though the flash-flood read went through.
+        self.last_poll_ok = True
         self._polygon_cache: dict[str, str] = {}   # polygon_id -> kml, forever (immutable)
 
     # --- gauge discovery ------------------------------------------------------------
@@ -232,7 +262,7 @@ class GoogleFloods:
                 # A gauge with no hydro model publishes no flood status, so it is only
                 # weight in the response.
                 "includeGaugesWithoutHydroModel": False,
-                "pageSize": PAGE_SIZE,
+                "pageSize": GAUGE_PAGE_SIZE,
             },
             "gauges", "gauge search",
         )
@@ -273,7 +303,7 @@ class GoogleFloods:
         verified = "" if gauge["quality_verified"] else ", not quality-verified"
         return f"{gauge_id} ({label}, {gauge['mi']:.1f} mi{verified})"
 
-    def _known_gauges(self) -> dict[str, dict]:
+    def _known_gauges(self, force: bool = False) -> dict[str, dict]:
         """The discovered set, refreshed daily. A refresh that fails keeps the old set.
 
         Google asks that this list not be cached for long because gauges come and go, but
@@ -282,8 +312,10 @@ class GoogleFloods:
         surfaced only when there is nothing to fall back on.
         """
         now = self._now()
-        if self._gauges is not None and now - self._gauges_at < GAUGE_REFRESH_SECONDS:
+        if (not force and self._gauges is not None
+                and now - self._gauges_at < GAUGE_REFRESH_SECONDS):
             return self._gauges
+        previous = self._gauges
         try:
             self._gauges = self._discover()
         except Exception:
@@ -293,7 +325,20 @@ class GoogleFloods:
                         "gauge(s)", len(self._gauges), exc_info=True)
             return self._gauges
         self._gauges_at = now
+        if previous is not None:
+            self._log_changes(previous, self._gauges)
         return self._gauges
+
+    def _log_changes(self, old: dict[str, dict], new: dict[str, dict]) -> None:
+        added = [gid for gid in new if gid not in old]
+        removed = [gid for gid in old if gid not in new]
+        if not added and not removed:
+            return
+        renamed = sum(1 for gid in removed if f"sub{gid}" in new)
+        note = (f" ({renamed} renamed to Google's sub-basin ids)" if renamed else "")
+        log.info("Google Flood gauge set changed%s: added %s; removed %s", note,
+                 "; ".join(self._describe(g, new[g]) for g in added) or "none",
+                 ", ".join(removed) or "none")
 
     # --- flood status ---------------------------------------------------------------
 
@@ -306,6 +351,41 @@ class GoogleFloods:
             self._headers(),
         )
         return payload.get("floodStatuses") or []
+
+    def _read_statuses(self, gauges: dict[str, dict]) -> tuple[dict[str, dict], list[dict]]:
+        """(gauges, statuses) for the known set, re-discovering once if the read failed
+        or none of the known gauges answered -- the signature of Google retiring ids."""
+        try:
+            statuses = self._statuses(list(gauges))
+            error = None
+        except Exception as exc:
+            statuses, error = [], exc
+        if error is None and any(s.get("gaugeId") in gauges for s in statuses):
+            return gauges, statuses
+
+        now = self._now()
+        if self._forced_at is not None and now - self._forced_at < FORCED_REDISCOVERY_SECONDS:
+            if error is not None:
+                raise error
+            return gauges, statuses
+        self._forced_at = now
+        log.warning("Google flood status %s for all %d known gauge(s); re-discovering "
+                    "the gauge network now", "failed" if error else "came back empty",
+                    len(gauges))
+        gauges = self._known_gauges(force=True)
+        if not gauges:
+            return gauges, []
+        return gauges, self._statuses(list(gauges))
+
+    def _is_stale(self, status: dict) -> bool:
+        raw = status.get("issuedTime")
+        if not raw:
+            return False              # undated: nothing to judge it by, keep it
+        try:
+            issued = datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return False
+        return (self._wall() - issued) > MAX_STATUS_AGE_HOURS * 3600
 
     @staticmethod
     def _severity(status: dict) -> float | None:
@@ -327,7 +407,7 @@ class GoogleFloods:
         event's geometry is fetched once) and FLASH_FLOOD_POLL_BUDGET_SECONDS (a cold cache
         is filled over a few polls, reporting unknown meanwhile, never a false 0.0)."""
         events = self._paged(f"{BASE_URL}/flashFloods:search",
-                             {"countryCodes": ["US"], "pageSize": PAGE_SIZE},
+                             {"countryCodes": ["US"], "pageSize": FLASH_FLOOD_PAGE_SIZE},
                              "flashFloodEvents", "flashFloods:search")
         # Keep the cache to polygons a current event still names: events end, and their
         # geometry would otherwise accumulate for the life of the process.
@@ -425,12 +505,43 @@ class GoogleFloods:
         }
 
     def poll(self) -> dict:
-        blank: dict[str, float | None] = {k: None for k in FEATURE_KEYS}
-        out = dict(blank)
+        out: dict[str, float | None] = {}
+        try:
+            out.update(self._gauge_features())
+            self.last_poll_ok = True
+        except Exception:
+            # Gauge keys are left out of `out`, so the coordinator keeps serving their
+            # last-good values exactly as it did when this raised; last_poll_ok stops the
+            # watchdog's clock. The flash-flood read below no longer goes down with it.
+            log.warning("Google flood gauge read failed this poll", exc_info=True)
+            self.last_poll_ok = False
+
+        try:
+            out.update(self._flash_floods())
+        except Exception:
+            # A different Google product on the same key, reachable independently of
+            # gauge coverage -- an outage here must not take a working gauge-severity
+            # read down with it.
+            log.warning("flash flood polygon read failed; leaving it unread this poll",
+                        exc_info=True)
+            for k in ("google_flash_flood_likely", "google_flash_flood_highly_likely",
+                      "google_flash_flood_events"):
+                out.setdefault(k, None)
+
+        return out
+
+    def _gauge_features(self) -> dict:
+        out: dict[str, float | None] = {
+            k: None for k in FEATURE_KEYS if not k.startswith("google_flash_flood")}
 
         gauges = self._known_gauges()
         if gauges:
-            statuses = self._statuses(list(gauges))
+            gauges, statuses = self._read_statuses(gauges)
+            fresh = [s for s in statuses if not self._is_stale(s)]
+            if len(fresh) < len(statuses):
+                log.info("ignoring %d Google flood status(es) issued more than %.0f h ago",
+                         len(statuses) - len(fresh), MAX_STATUS_AGE_HOURS)
+            statuses = fresh
             out["google_flood_gauges"] = float(len(statuses))
 
             # One gauge governs all three of the remaining features, so they always
@@ -457,15 +568,4 @@ class GoogleFloods:
             # Nothing modelled nearby is a real reading, not a fault: zero gauges is the
             # honest count, and the rest stay unknown because nobody looked.
             out["google_flood_gauges"] = 0.0
-
-        try:
-            out.update(self._flash_floods())
-        except Exception:
-            # A different Google product on the same key, reachable independently of
-            # gauge coverage -- an outage here must not take a working gauge-severity
-            # read down with it. (A first-ever gauge-discovery failure above is still
-            # allowed to raise, matching the existing, unrelated contract for that path.)
-            log.warning("flash flood polygon read failed; leaving it unread this poll",
-                        exc_info=True)
-
         return out

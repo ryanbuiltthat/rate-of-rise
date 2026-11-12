@@ -40,6 +40,13 @@ short list of real engineering work that is known, scoped, and deliberately not 
   answers that no gauge, verified or virtual, lands close enough to be a useful proxy
   for this creek.
 
+  **Worth re-reading after late November 2026.** Google is moving its riverine forecasts
+  to a semi-distributed model that splits basins into smaller sub-basins, with a new gauge
+  network (`hybas_N` becomes `subhybas_N`, some gauges change confidence). A finer network
+  may put a virtual gauge nearer this creek than the lumped one did. From 0.28.3 the log
+  line `Google Flood gauge set changed` records the switch, with the added gauges and
+  their distances.
+
   The second half — does Google's *flash flood* product (a different, ungauged-basin
   forecast, not a gauge) reach a basin this small — is also answered by the same 0.22.0
   release: `flashFloods:search` plus `serializedPolygons/{id}` polygon geometry are now
