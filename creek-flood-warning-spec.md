@@ -99,7 +99,7 @@
 | NWS `api.weather.gov` | None (User-Agent header) | Gridded QPF (forecast precip) for `<site lat>`,`<site lon>`; active Flood Watch/Warning products for the county |
 | NOAA NWPS API `api.water.noaa.gov/nwps/v1` | None | National Water Model reach forecast for the creek segment — reach `<nwm reach id>` (open question #3, resolved) |
 | USGS Water Services | None | Instantaneous values — gauges `<usgs downstream>` (downstream reach) and `<usgs adjacent>` (adjacent-basin reach); see §1 |
-| Google Flood Forecasting API `floodforecasting.googleapis.com` | Google Cloud project + enable API + API key | **Built (Addendum C 2i).** `gauges:searchGaugesByArea` over a 25 mi box → the gauges Google models near the site, real and virtual (hybas), incl. non-quality-verified; then `floodStatus:queryLatestFloodStatusByGaugeIds` for forecast severity and trend. Gauge-model thresholds are not ingested; `v1.flashFloods` is ingested separately — see 2j |
+| Google Flood Forecasting API `floodforecasting.googleapis.com` | Google Cloud project + enable API + API key | **Built (Addendum C 2i).** `gauges:searchGaugesByArea` over a 25 mi box → the gauges Google models near the site, real and virtual (`hybas`, `subhybas` from Google's late-Nov 2026 sub-basin network), incl. non-quality-verified; then `floodStatus:queryLatestFloodStatusByGaugeIds` for forecast severity and trend. Gauge-model thresholds are not ingested; `v1.flashFloods` is ingested separately — see 2j |
 | SNODAS (NOHRSC) | None | Snow water equivalent for grid cell — rain-on-snow feature |
 
 ## 4. Architecture

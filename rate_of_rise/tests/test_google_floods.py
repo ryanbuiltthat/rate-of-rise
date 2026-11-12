@@ -8,8 +8,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.sources.google_floods import (  # noqa: E402
     GAUGE_REFRESH_SECONDS, MAX_GAUGES, MAX_PAGES, MI_PER_DEG_LAT, SEARCH_RADIUS_MI,
-    PAGE_SIZE, FLASH_FLOOD_POLL_BUDGET_SECONDS, GoogleFloods,
+    FLASH_FLOOD_PAGE_SIZE, GAUGE_PAGE_SIZE, FLASH_FLOOD_POLL_BUDGET_SECONDS,
+    FORCED_REDISCOVERY_SECONDS, MAX_STATUS_AGE_HOURS, GoogleFloods,
 )
+from datetime import datetime, timezone  # noqa: E402
 
 SITE_LAT, SITE_LON = 41.0, -75.5
 KEY = "test-key-not-a-real-one"
@@ -77,15 +79,19 @@ def _page(rows, body, key, per_page):
     return out
 
 
+WALL_NOW = datetime(2026, 11, 30, 12, 0, tzinfo=timezone.utc).timestamp()
+
+
 def build(pairs, fail_search_after=None, flash_events=None, polygons=None,
-          fail_flash_search=False, per_page=10_000):
+          fail_flash_search=False, per_page=10_000, network=None, status_error=None):
     """A source wired to a fake transport, plus the record of what it asked for.
 
     `flash_events`: list of flashFloods:search event dicts (camelCase keys, as the API
     returns them). `polygons`: {polygon_id: kml_string} for serializedPolygons/{id}.
     """
-    gauges = [g for g, _ in pairs]
-    statuses = {s["gaugeId"]: s for _, s in pairs}
+    # `network`, when given, is a mutable {"pairs": [...]} a test can swap mid-run -- the
+    # sub-basin switch. `status_error(ids)` may raise to simulate a refused status read.
+    network = network if network is not None else {"pairs": pairs}
     flash_events = flash_events or []
     polygons = polygons or {}
     calls = {"search": [], "status": [], "flash_search": [], "polygon": [], "headers": []}
@@ -96,10 +102,13 @@ def build(pairs, fail_search_after=None, flash_events=None, polygons=None,
             calls["search"].append((url, body))
             if fail_search_after is not None and len(calls["search"]) > fail_search_after:
                 raise RuntimeError("search is down")
-            return _page(gauges, body, "gauges", per_page)
+            return _page([g for g, _ in network["pairs"]], body, "gauges", per_page)
         if "floodStatus:queryLatestFloodStatusByGaugeIds" in url:
             calls["status"].append(url)
             asked = parse_qs(urlparse(url).query).get("gaugeIds", [])
+            if status_error is not None:
+                status_error(asked)
+            statuses = {s["gaugeId"]: s for _, s in network["pairs"]}
             return {"floodStatuses": [statuses[g] for g in asked if g in statuses]}
         if "flashFloods:search" in url:
             calls["flash_search"].append((url, body))
@@ -113,7 +122,8 @@ def build(pairs, fail_search_after=None, flash_events=None, polygons=None,
         raise AssertionError(f"unexpected URL: {url}")
 
     clock = Clock()
-    src = GoogleFloods(SITE_LAT, SITE_LON, KEY, fetch=fetch, now_fn=clock)
+    src = GoogleFloods(SITE_LAT, SITE_LON, KEY, fetch=fetch, now_fn=clock,
+                       wall_fn=lambda: WALL_NOW)
     return src, calls, clock
 
 
@@ -254,7 +264,7 @@ def test_the_search_box_is_counter_clockwise_and_centred_on_the_site():
 def test_non_quality_verified_gauges_are_requested():
     """On a creek this small the only candidate is a virtual HydroBASINS gauge, and those
     are exactly what the quality-verified default filters out."""
-    src, calls, _ = build([at(2.0, "hybas_7120", "SEVERE", verified=False)])
+    src, calls, _ = build([at(2.0, "subhybas_7120", "SEVERE", verified=False)])
     out = src.poll()
     assert calls["search"][0][1]["includeNonQualityVerified"] is True
     assert out["google_flood_severity"] == 2.0
@@ -289,15 +299,157 @@ def test_a_failed_rediscovery_keeps_reading_the_gauges_we_know():
     assert len(calls["status"]) == 2
 
 
-def test_a_first_discovery_failure_fails_the_poll():
-    """With no gauge list there is nothing to serve, and the coordinator's watchdog is
-    the right place for that to surface -- not a silent row of Nones."""
+def test_a_first_discovery_failure_is_reported_to_the_watchdog():
+    """With no gauge list there is nothing to serve. That still has to reach the
+    watchdog (last_poll_ok), and the gauge keys are left out rather than blanked, so the
+    coordinator keeps whatever it last had -- the contract when this used to raise."""
     src, _, _ = build([at(2.0, "g1")], fail_search_after=0)
+    out = src.poll()
+    assert src.last_poll_ok is False
+    assert "google_flood_severity" not in out and "google_flood_gauges" not in out
+
+
+def test_a_gauge_failure_no_longer_takes_the_flash_flood_read_down():
+    event, polygons = _flash_event("ev1", union_kml=_rect_kml(*SITE_UNION_BOX))
+    src, _, _ = build([at(2.0, "g1")], fail_search_after=0,
+                      flash_events=[event], polygons=polygons)
+    out = src.poll()
+    assert src.last_poll_ok is False
+    assert out["google_flash_flood_likely"] == 1.0
+
+
+def _switchable_outage():
+    state = {"down": False}
+
+    def status_error(ids):
+        if state["down"]:
+            raise RuntimeError("503 status service unavailable")
+    return state, status_error
+
+
+def test_the_watchdog_flag_recovers_with_the_next_good_poll():
+    state, status_error = _switchable_outage()
+    src, _, clock = build([at(2.0, "g1")], status_error=status_error)
+    state["down"] = True
+    src.poll()
+    assert src.last_poll_ok is False
+    state["down"] = False
+    clock.t += 1800
+    assert src.poll()["google_flood_severity"] == 0.0
+    assert src.last_poll_ok is True
+
+
+# --- the late-November 2026 sub-basin switch ----------------------------------------
+
+def test_the_sub_basin_id_switch_is_picked_up_at_once_not_a_day_later():
+    """Google renames hybas_N to subhybas_N and stops serving the old ids. The cached
+    list would otherwise query dead ids, and read blank, until the daily refresh."""
+    network = {"pairs": [at(2.0, "hybas_7120", "NO_FLOODING", verified=False)]}
+    src, calls, clock = build(None, network=network)
+    assert src.poll()["google_flood_severity"] == 0.0
+    network["pairs"] = [at(1.5, "subhybas_7120", "SEVERE", verified=True)]
+    clock.t += 1800
+    out = src.poll()
+    assert len(calls["search"]) == 2, "an empty status read must force a re-discovery"
+    assert out["google_flood_severity"] == 2.0
+    assert out["google_flood_gauge_mi"] == 1.5
+    assert src.last_poll_ok is True
+
+
+def test_a_refused_status_read_also_forces_re_discovery():
+    """If Google answers the dead ids with an error rather than an empty list."""
+    network = {"pairs": [at(2.0, "hybas_1")]}
+
+    def refuse_old(ids):
+        if network["pairs"][0][0]["gaugeId"].startswith("sub") and \
+                any(i.startswith("hybas_") for i in ids):
+            raise RuntimeError("400 INVALID_ARGUMENT: unknown gauge id")
+
+    src, calls, clock = build(None, network=network, status_error=refuse_old)
+    src.poll()
+    network["pairs"] = [at(2.0, "subhybas_1", "ABOVE_NORMAL")]
+    clock.t += 1800
+    out = src.poll()
+    assert len(calls["search"]) == 2
+    assert out["google_flood_severity"] == 1.0
+    assert src.last_poll_ok is True
+
+
+def test_forced_re_discovery_is_rate_limited():
+    """A genuine status outage must not turn every poll into a search as well."""
+    state, status_error = _switchable_outage()
+    src, calls, clock = build([at(2.0, "g1")], status_error=status_error)
+    src.poll()
+    state["down"] = True
+    clock.t += 1800
+    src.poll()
+    assert len(calls["search"]) == 2            # the one forced search
+    clock.t += 1800
+    src.poll()
+    assert len(calls["search"]) == 2            # inside the window: no second one
+    assert src.last_poll_ok is False
+    clock.t += FORCED_REDISCOVERY_SECONDS
+    src.poll()
+    assert len(calls["search"]) == 3
+
+
+def test_a_changed_gauge_set_is_logged_with_renames_called_out():
+    import logging
+    records = []
+
+    class H(logging.Handler):
+        def emit(self, r):
+            records.append(r.getMessage())
+
+    logger = logging.getLogger("app.sources.google_floods")
+    h = H()
+    logger.addHandler(h)
+    logger.setLevel(logging.INFO)
     try:
+        network = {"pairs": [at(2.0, "hybas_9")]}
+        src, _, clock = build(None, network=network)
         src.poll()
-    except RuntimeError:
-        return
-    raise AssertionError("a failed first discovery must not look like a successful poll")
+        network["pairs"] = [at(2.0, "subhybas_9")]
+        clock.t += GAUGE_REFRESH_SECONDS + 1
+        src.poll()
+    finally:
+        logger.removeHandler(h)
+    changed = [m for m in records if "gauge set changed" in m]
+    assert changed and "1 renamed" in changed[0] and "subhybas_9" in changed[0], records
+
+
+# --- status age --------------------------------------------------------------------
+
+def _issued(hours_ago):
+    return datetime.fromtimestamp(WALL_NOW - hours_ago * 3600, timezone.utc) \
+        .strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_a_stale_status_is_unknown_not_its_last_word():
+    gauge, status = at(2.0, "g1", "NO_FLOODING")
+    status["issuedTime"] = _issued(MAX_STATUS_AGE_HOURS + 1)
+    src, _, _ = build([(gauge, status)])
+    out = src.poll()
+    assert out["google_flood_severity"] is None
+    assert out["google_flood_gauges"] == 0.0
+
+
+def test_a_stale_status_does_not_mask_a_fresh_one():
+    old_g, old_s = at(1.0, "near", "NO_FLOODING")
+    old_s["issuedTime"] = _issued(72)
+    new_g, new_s = at(5.0, "far", "ABOVE_NORMAL")
+    new_s["issuedTime"] = _issued(6)
+    src, _, _ = build([(old_g, old_s), (new_g, new_s)])
+    out = src.poll()
+    assert out["google_flood_severity"] == 1.0 and out["google_flood_gauge_mi"] == 5.0
+
+
+def test_an_undated_or_unparseable_status_is_kept():
+    g1, s1 = at(1.0, "a", "SEVERE")
+    g2, s2 = at(2.0, "b", "ABOVE_NORMAL")
+    s2["issuedTime"] = "yesterday-ish"
+    src, _, _ = build([(g1, s1), (g2, s2)])
+    assert src.poll()["google_flood_gauges"] == 2.0
 
 
 # --- transport ---------------------------------------------------------------------
@@ -455,13 +607,19 @@ def test_an_event_with_no_polygon_id_is_skipped_not_fatal():
 def test_flash_flood_search_requests_the_full_page_size():
     src, calls, _ = build([], flash_events=[])
     src.poll()
-    assert calls["flash_search"][0][1]["pageSize"] == PAGE_SIZE
+    assert calls["flash_search"][0][1]["pageSize"] == FLASH_FLOOD_PAGE_SIZE
+
+
+def test_gauge_search_requests_googles_maximum_page_size():
+    src, calls, _ = build([at(2.0, "g1")])
+    src.poll()
+    assert calls["search"][0][1]["pageSize"] == GAUGE_PAGE_SIZE == 50_000
 
 
 # --- paging (0.28.0: the first page was all that was ever read) --------------------
 
 def test_every_page_of_flash_flood_events_is_read():
-    """Regression: the server pages well under PAGE_SIZE. Only page one was read, so an
+    """Regression: the server can page under the size asked for. Only page one was read, so an
     event covering the site on a later page was never seen, and the poll reported a
     confident 0.0."""
     others = [_flash_event(f"far{i}", union_kml=_rect_kml(*FAR_HIGHLY_LIKELY_BOX))

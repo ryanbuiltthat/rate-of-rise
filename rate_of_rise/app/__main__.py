@@ -29,7 +29,7 @@ from .lag import estimate_lag, load_lag, save_lag
 from .ha import HAClient
 from .model import Model
 from .mqtt_client import MqttClient
-from .registry import ModelRegistry, promotion_readiness
+from .registry import ModelRegistry, is_validated, promotion_readiness
 from .rise import HORIZONS_MIN, LABELS as RISE_LABELS, RiseModels, train_rise
 from .stagelog import StageLogger, stage_log_dir
 from .storms import StormLog
@@ -180,6 +180,18 @@ def _retrain(cfg: Config, dataset: DatasetWriter, registry: ModelRegistry,
         # see train.py's module docstring. The event count alone does not guarantee that;
         # min_events_for_ml counts storms, not Warning-tier crossings within them.
         return "no candidate produced (see log — commonly too few positive examples yet)"
+    if registry.candidate_validated and not is_validated(result.metrics):
+        # A dry spell does this every night: the held-out split is the most recent 20 %
+        # of the record by time, so after weeks without a rise it holds no positives and
+        # the fit cannot be scored. Replacing a scored candidate with that hid the shadow
+        # probability (model.py only shadows validated candidates) until a storm put a
+        # rise back in the test window. Keep the scored one; the new artifact stays on
+        # disk.
+        kept = registry.candidate_version
+        log.info("Keeping validated candidate %s; new fit %s could not be scored: %s",
+                 kept, result.version, result.metrics)
+        return (f"kept validated candidate {kept}; new fit {result.version} could not be "
+                f"scored ({result.metrics.get('note') or 'no held-out positives caught'})")
     registry.set_candidate(result.version, result.metrics)
     ready, reason = promotion_readiness(result.metrics)
     verdict = "ready to promote" if ready else "not ready"
