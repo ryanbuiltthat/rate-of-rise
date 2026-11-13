@@ -73,7 +73,11 @@ in it yet.
 **Flood probability** is the original "will it flood?" model. It needs real Warning-level
 storms to learn from, and there haven't been any, so it mostly waits. Until it can be scored
 it runs in shadow: its number is published and recorded every loop, but the alert tiers use a
-simple rule-based estimate (rate of rise, plus a bump when the soil is ponding).
+simple rule-based estimate: rate of rise, plus a bump when the soil is ponding, with the
+creek's height as a floor (from 0.28.4). The height term follows the same bands as the stage
+rules (50-79 % between Warning and Emergency stage, 80-100 % from Emergency stage to bank
+top, nothing below Warning stage), so it makes the number agree with the alert level and
+never raises one by itself.
 
 ### How models are scored
 

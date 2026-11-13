@@ -3,6 +3,23 @@
 All notable changes to the **Rate of Rise** add-on are documented here.
 The version matches `version:` in `config.yaml`; bump it to trigger the GUI Update button.
 
+## 0.28.4
+
+- **The flood probability now accounts for how high the creek is.** Until a model drives
+  the alerts, *Creek Flood Probability* is a rule-based estimate, and it read rate of rise
+  alone. On 2026-11-12 the creek stood at 2.9 ft on a slow rise: the stage rule had it at
+  Emergency while the probability read close to 0 %. Height is now a floor under the
+  estimate, following the same bands the stage rules use:
+  - below Warning stage (2.0 ft): no change, nothing added;
+  - Warning to Emergency stage (2.0-2.5 ft): 50 % rising to 79 %;
+  - Emergency stage to bank top (2.5-3.69 ft): 80 % rising to 100 %.
+
+  The alert level is unchanged in every case: each band only says what the stage rule has
+  already said, and a test checks that across more than 20,000 combinations of height,
+  rise rate, ponding and predicted crest. A fast rise still reads higher than the height
+  term when it is the bigger of the two. The "model probability" line may now appear among
+  an alert's reasons next to the stage line that raised it.
+
 ## 0.28.3
 
 - **Ready for Google's late-November gauge network switch.** Google is moving its river
