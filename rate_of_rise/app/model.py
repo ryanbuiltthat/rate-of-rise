@@ -37,8 +37,41 @@ from . import train as trainer
 from .config import Config
 from .features import FeatureRow
 from .registry import ModelRegistry
+from .tiers import (BANK_TOP_FT, EMERGENCY_PROBABILITY, EMERGENCY_STAGE_FT,
+                    WARNING_PROBABILITY, WARNING_STAGE_FT)
 
 log = logging.getLogger("app.model")
+
+# Just under the Emergency probability: the stage term must not reach it below
+# EMERGENCY_STAGE_FT, or tiers.py would read it as an Emergency the stage rule has not
+# called (its probability rule promotes at EMERGENCY_PROBABILITY once stage >= 2.0 ft).
+_BELOW_EMERGENCY = EMERGENCY_PROBABILITY - 0.01
+
+
+def stage_probability(stage_ft: float | None) -> float:
+    """The threshold estimate's stage term: how far up the tier ladder the creek already is.
+
+    Until 0.28.4 the estimate read rate of rise alone, so a creek standing at 2.9 ft on a
+    slow rise showed a flood probability near 0 % while the stage rules had it at
+    Emergency. This term follows the same bands the stage rules use, so the number agrees
+    with the tier instead of contradicting it, and never raises one on its own:
+
+      below WARNING_STAGE_FT       0 (unchanged: no new Watch from height alone)
+      WARNING .. EMERGENCY stage   WARNING_PROBABILITY rising to just under EMERGENCY_
+                                   PROBABILITY (the stage rule already says Warning)
+      EMERGENCY stage .. bank top  EMERGENCY_PROBABILITY rising to 1.0 (stage rule
+                                   already says Emergency)
+
+    Not a calibrated probability, any more than the rate-of-rise term is.
+    """
+    if stage_ft is None or stage_ft < WARNING_STAGE_FT:
+        return 0.0
+    if stage_ft < EMERGENCY_STAGE_FT:
+        frac = (stage_ft - WARNING_STAGE_FT) / (EMERGENCY_STAGE_FT - WARNING_STAGE_FT)
+        return min(_BELOW_EMERGENCY,
+                   WARNING_PROBABILITY + frac * (_BELOW_EMERGENCY - WARNING_PROBABILITY))
+    frac = (stage_ft - EMERGENCY_STAGE_FT) / (BANK_TOP_FT - EMERGENCY_STAGE_FT)
+    return min(1.0, EMERGENCY_PROBABILITY + frac * (1.0 - EMERGENCY_PROBABILITY))
 
 
 @dataclass
@@ -173,7 +206,9 @@ class Model:
 
         Combines rate-of-rise with an antecedent-wetness bump: when the low-lying
         soil sensors are saturated/ponding, the same rain produces faster runoff,
-        so nudge probability up. Real thresholds get tuned against §6 tiers.
+        so nudge probability up. The stage term (`stage_probability`) is taken as a
+        floor, so a high creek on a slow rise no longer reads ~0 %. Real thresholds
+        get tuned against §6 tiers.
         """
         p = 0.0
         ror = row.rate_of_rise_in_min or 0.0
@@ -182,6 +217,7 @@ class Model:
             p = min(1.0, ror / 0.5 * 0.5)
         if row.ponding_flag:
             p = min(1.0, p + 0.15)
+        p = max(p, stage_probability(row.stage_ft))
         return Prediction(
             flood_probability=round(p, 3),
             lag_estimate_min=None,            # empirical, measured from storms (Phase 3)
